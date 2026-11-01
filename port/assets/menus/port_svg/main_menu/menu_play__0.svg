@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="256" height="64" viewBox="0 0 256 64">
+  <defs>
+    <path id="gA" d="M8.77,0L14.11,0L22.88,21.5L18.21,21.5L16.04,16.18L6.84,16.18L4.66,21.5L0,21.5ZM8.36,12.44L14.52,12.44L11.44,4.9Z"/>
+    <path id="gL" d="M0,0L4.68,0L4.68,14.22C4.68,16.12 6.23,17.66 8.13,17.66L14.92,17.66L14.92,21.5L7.26,21.5C3.25,21.5 0,18.25 0,14.24Z"/>
+    <path id="gP" d="M0,0L13.22,0C16.59,0 19.32,2.73 19.32,6.09L19.32,7.84C19.32,11.22 16.57,13.97 13.18,13.97L4.7,13.97L4.7,21.5L0,21.5ZM4.7,10.14L10.97,10.14C12.98,10.14 14.62,8.5 14.62,6.49L14.62,7.48C14.62,5.47 12.98,3.83 10.97,3.83L4.7,3.83Z"/>
+    <path id="gY" d="M0,0L5.55,0L10.69,7.99L15.82,0L21.37,0L13.02,11.9L13.02,21.5L8.35,21.5L8.35,11.9Z"/>
+  </defs>
+  <!-- "PLAY" (normal state: dim blue) -->
+  <g id="text" fill="#2895ff" fill-opacity="0.467">
+    <use href="#gP" transform="translate(95.24,6.57) scale(0.9037)"/>
+    <use href="#gL" transform="translate(114.75,6.57) scale(0.9037)"/>
+    <use href="#gA" transform="translate(128.15,6.57) scale(0.9037)"/>
+    <use href="#gY" transform="translate(145.44,6.57) scale(0.9037)"/>
+  </g>
+</svg>

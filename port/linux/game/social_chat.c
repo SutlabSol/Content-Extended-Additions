@@ -33,6 +33,12 @@ the community server as the install's account (social.c; api-opence's
   A presses, X deletes), the touchscreen taps its keys. No hint of the keys
   is shown. The platform's input takes it
   as the upstream chat's typing (network_chat_typing and the rest ask here).
+- Docked (social_chat_dock: the main menu's social column asks each frame
+  it is drawn), the box is in that place, its lines shown closed too and not
+  faded, its channels and where a line is typed with them; opened from
+  there (social_chat_open_docked: A on it, or a click), its on-screen
+  keyboard left of it. While it is open, and a moment after it closes, the
+  menus get none of the keys or the controller (social_chat_busy).
 - Closed, the latest lines show a while and fade (not in a cinematic);
   display.text_chat hides it all. social.chat turns it on (else the upstream
   chat is as it was); social.global_chat whether GLOBAL is heard, and
@@ -264,6 +270,16 @@ static struct
 	unsigned long opened_at;
 	char typed[SOCIAL_CHAT_SAID_SIZE];
 	short scroll;
+	/* when it last closed (social_chat_busy) */
+	unsigned long closed_at;
+	/* where it is docked (the menus' 640, which the menus' drawing centres
+	in the screen: shift, the screen's coordinates' from them), whether it
+	is chosen there, and when it was last drawn there (docked while that was
+	lately) */
+	rectangle2d dock;
+	short dock_shift;
+	boolean dock_chosen;
+	unsigned long docked_at;
 	/* the keyboard's chat keys held last frame; a toggle asked for, by a
 	controller's port */
 	unsigned long keys_held;
@@ -1350,12 +1366,43 @@ short social_chat_recent_players(
 static void social_chat_close(
 	void)
 {
+	if (social_chat.open)
+		social_chat.closed_at = system_milliseconds() | 1;
 	social_chat.open = FALSE;
 	social_chat_keyboard.open = FALSE;
 	social_chat_keyboard.drawn = FALSE;
 	social_chat.scroll = 0;
 	social_chat_player_close();
 	social_chat_player.hit_count = 0;
+}
+
+enum
+{
+	/* the menus' keys held off after it closes (its B, its Start) */
+	SOCIAL_CHAT_BUSY_MILLISECONDS = 300,
+	/* a dock not drawn again this long is gone (the main menu left) */
+	SOCIAL_CHAT_DOCK_MILLISECONDS = 1000,
+};
+
+boolean social_chat_busy(
+	void)
+{
+	return social_chat.open || (social_chat.closed_at &&
+		system_milliseconds() - social_chat.closed_at < SOCIAL_CHAT_BUSY_MILLISECONDS);
+}
+
+static boolean social_chat_docked(
+	void)
+{
+	return social_chat.docked_at && system_milliseconds() - social_chat.docked_at < SOCIAL_CHAT_DOCK_MILLISECONDS &&
+		social_chat.dock.x1 > social_chat.dock.x0 && social_chat.dock.y1 > social_chat.dock.y0;
+}
+
+void social_chat_open_docked(
+	short port)
+{
+	if (!social_chat.open)
+		social_chat_open(social_chat.channel, halo_keyboard_typed_last() ? NONE : port);
 }
 
 void social_chat_toggle_request(
@@ -2388,7 +2435,13 @@ static short social_chat_open_draw(
 
 		social_chat_wide_from_ascii(social_chat.typed, typed, SOCIAL_CHAT_SAID_SIZE);
 		length = (short)ustrlen(typed);
-		if ((system_milliseconds() / SOCIAL_CHAT_CARET_MILLISECONDS) % 2 == 0)
+		/* (docked and closed: where a line would be typed) */
+		if (!social_chat.open)
+		{
+			social_chat_wide_from_ascii("A or click: write", typed, SOCIAL_CHAT_SAID_SIZE);
+			length = 0;
+		}
+		else if ((system_milliseconds() / SOCIAL_CHAT_CARET_MILLISECONDS) % 2 == 0)
 		{
 			typed[length] = '_';
 			typed[length + 1] = 0;
@@ -2402,7 +2455,7 @@ static short social_chat_open_draw(
 		bounds.x1 = (short)(left + width);
 		bounds.y0 = top;
 		bounds.y1 = (short)(top + line_height);
-		social_chat_text(font_index, &bounds, &white, text);
+		social_chat_text(font_index, &bounds, social_chat.open ? &white : &grey, text);
 		top = (short)(top + line_height);
 	}
 	/* (no hint of the keys: only that the fork's chat is not reached) */
@@ -2552,8 +2605,13 @@ static void social_chat_player_draw(
 	social_chat_player.drawn = TRUE;
 }
 
-void social_chat_draw(
-	void)
+/* the box (box: its lines, its channels and what is typed) and what goes
+with it (extras: a player's menu, the on-screen keyboard): as the screen's
+overlay, or docked, from the main menu's drawing (in the menus' 640, its
+names' places kept in the screen's: dock_shift). Docked, the overlay draws
+the extras alone, by the dock's place in the screen */
+static void social_chat_draw_in(
+	boolean docked_pass)
 {
 	long font_index;
 	short line_height;
@@ -2572,13 +2630,23 @@ void social_chat_draw(
 	short bottom;
 	boolean touch = halo_chat_touch_layout() != 0;
 	unsigned long now = system_milliseconds();
+	/* (docked: where the main menu has it, shown closed too, not faded) */
+	boolean docked = docked_pass || social_chat_docked();
+	boolean shown_open = social_chat.open || docked;
+	boolean box = docked_pass || !docked;
+	boolean extras = !docked_pass;
+	short shift = docked_pass ? social_chat.dock_shift : 0;
 
-	social_chat_keyboard.drawn = FALSE;
-	social_chat_player.drawn = FALSE;
-	social_chat_player.hit_count = 0;
+	if (extras)
+	{
+		social_chat_keyboard.drawn = FALSE;
+		social_chat_player.drawn = FALSE;
+	}
+	if (box)
+		social_chat_player.hit_count = 0;
 	if (!social_chat_shown() || network_replay_playing() || (!social_chat.open && cinematic_in_progress()))
 		return;
-	if (!social_chat.open && !social_chat.line_count)
+	if (!shown_open && !social_chat.line_count)
 		return;
 	if (!social_chat_font(&font_index, &line_height))
 		return;
@@ -2588,11 +2656,19 @@ void social_chat_draw(
 		return;
 	left = (short)(screen_width * SOCIAL_CHAT_LEFT_PERCENT / 100);
 	width = (short)(screen_width * SOCIAL_CHAT_WIDTH_PERCENT / 100);
-	rows_shown = social_chat.open ? SOCIAL_CHAT_LINES_OPEN : SOCIAL_CHAT_LINES_CLOSED;
-	/* (open: the channels, who a private line goes to, the line typed, and
-	that the fork's chat is offline) */
-	foot_rows = social_chat.open ? (short)(2 + (social_chat.channel == _social_chat_private) +
+	/* (open or docked: the channels, who a private line goes to, the line
+	typed, and that the fork's chat is offline) */
+	foot_rows = shown_open ? (short)(2 + (social_chat.channel == _social_chat_private) +
 		!social_chat_online()) : 0;
+	rows_shown = social_chat.open ? SOCIAL_CHAT_LINES_OPEN : SOCIAL_CHAT_LINES_CLOSED;
+	if (docked)
+	{
+		/* (the overlay's extras by the dock's place in the screen) */
+		left = (short)(social_chat.dock.x0 + (docked_pass ? 0 : social_chat.dock_shift));
+		width = (short)(social_chat.dock.x1 - social_chat.dock.x0);
+		rows_shown = (short)MAX((social_chat.dock.y1 - social_chat.dock.y0 - 2 * SOCIAL_CHAT_PADDING) / line_height -
+			foot_rows, 0);
+	}
 	{
 		real_argb_color white = get_ui_argb_white();
 
@@ -2616,7 +2692,7 @@ void social_chat_draw(
 			skipped++;
 			continue;
 		}
-		if (!social_chat.open && (!line->time || now - line->time > SOCIAL_CHAT_LINE_MILLISECONDS +
+		if (!shown_open && (!line->time || now - line->time > SOCIAL_CHAT_LINE_MILLISECONDS +
 			SOCIAL_CHAT_FADE_MILLISECONDS))
 		{
 			break;
@@ -2628,9 +2704,15 @@ void social_chat_draw(
 		rows_used = (short)(rows_used + rows);
 		shown[shown_count++] = back;
 	}
-	if (!social_chat.open && !rows_used)
+	if (!shown_open && !rows_used)
 		return;
-	if (touch)
+	if (docked)
+	{
+		/* (the whole dock, its lines down to its foot) */
+		top = social_chat.dock.y0;
+		bottom = social_chat.dock.y1;
+	}
+	else if (touch)
 	{
 		top = (short)(screen_height * SOCIAL_CHAT_TOUCH_TOP_PERCENT / 100);
 		bottom = (short)(top + (rows_used + foot_rows) * line_height + 2 * SOCIAL_CHAT_PADDING);
@@ -2640,7 +2722,7 @@ void social_chat_draw(
 		bottom = (short)(screen_height * SOCIAL_CHAT_BOTTOM_PERCENT / 100);
 		top = (short)(bottom - (rows_used + foot_rows) * line_height - 2 * SOCIAL_CHAT_PADDING);
 	}
-	if (social_chat.open)
+	if (shown_open && box)
 	{
 		rectangle2d panel;
 
@@ -2649,13 +2731,33 @@ void social_chat_draw(
 		panel.y0 = top;
 		panel.y1 = bottom;
 		draw_quad(&panel, (pixel32)0x99 << 24);
+		/* (docked and chosen there, or open: its edge lit) */
+		if (docked && (social_chat.dock_chosen || social_chat.open))
+		{
+			rectangle2d edge = panel;
+
+			edge.y1 = (short)(edge.y0 + 1);
+			draw_quad(&edge, 0xE04F9BE0UL);
+			edge.y0 = (short)(panel.y1 - 1);
+			edge.y1 = panel.y1;
+			draw_quad(&edge, 0xE04F9BE0UL);
+			edge = panel;
+			edge.x1 = (short)(edge.x0 + 1);
+			draw_quad(&edge, 0xE04F9BE0UL);
+			edge.x0 = (short)(panel.x1 - 1);
+			edge.x1 = panel.x1;
+			draw_quad(&edge, 0xE04F9BE0UL);
+		}
 	}
-	/* (the lines, oldest first, down from the top) */
+	/* (the lines, oldest first, down from the top; docked, down to its foot) */
 	{
 		short y = (short)(top + SOCIAL_CHAT_PADDING);
 		short index;
 
-		for (index = (short)(shown_count - 1); index >= 0; index--)
+		if (docked)
+			y = (short)MAX(y, bottom - SOCIAL_CHAT_PADDING - (rows_used + foot_rows) * line_height);
+
+		for (index = (short)(shown_count - 1); index >= 0 && box; index--)
 		{
 			struct social_chat_line const *line = social_chat_line_at(shown[index]);
 			wchar_t head[SOCIAL_CHAT_NAME_SIZE * 2 + 24];
@@ -2664,7 +2766,7 @@ void social_chat_draw(
 			short rows = social_chat_line_rows(line, (short)(width - 2 * SOCIAL_CHAT_PADDING), head, NUMBEROF(head),
 				text, NUMBEROF(text));
 
-			if (!social_chat.open && now - line->time > SOCIAL_CHAT_LINE_MILLISECONDS)
+			if (!shown_open && now - line->time > SOCIAL_CHAT_LINE_MILLISECONDS)
 			{
 				alpha = 1.0f - (real)(now - line->time - SOCIAL_CHAT_LINE_MILLISECONDS) /
 					(real)SOCIAL_CHAT_FADE_MILLISECONDS;
@@ -2683,8 +2785,8 @@ void social_chat_draw(
 				{
 					short hit = social_chat_player.hit_count++;
 
-					social_chat_player.hits[hit].bounds.x0 = (short)(left + SOCIAL_CHAT_PADDING);
-					social_chat_player.hits[hit].bounds.x1 = (short)(left + SOCIAL_CHAT_PADDING + head_width);
+					social_chat_player.hits[hit].bounds.x0 = (short)(left + shift + SOCIAL_CHAT_PADDING);
+					social_chat_player.hits[hit].bounds.x1 = (short)(left + shift + SOCIAL_CHAT_PADDING + head_width);
 					social_chat_player.hits[hit].bounds.y0 = y;
 					social_chat_player.hits[hit].bounds.y1 = (short)(y + line_height);
 					csstrncpy(social_chat_player.hits[hit].code, line->code, SOCIAL_CHAT_CODE_SIZE - 1);
@@ -2695,10 +2797,11 @@ void social_chat_draw(
 			}
 			y = (short)(y + rows * line_height);
 		}
-		if (social_chat.open)
-		{
+		if (shown_open && box)
 			y = social_chat_open_draw(font_index, line_height, (short)(left + SOCIAL_CHAT_PADDING),
 				(short)(width - 2 * SOCIAL_CHAT_PADDING), y);
+		if (social_chat.open && extras)
+		{
 			if (social_chat_player.open)
 			{
 				social_chat_player_draw(font_index, line_height, screen_width, screen_height,
@@ -2713,9 +2816,42 @@ void social_chat_draw(
 					(short)(screen_height - (keyboard_width / SOCIAL_CHAT_KEYBOARD_COLUMNS) * 2 / 3 *
 						SOCIAL_CHAT_KEYBOARD_ROWS - screen_height * 4 / 100);
 
+				/* (docked: left of the box, its bottom the box's, over the
+				main menu's items) */
+				if (docked)
+				{
+					keyboard_left = (short)MAX(left - keyboard_width - SOCIAL_CHAT_PADDING, 0);
+					keyboard_top = (short)(bottom - (keyboard_width / SOCIAL_CHAT_KEYBOARD_COLUMNS) * 2 / 3 *
+						SOCIAL_CHAT_KEYBOARD_ROWS);
+				}
+
 				social_chat_keyboard_draw(font_index, line_height, screen_width, screen_height, keyboard_left,
 					MAX(keyboard_top, 0));
 			}
 		}
 	}
+}
+
+void social_chat_draw(
+	void)
+{
+	social_chat_draw_in(FALSE);
+}
+
+void social_chat_draw_docked(
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	short shift,
+	boolean chosen)
+{
+	social_chat.dock.x0 = x0;
+	social_chat.dock.y0 = y0;
+	social_chat.dock.x1 = x1;
+	social_chat.dock.y1 = y1;
+	social_chat.dock_shift = shift;
+	social_chat.dock_chosen = chosen;
+	social_chat.docked_at = system_milliseconds() | 1;
+	social_chat_draw_in(TRUE);
 }

@@ -22,6 +22,10 @@ boolean social_enabled(void);
 /* the account's code ("XXXX-XXXX"), "" until the server says it */
 char const *social_account_code(void);
 
+/* the account's multiplayer totals, as the server last said them (as the
+game starts, and after each record): FALSE until it has */
+boolean social_account_totals(long *matches, long *kills, long *deaths, long *assists);
+
 /* the server's last answer to what the game is doing: the friends online,
 and the friend requests waiting */
 void social_presence_counts(long *friends_online, long *requests_waiting);

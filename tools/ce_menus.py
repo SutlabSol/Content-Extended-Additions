@@ -76,8 +76,8 @@ LEFT_OUT = {
     "ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\op_game_options",
 }
 # children moved: (parent, child) to (x, y); the main menu's Quit a row below
-# Mods, which takes Credits' place; Campaign's Back a row below its DAILY
-# CHALLENGE (port_settings.DAILY_ITEM_PLACE); Multiplayer's Edit Gametypes and divider
+# Mods, which takes Credits' place; Campaign's Back where DAILY CHALLENGE was
+# before it moved to PLAY (port_settings.CAMPAIGN_BACK_ITEM_PLACE); Multiplayer's Edit Gametypes and divider
 # below Co-op, keeping its 32-unit highlight inside the description panel's
 # bottom curve (port_settings.WIDGET_PATCHES)
 CHILD_OFFSETS = {
@@ -94,11 +94,15 @@ CHILD_OFFSETS = {
         f"ui\\shell\\main_menu\\settings_select\\multiplayer_setup\\player_options_edit\\op_{row}"):
        (54, port_settings.player_options_row_top(index))
        for index, row in enumerate(port_settings.PLAYER_OPTIONS_ROWS)},
-    # the main menu's items closer together, for MODS and THEATER
-    # (port_settings.MAIN_MENU_ITEMS)
+    # the main menu's items in its left column, closer together, for PLAY,
+    # MODS and THEATER (port_settings.MAIN_MENU_ITEMS; Campaign and
+    # Multiplayer moved into PLAY)
     **{("ui\\shell\\main_menu\\main_menu_select_list", f"ui\\shell\\main_menu\\main_menu_item_{item}"):
        port_settings.main_menu_item_place(item)
-       for item in ("load_camp", "multiplayer", "profile", "settings", "quit_game")},
+       for item in ("profile", "settings", "quit_game")},
+    # (the build number over the main menu's social column:
+    # port_settings.SOCIAL_HOME)
+    ("ui\\shell\\main_menu\\main_menu", "ui\\shell\\main_menu\\build_number"): (316, 224),
     ("ui\\shell\\main_menu\\campaign_select\\campaign_menu_select_list",
      "ui\\shell\\main_menu\\campaign_select\\menu_item_back"): port_settings.CAMPAIGN_BACK_ITEM_PLACE,
     ("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list",
@@ -741,6 +745,8 @@ def main() -> None:
     lines.append(art.port_picture("main_menu/menu_mods", port_settings.menu_item_frames("MODS", art.redraws)))
     # (and its THEATER: port_settings._theater)
     lines.append(art.port_picture("main_menu/menu_theater", port_settings.menu_item_frames("THEATER", art.redraws)))
+    # (and its PLAY, Campaign's and Multiplayer's: port_settings._play)
+    lines.append(art.port_picture("main_menu/menu_play", port_settings.menu_item_frames("PLAY", art.redraws)))
     lines.append(art.port_picture("mods/status", port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide")))
     lines.append(art.port_picture("mods/status_small",
                                   port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide", 16)))

@@ -200,6 +200,11 @@ static struct
 	char match_network[8];
 	struct social_match_player match_players[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
 	boolean match_file_looked;
+	/* the account's multiplayer totals as the server last said them (its
+	answer to the account, and to each record): had, its matches, kills,
+	deaths and assists */
+	boolean totals_had;
+	long totals[4];
 	struct social_record records[SOCIAL_PENDING_RECORDS];
 	char answer[SOCIAL_ANSWER_SIZE];
 } social = { 0, TRUE, 0, "", "", "", (unsigned long)-1 };
@@ -360,6 +365,50 @@ static void social_answer_text(
 	server_json_document_free(&document);
 }
 
+/* the account's multiplayer totals, from an answer that has the account
+(data.account.stats.multiplayer) */
+static void social_answer_totals(
+	char const *answer)
+{
+	static char const *const fields[NUMBEROF(social.totals)] = { "matches", "kills", "deaths", "assists" };
+	struct server_json_document document;
+	int token;
+	short index;
+
+	if (!server_json_parse(&document, answer, (int)strlen(answer), 16))
+		return;
+	token = server_json_member(&document, 0, "data");
+	token = token >= 0 ? server_json_member(&document, token, "account") : -1;
+	token = token >= 0 ? server_json_member(&document, token, "stats") : -1;
+	token = token >= 0 ? server_json_member(&document, token, "multiplayer") : -1;
+	if (token >= 0)
+	{
+		for (index = 0; index < (short)NUMBEROF(social.totals); index++)
+		{
+			int member = server_json_member(&document, token, fields[index]);
+			double value;
+
+			social.totals[index] = member >= 0 && server_json_get_number(&document, member, &value) ?
+				(long)value : 0;
+		}
+		social.totals_had = TRUE;
+	}
+	server_json_document_free(&document);
+}
+
+boolean social_account_totals(
+	long *matches,
+	long *kills,
+	long *deaths,
+	long *assists)
+{
+	*matches = social.totals[0];
+	*kills = social.totals[1];
+	*deaths = social.totals[2];
+	*assists = social.totals[3];
+	return social.totals_had;
+}
+
 static void social_hello_update(
 	unsigned long now)
 {
@@ -378,6 +427,7 @@ static void social_hello_update(
 			char code[SOCIAL_CODE_SIZE];
 
 			social_answer_text(social.answer, "account.code", code, sizeof(code));
+			social_answer_totals(social.answer);
 			if (code[0])
 			{
 				if (strcmp(code, social.code))
@@ -505,6 +555,8 @@ static void social_records_update(
 			{
 				if (status != 200)
 					platform_log("social: a record was refused (%d): %s", status, social.answer);
+				else
+					social_answer_totals(social.answer);
 				record->used = FALSE;
 				continue;
 			}

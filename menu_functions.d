@@ -29,16 +29,17 @@ menu_functions.o: port/linux/game/menu_functions.c \
   port/linux/game/custom_edition_cache.h \
   port/linux/game/custom_edition_maps.h port/linux/game/tag_injector.h \
   port/linux/game/tag_pack.h port/linux/game/map_manager.h \
-  port/linux/game/social.h port/linux/game/social_menu.h \
-  port/linux/game/map_pictures.h port/linux/game/randomizer.h \
-  port/linux/game/firing_range.h port/linux/game/tag_multiplayer.h \
-  port/linux/game/tag_campaign.h port/linux/game/tag_preview.h \
-  port/linux/game/campaign_score.h port/linux/game/community.h \
-  port/linux/game/../src/community_net.h port/linux/game/bots.h \
-  port/linux/game/game_modes.h port/linux/game/infection.h \
-  port/linux/game/network_voice.h port/linux/game/network_replay.h \
-  port/linux/game/network_map_vote.h source/text/draw_string.h \
-  port/linux/game/../src/p2p.h port/linux/game/../src/master_list.h \
+  port/linux/game/social.h port/linux/game/social_chat.h \
+  port/linux/game/social_menu.h port/linux/game/map_pictures.h \
+  port/linux/game/randomizer.h port/linux/game/firing_range.h \
+  port/linux/game/tag_multiplayer.h port/linux/game/tag_campaign.h \
+  port/linux/game/tag_preview.h port/linux/game/campaign_score.h \
+  port/linux/game/community.h port/linux/game/../src/community_net.h \
+  port/linux/game/bots.h port/linux/game/game_modes.h \
+  port/linux/game/infection.h port/linux/game/network_voice.h \
+  port/linux/game/network_replay.h port/linux/game/network_map_vote.h \
+  source/text/draw_string.h port/linux/game/../src/p2p.h \
+  port/linux/game/../src/master_list.h \
   port/linux/game/../src/player_link.h \
   port/linux/game/../src/server_master.h \
   port/linux/game/../src/server_json.h port/linux/game/text_filter.h \

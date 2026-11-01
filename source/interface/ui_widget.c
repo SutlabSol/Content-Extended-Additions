@@ -7056,6 +7056,12 @@ static void ui_widgets_process_mouse(
 			social_chat_pointer(&pointer);
 		pointer_active = FALSE;
 	}
+	/* port: and a click on the main menu's social column, its own
+	(port/linux/game/menu_functions.c) */
+	else if (pointer_active && menu_port_pointer_taken(&pointer))
+	{
+		pointer_active = FALSE;
+	}
 	if (pointer_active)
 		ui_mouse_pointer_is_touch = pointer.touch != 0;
 	if (pointer_active && ui_debug_targets_enabled())
@@ -9011,7 +9017,10 @@ void process_ui_widgets(
 			{
 				do
 				{
-					if (!pause_pressed)
+					/* port: (an event the menus are not to have: the fork's
+					chat typed in, the main menu's social column focused;
+					port/linux/game/menu_functions.c) */
+					if (!pause_pressed && !menu_port_event_taken(widget, &event))
 					{
 						widget_instance_process_one_event_recursive(
 							widget,

@@ -58,6 +58,9 @@ enum
 	_social_menu_open_moderation,
 	/* (Settings > Gameplay > Community > Social's MY PROFILE: your card) */
 	_social_menu_open_profile,
+	/* (the main menu's social column: a friend's card,
+	social_menu_home_friend_open) */
+	_social_menu_open_player,
 };
 
 /* ---------- prototypes/SOCIAL_MENU.C */
@@ -96,6 +99,17 @@ void social_menu_details(short row, char *title, long title_size, char *text, lo
 /* (menu_functions.c, as the screen's social_card text box is drawn: its
 bounds, in the view's pixels) the player's card, while it is shown */
 void social_menu_card_draw(short x0, short y0, short x1, short y1);
+
+/* (menu_functions.c) the main menu's social column: drawn over its
+social_home text box (the menus' 640; the column focused, and the row
+chosen: a friend's, or past them the chat's), its friends' rows, the row a
+click hits (NONE for none) or whether it is in the column at all, and the
+Social screen set to open at a friend's card */
+void social_menu_home_draw(short x0, short y0, short x1, short y1, boolean focused, short chosen);
+short social_menu_home_rows(void);
+short social_menu_home_hit(short x, short y);
+boolean social_menu_home_inside(short x, short y);
+void social_menu_home_friend_open(short row);
 
 /* a player's card is shown (the list's details and frame hidden); it has
 the OPTIONS button (another player's); the button pressed: what can be done

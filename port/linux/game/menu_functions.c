@@ -136,6 +136,7 @@ their handlers open opens.
 #include "tag_pack.h"
 #include "map_manager.h"
 #include "social.h"
+#include "social_chat.h"
 #include "social_menu.h"
 #include "map_pictures.h"
 #include "randomizer.h"
@@ -1136,11 +1137,21 @@ static void profile_name_show(struct widget_instance *description)
 }
 
 /* (Campaign's menu) "campaign menu init": player 1's profile and saved
-game, for its items; DAILY CHALLENGE only with game.daily_challenge on (off,
-Back takes its place) */
+game, for its items */
 static boolean campaign_menu_initialize(struct widget_instance *list, short controller)
 {
 	struct player_profile profile;
+
+	(void)list;
+	if (campaign_profile(controller, &profile))
+		campaign_levels_read(&profile);
+	return TRUE;
+}
+
+/* (PLAY's menu) "port play init": DAILY CHALLENGE only with
+game.daily_challenge on (off, Back takes its place) */
+static boolean play_menu_initialize(struct widget_instance *list)
+{
 	struct widget_instance *daily_item = named(list, "menu_item_daily", 0);
 	struct widget_instance *back_item = named(list, "menu_item_back", 0);
 
@@ -1151,8 +1162,6 @@ static boolean campaign_menu_initialize(struct widget_instance *list, short cont
 		if (list->focused_child == daily_item)
 			list->focused_child = back_item;
 	}
-	if (campaign_profile(controller, &profile))
-		campaign_levels_read(&profile);
 	return TRUE;
 }
 
@@ -3840,7 +3849,7 @@ static struct
 	short history_chosen;
 } daily;
 
-/* "port daily today" (Campaign's DAILY CHALLENGE) */
+/* "port daily today" (PLAY's DAILY CHALLENGE) */
 static boolean daily_today(void)
 {
 	daily.day[0] = 0;
@@ -15207,6 +15216,190 @@ static boolean news_close(struct widget_instance *widget, boolean *widget_delete
 (its font and justification still set): a lobby row's player talking in
 voice chat (or muted) has a speaker just left of their name
 (port/linux/game/network_voice.c) */
+/* ---------- the main menu's social column (tools/port_settings.py's
+SOCIAL_HOME): right of its items, your totals and friends (social_menu.c's
+social_menu_home_draw, over the social_home text box) and the fork's chat
+box docked under them (social_chat.c, over social_home_chat). A
+controller's Right goes into it and Left (or B) back out; in it, up and
+down choose a friend or, past them, the chat; A opens the Social screen at
+the friend's card, or writes in the chat; Y and X are Social's and the
+news', as on the items. A click on a friend or the chat does the same.
+Meanwhile the main menu's list gets none of the controller
+(menu_port_event_taken, which ui_widget.c asks before each event) */
+
+/* ui_widget.c's event types (its own: event_manager.c publishes none) */
+enum
+{
+	MENU_EVENT_LEFT_STICK = 1,
+	MENU_EVENT_BUTTON = 3,
+	/* the column drawn this lately: the main menu shown */
+	SOCIAL_HOME_SHOWN_MILLISECONDS = 250,
+};
+
+static struct
+{
+	boolean focused;
+	short chosen;
+	/* when it was drawn last, the screen it is on, and the chat box's
+	place (the menus' 640) */
+	unsigned long drawn_at;
+	struct widget_instance *screen;
+	rectangle2d chat;
+} social_home;
+
+static boolean social_home_shown(void)
+{
+	return social_home.drawn_at && system_milliseconds() - social_home.drawn_at < SOCIAL_HOME_SHOWN_MILLISECONDS;
+}
+
+/* A on a row, or a click: a friend's card (the Social screen over the main
+menu), or the chat written in (its keyboard the controller's) */
+static void social_home_pick(struct widget_instance *screen, short row, short port)
+{
+	boolean deleted = FALSE;
+
+	if (row < social_menu_home_rows())
+	{
+		social_menu_home_friend_open(row);
+		social_screen_open(screen, _social_menu_open_player, &deleted);
+	}
+	else
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		social_chat_open_docked(port);
+	}
+}
+
+/* halo_linux_source_fixups.h: an event the menus are not to have: any
+while the fork's chat is typed in (or just closed); on the main menu, the
+controller's while its social column has the focus, and its Right into it */
+unsigned char menu_port_event_taken(void *instance, void *record)
+{
+	struct widget_instance *widget = instance;
+	struct event_record *event = record;
+	short button = NONE;
+	short across = 0;
+	short down = 0;
+	short rows;
+
+	if (event->type != MENU_EVENT_BUTTON && event->type != MENU_EVENT_LEFT_STICK)
+		return FALSE;
+	if (social_chat_busy())
+		return TRUE;
+	if (!widget || !widget->name || strcmp(widget->name, "main_menu") || !social_home_shown() || !social_enabled())
+	{
+		social_home.focused = FALSE;
+		return FALSE;
+	}
+	if (event->type == MENU_EVENT_BUTTON)
+	{
+		/* (a press, not one held) */
+		if (event->data.button.value != 1)
+			return social_home.focused;
+		button = event->data.button.index;
+		across = button == _gamepad_binary_button_dpad_left ? -1 : button == _gamepad_binary_button_dpad_right ? 1 : 0;
+		down = button == _gamepad_binary_button_dpad_up ? -1 : button == _gamepad_binary_button_dpad_down ? 1 : 0;
+	}
+	else
+	{
+		across = event->data.stick.x == SHORT_MIN ? -1 : event->data.stick.x == SHORT_MAX ? 1 : 0;
+		down = event->data.stick.y == SHORT_MAX ? -1 : event->data.stick.y == SHORT_MIN ? 1 : 0;
+	}
+	if (!social_home.focused)
+	{
+		if (across <= 0)
+			return FALSE;
+		social_home.focused = TRUE;
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+		return TRUE;
+	}
+	/* (the friends, then the chat) */
+	rows = (short)(social_menu_home_rows() + 1);
+	social_home.chosen = (short)PIN(social_home.chosen, 0, rows - 1);
+	if (down)
+	{
+		social_home.chosen = (short)PIN(social_home.chosen + down, 0, rows - 1);
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (across < 0 || button == _gamepad_analog_button_b || button == _gamepad_binary_button_back)
+	{
+		social_home.focused = FALSE;
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (button == _gamepad_analog_button_a || button == _gamepad_binary_button_start)
+	{
+		social_home_pick(widget, social_home.chosen, event->controller_index);
+	}
+	else if (button == _gamepad_analog_button_y)
+	{
+		boolean deleted = FALSE;
+
+		social_screen_open(widget, _social_menu_open_home, &deleted);
+	}
+	else if (button == _gamepad_analog_button_x)
+	{
+		boolean deleted = FALSE;
+
+		news_open(widget, &deleted);
+	}
+	return TRUE;
+}
+
+/* halo_linux_source_fixups.h: a click on the main menu's social column (a
+friend's row, the chat box), which the menus behind do not get; one
+elsewhere gives the focus back to the items */
+unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer)
+{
+	short row;
+
+	if (!pointer->left_clicks || !social_home_shown() || !social_home.screen)
+		return FALSE;
+	if (pointer->click_x >= social_home.chat.x0 && pointer->click_x < social_home.chat.x1 &&
+		pointer->click_y >= social_home.chat.y0 && pointer->click_y < social_home.chat.y1)
+	{
+		if (!social_enabled())
+			return FALSE;
+		social_home.focused = TRUE;
+		social_home.chosen = social_menu_home_rows();
+		/* (a tap: the on-screen keyboard; a click: the keyboard's keys) */
+		social_chat_open_docked(pointer->touch ? 0 : NONE);
+		return TRUE;
+	}
+	if (!social_menu_home_inside(pointer->click_x, pointer->click_y))
+	{
+		social_home.focused = FALSE;
+		return FALSE;
+	}
+	row = social_menu_home_hit(pointer->click_x, pointer->click_y);
+	if (row != NONE)
+	{
+		social_home.focused = TRUE;
+		social_home.chosen = row;
+		social_home_pick(social_home.screen, row, NONE);
+	}
+	return TRUE;
+}
+
+/* (menu_functions_text_box_drawn) the column's two text boxes: the friends,
+and the chat box docked, drawn with them (the menus' 640, centred in the
+screen by offset) */
+static void social_home_drawn(struct widget_instance *widget, rectangle2d const *bounds, boolean chat)
+{
+	long offset = halo_screen_ui_offset_current();
+
+	social_home.drawn_at = system_milliseconds() | 1;
+	social_home.screen = screen_of(widget);
+	if (!chat)
+	{
+		social_menu_home_draw(bounds->x0, bounds->y0, bounds->x1, bounds->y1, social_home.focused,
+			social_home.chosen);
+		return;
+	}
+	social_home.chat = *bounds;
+	social_chat_draw_docked(bounds->x0, bounds->y0, bounds->x1, bounds->y1, (short)offset,
+		social_home.focused && social_home.chosen >= social_menu_home_rows());
+}
+
 void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d const *bounds)
 {
 	short row;
@@ -15227,6 +15420,12 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 			(short)(bounds->y0 - (392 - (258 + 388) / 2) * scale), (short)(126 * scale));
 	}
 #endif
+	/* (the main menu's social column: social_home_drawn) */
+	if (widget->name && (!strcmp(widget->name, "social_home") || !strcmp(widget->name, "social_home_chat")))
+	{
+		social_home_drawn(widget, bounds, widget->name[11] == '_');
+		return;
+	}
 	/* (the Social screen's player card, over its rows: social_menu.c) */
 	if (widget->name && !strcmp(widget->name, "social_card"))
 	{
@@ -17295,6 +17494,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port daily today"))
 		{
 			return daily_today();
+		}
+		else if (!strcmp(name, "port play init"))
+		{
+			return play_menu_initialize(widget);
 		}
 		else if (!strcmp(name, "port daily init"))
 		{

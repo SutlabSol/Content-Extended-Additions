@@ -263,6 +263,9 @@ static struct
 {
 	boolean open;
 	short opening;
+	/* (_social_menu_open_player's player: its code and name) */
+	char opening_code[SOCIAL_MENU_CODE_SIZE];
+	char opening_name[SOCIAL_MENU_NAME_SIZE];
 	/* the list shown, its first row shown and the one chosen, and those it
 	was opened from */
 	short list;
@@ -1331,6 +1334,11 @@ void social_menu_open(
 		/* (B leaves the screen, back to Settings) */
 		social_menu.depth = 0;
 	}
+	else if (social_menu.opening == _social_menu_open_player && social_menu.opening_code[0])
+	{
+		player_open(social_menu.opening_code, social_menu.opening_name);
+		social_menu.depth = 0;
+	}
 	else if (social_menu.opening == _social_menu_open_profile && social_account_code()[0])
 	{
 		char me[SOCIAL_MENU_NAME_SIZE];
@@ -1962,6 +1970,222 @@ void social_menu_card_options(
 {
 	if (social_menu_card_has_options())
 		list_open(_list_player);
+}
+
+/* ---------- the main menu's social column
+
+drawn over its social_home text box (menu_functions.c, which keeps the
+column's focus and the row chosen): your multiplayer totals, then your
+friends (online first, as the server sorts them), a row each with its
+presence's dot and state, scrolled to the row chosen; where each row was
+drawn kept for a click. The friends are asked for again every
+SOCIAL_MENU_REFRESH_MILLISECONDS while it is shown */
+
+enum
+{
+	SOCIAL_HOME_PADDING = 6,
+	SOCIAL_HOME_DOT = 5,
+	SOCIAL_HOME_ROWS = 16,
+};
+
+static struct
+{
+	/* the rows drawn: the first's friend, how many, and their tops; the
+	row's height and the column's rectangle (the menus' 640) */
+	short first;
+	short count;
+	short tops[SOCIAL_HOME_ROWS];
+	short row_height;
+	rectangle2d bounds;
+} social_home;
+
+short social_menu_home_rows(
+	void)
+{
+	return social_enabled() && social_menu.friends_had && config_boolean("social.friends") ?
+		social_menu.friend_count : 0;
+}
+
+void social_menu_home_friend_open(
+	short row)
+{
+	if (row < 0 || row >= social_menu_home_rows())
+		return;
+	social_menu.opening = _social_menu_open_player;
+	snprintf(social_menu.opening_code, sizeof(social_menu.opening_code), "%s", social_menu.friends[row].code);
+	snprintf(social_menu.opening_name, sizeof(social_menu.opening_name), "%s", social_menu.friends[row].name);
+}
+
+short social_menu_home_hit(
+	short x,
+	short y)
+{
+	short index;
+
+	if (x < social_home.bounds.x0 || x >= social_home.bounds.x1)
+		return NONE;
+	for (index = 0; index < social_home.count; index++)
+	{
+		if (y >= social_home.tops[index] && y < social_home.tops[index] + social_home.row_height)
+			return (short)(social_home.first + index);
+	}
+	return NONE;
+}
+
+boolean social_menu_home_inside(
+	short x,
+	short y)
+{
+	return x >= social_home.bounds.x0 && x < social_home.bounds.x1 && y >= social_home.bounds.y0 &&
+		y < social_home.bounds.y1;
+}
+
+/* a presence's dot: green online (joinable), amber playing, grey offline */
+static pixel32 home_dot_color(
+	struct social_menu_presence const *presence)
+{
+	if (!presence->online)
+		return 0xFF707070;
+	if (!presence->invite[0] && (!strcmp(presence->state, "multiplayer") || !strcmp(presence->state, "campaign") ||
+		!strcmp(presence->state, "theater")))
+	{
+		return 0xFFFFB030;
+	}
+	return 0xFF50E060;
+}
+
+void social_menu_home_draw(
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	boolean focused,
+	short chosen)
+{
+	struct social_card_fonts fonts;
+	struct campaign_score_panel const *panel = &fonts.text;
+	unsigned long now = system_milliseconds();
+	real_argb_color color;
+	char text[96];
+	char other[48];
+	real left = SOCIAL_HOME_PADDING;
+	real right;
+	real y = SOCIAL_HOME_PADDING;
+	real line;
+	short rows;
+	short room;
+	short index;
+	long matches;
+	long kills;
+	long deaths;
+	long assists;
+
+	social_home.bounds.x0 = x0;
+	social_home.bounds.y0 = y0;
+	social_home.bounds.x1 = x1;
+	social_home.bounds.y1 = y1;
+	social_home.count = 0;
+	if (x1 <= x0 || y1 <= y0 || !card_font("ui\\small_ui", &fonts.text) || !card_font("ui\\large_ui", &fonts.title))
+		return;
+	/* (the friends again a while after, as the Social screen's lists ask) */
+	if (social_enabled() && !social_menu.open &&
+		(!social_menu.friends_at || now - social_menu.friends_at > SOCIAL_MENU_REFRESH_MILLISECONDS))
+	{
+		fetch(_fetch_friends);
+	}
+	fonts.text.scale = fonts.title.scale = 1.0f;
+	fonts.text.left = fonts.title.left = x0;
+	fonts.text.top = fonts.title.top = y0;
+	fonts.text.width = fonts.title.width = (real)(x1 - x0);
+	right = fonts.text.width - SOCIAL_HOME_PADDING;
+	line = panel->line_height;
+	campaign_score_panel_quad(panel, 0.0f, 0.0f, fonts.text.width, (real)(y1 - y0), CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(panel, 0.0f, 0.0f, fonts.text.width, (real)(y1 - y0),
+		focused && chosen < social_menu_home_rows() ? 0xFFA0D0FF : CAMPAIGN_SCORE_PANEL_EDGE);
+
+	/* your totals, and the requests waiting (else the friends online) */
+	if (social_account_totals(&matches, &kills, &deaths, &assists))
+	{
+		kda_text(kills, deaths, assists, other, sizeof(other));
+		snprintf(text, sizeof(text), "%ld MATCHES   KDA %s", matches, other);
+	}
+	else
+	{
+		snprintf(text, sizeof(text), "FRIENDS");
+	}
+	card_color(&color, 0.95f, 0.95f, 0.95f);
+	campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+	other[0] = 0;
+	if (social_menu.friends_had && social_menu.incoming_count)
+	{
+		snprintf(other, sizeof(other), "%d REQUEST%s", (int)social_menu.incoming_count,
+			social_menu.incoming_count == 1 ? "" : "S");
+		card_color(&color, 1.0f, 0.84f, 0.35f);
+	}
+	else if (social_menu.friends_had)
+	{
+		long online = 0;
+
+		for (index = 0; index < social_menu.friend_count; index++)
+			online += social_menu.friends[index].presence.online;
+		snprintf(other, sizeof(other), "%ld ONLINE", online);
+		card_color(&color, 0.55f, 0.72f, 1.0f);
+	}
+	campaign_score_panel_text(panel, other, NULL, left, right, y, 1.0f, _campaign_score_text_right, &color);
+	y += line + 3.0f;
+	campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += 4.0f;
+
+	/* (no friends to show: why) */
+	rows = social_menu_home_rows();
+	if (!rows)
+	{
+		char const *first = !social_enabled() ? "SOCIAL IS OFF" : !social_account_code()[0] ? "SIGNING IN..." :
+			!config_boolean("social.friends") ? "YOUR FRIEND LIST IS OFF" :
+			!social_menu.friends_had ? (social_menu.friends_failed ? "THE SERVER DID NOT ANSWER" : "ASKING THE SERVER...") :
+			"NO FRIENDS YET";
+		char const *second = !social_enabled() ? "Settings > Gameplay > Community > Social" :
+			social_menu.friends_had && config_boolean("social.friends") ?
+			"Y: Social, then ADD FRIEND BY CODE" : "";
+
+		card_color(&color, 0.6f, 0.66f, 0.75f);
+		campaign_score_panel_text(panel, first, NULL, left, right, y + line, 1.0f, _campaign_score_text_center, &color);
+		campaign_score_panel_text(panel, second, NULL, left, right, y + line * 2.0f + 2.0f, 1.0f,
+			_campaign_score_text_center, &color);
+		return;
+	}
+
+	/* the friends, scrolled to the row chosen */
+	social_home.row_height = (short)(line + 3.0f);
+	room = (short)MIN(MAX(((y1 - y0) - (short)y - SOCIAL_HOME_PADDING) / social_home.row_height, 1), SOCIAL_HOME_ROWS);
+	if (focused && chosen < rows)
+	{
+		if (chosen < social_home.first)
+			social_home.first = chosen;
+		else if (chosen >= social_home.first + room)
+			social_home.first = (short)(chosen - room + 1);
+	}
+	social_home.first = (short)PIN(social_home.first, 0, MAX(rows - room, 0));
+	for (index = social_home.first; index < rows && social_home.count < room; index++)
+	{
+		struct social_menu_person const *friend = &social_menu.friends[index];
+		real top = y + social_home.count * social_home.row_height;
+
+		social_home.tops[social_home.count++] = (short)(y0 + top);
+		if (focused && index == chosen)
+			campaign_score_panel_quad(panel, left - 2.0f, top - 1.0f, right + 2.0f, top + line + 2.0f, 0x802896FF);
+		campaign_score_panel_quad(panel, left, top + (line - SOCIAL_HOME_DOT) / 2.0f, left + SOCIAL_HOME_DOT,
+			top + (line + SOCIAL_HOME_DOT) / 2.0f, home_dot_color(&friend->presence));
+		if (friend->presence.online)
+			card_color(&color, 0.95f, 0.95f, 0.95f);
+		else
+			card_color(&color, 0.6f, 0.6f, 0.6f);
+		campaign_score_panel_text(panel, friend->name, NULL, left + SOCIAL_HOME_DOT + 5.0f, right, top, 1.0f,
+			_campaign_score_text_left, &color);
+		presence_state(&friend->presence, other, sizeof(other));
+		card_color(&color, 0.55f, 0.72f, 1.0f);
+		campaign_score_panel_text(panel, other, NULL, left, right, top, 1.0f, _campaign_score_text_right, &color);
+	}
 }
 
 void social_menu_row(

@@ -20,28 +20,37 @@ from xml.sax.saxutils import quoteattr
 
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
 # the mods' screen, and its rows (_mods); the main menu's items
-# (ce/main_menu.xml), MAIN_MENU_ITEM_SPACING apart (the PC version's 36
-# leaves no room below Quit for a seventh): Campaign and Multiplayer, THEATER
-# below it (_theater), the PC version's Profiles and Settings, MODS in
-# Credits' place (Credits is left out: tools/ce_menus.py's LEFT_OUT), and
+# (ce/main_menu.xml), MAIN_MENU_ITEM_SPACING apart, in its left column (the
+# social column on its right: SOCIAL_HOME): PLAY (Campaign and Multiplayer,
+# _play), THEATER (_theater), the PC version's Profiles and Settings, MODS
+# in Credits' place (Credits is left out: tools/ce_menus.py's LEFT_OUT), and
 # Quit (their CHILD_OFFSETS); the list's order is its up and down's
 MODS = "main_menu/mods"
 MOD_ROWS = 11
+MAIN_MENU_ITEM_LEFT = 40
 MAIN_MENU_ITEM_TOP = 247
 MAIN_MENU_ITEM_SPACING = 32
-MAIN_MENU_ITEMS = ["load_camp", "multiplayer", "theater", "profile", "settings", "mods", "quit_game"]
+MAIN_MENU_ITEMS = ["play", "theater", "profile", "settings", "mods", "quit_game"]
 
 
 def main_menu_item_place(item: str) -> tuple:
-    """where the main menu's item is (Campaign's 2 units right of the rest,
-    as the PC version has it)"""
-    return (194 if item == "load_camp" else 192,
-            MAIN_MENU_ITEM_TOP + MAIN_MENU_ITEM_SPACING * MAIN_MENU_ITEMS.index(item))
+    """where the main menu's item is, in its left column"""
+    return (MAIN_MENU_ITEM_LEFT, MAIN_MENU_ITEM_TOP + MAIN_MENU_ITEM_SPACING * MAIN_MENU_ITEMS.index(item))
 
 
+PLAY_ITEM_PLACE = main_menu_item_place("play")
 MODS_ITEM_PLACE = main_menu_item_place("mods")
 THEATER_ITEM_PLACE = main_menu_item_place("theater")
 QUIT_ITEM_PLACE = main_menu_item_place("quit_game")
+# PLAY's screen (_play): Campaign's and Multiplayer's items, and Back, where
+# the main menu's were
+PLAY = "main_menu/play"
+# the main menu's social column, right of its items (menu_functions.c's
+# "social_home" and "social_home_chat" text boxes, drawn by social_menu.c
+# and social_chat.c): your totals and your friends (left, top, width,
+# height), and the fork's chat box under them; Right goes into it, Left back
+SOCIAL_HOME = (316, 244, 304, 118)
+SOCIAL_HOME_CHAT = (316, 368, 304, 78)
 # the Theater (port/linux/REPLAY.md): the replays a host records, its rows
 # (_theater)
 THEATER = "main_menu/theater"
@@ -58,11 +67,14 @@ MAP_MANAGE_HANDLERS = ['<on event="x" run="port map manage"/>', '<on event="y" r
 # (over the news' hint), and Settings' Chat's BLOCKED & MUTED
 SOCIAL = "main_menu/social"
 SOCIAL_ROWS = 11
-SOCIAL_HINT_PLACE = (450, 360)
-# the daily challenge's screens, and Campaign's DAILY CHALLENGE (_daily),
-# above Back, which goes a row down (wider than the other items, about the
-# same middle; menu_functions.c's campaign_menu_initialize takes it away,
-# and Back up again, with game.daily_challenge off)
+# (under the social column, right of the profile's name)
+SOCIAL_HINT_PLACE = (510, 452)
+NEWS_HINT_PLACE = (400, 452)
+# the daily challenge's screens, and PLAY's DAILY CHALLENGE (_daily, _play),
+# above Back (wider than the other items, about the same middle;
+# menu_functions.c's play_menu_initialize takes it away, and Back up in its
+# place, with game.daily_challenge off). Campaign's Back is where the PC
+# version has it, the row DAILY CHALLENGE once took
 DAILY = "main_menu/daily"
 DAILY_ITEM = "main_menu/campaign_select/menu_item_daily"
 # (the map lists' DAILY CHALLENGES: a challenge's skulls' icons over its
@@ -71,8 +83,7 @@ DAILY_LEVEL_SKULL = "main_menu/daily/level_skull_icon"
 DAILY_LEVEL_SKULLS = 10
 DAILY_LEVEL_SKULL_CHILDREN = [f'<child widget="{DAILY_LEVEL_SKULL}" x="{421 + (index % 5) * 27}" y="{89 + (index // 5) * 26}"/>'
                               for index in range(DAILY_LEVEL_SKULLS)]
-DAILY_ITEM_PLACE = (160, 391)
-CAMPAIGN_BACK_ITEM_PLACE = (192, 427)
+CAMPAIGN_BACK_ITEM_PLACE = (192, 391)
 # the profile settings' rows, in order: the PC version's nine and Gameplay,
 # second to last, all in the nine's room (78 to About's top, 342) so the
 # last one's 32-unit highlight stays beside the description panel. Each is
@@ -2685,8 +2696,12 @@ WIDGET_PATCHES = {
     }},
     # (the main menu's THEATER, after Multiplayer, and MODS, before Quit:
     # _theater, _mods)
-    "main_menu/main_menu_select_list": {"insert_before": {
+    # (Campaign and Multiplayer moved into PLAY: _play)
+    "main_menu/main_menu_select_list": {
+        "remove": ["main_menu/main_menu_item_load_camp", "main_menu/main_menu_item_multiplayer"],
+        "insert_before": {
         "main_menu/main_menu_item_profile": [
+            f'<child widget="main_menu/main_menu_item_play" x="{PLAY_ITEM_PLACE[0]}" y="{PLAY_ITEM_PLACE[1]}"/>',
             f'<child widget="main_menu/main_menu_item_theater" x="{THEATER_ITEM_PLACE[0]}" y="{THEATER_ITEM_PLACE[1]}"/>'],
         "main_menu/main_menu_item_quit_game": [
             f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']},
@@ -2699,15 +2714,14 @@ WIDGET_PATCHES = {
                      '<on event="y" run="port social open"/>']},
     # (and the hint that X opens it, over the build number: a tap or a click
     # on it presses X, its picture a key's icon to the pointer, x_butn_news)
+    # (and the social column: _social's social_home and social_home_chat)
     "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
+        f'<child widget="{SOCIAL}/social_home"/>',
+        f'<child widget="{SOCIAL}/social_home_chat"/>',
         f'<child widget="{SOCIAL}/y_butn_social" x="{SOCIAL_HINT_PLACE[0]}" y="{SOCIAL_HINT_PLACE[1]}"/>',
         f'<child widget="{SOCIAL}/social_hint" x="{SOCIAL_HINT_PLACE[0]}" y="{SOCIAL_HINT_PLACE[1]}"/>',
-        f'<child widget="{NEWS}/x_butn_news" x="450" y="380"/>',
-        f'<child widget="{NEWS}/news_hint" x="450" y="380"/>']}},
-    # (Campaign's DAILY CHALLENGE, before Back: _daily)
-    "main_menu/campaign_select/campaign_menu_select_list": {"insert_before": {
-        "main_menu/campaign_select/menu_item_back": [
-            f'<child widget="{DAILY_ITEM}" x="{DAILY_ITEM_PLACE[0]}" y="{DAILY_ITEM_PLACE[1]}"/>']}},
+        f'<child widget="{NEWS}/x_butn_news" x="{NEWS_HINT_PLACE[0]}" y="{NEWS_HINT_PLACE[1]}"/>',
+        f'<child widget="{NEWS}/news_hint" x="{NEWS_HINT_PLACE[0]}" y="{NEWS_HINT_PLACE[1]}"/>']}},
     f"{PLAYER_EDIT}/player_options_menu": {"insert_before": {
         f"{PLAYER_EDIT}/player_button_bar": [
             f'<child widget="{PLAYER_EDIT}/op_{row}" x="54" y="{player_options_row_top(index)}"/>'
@@ -4373,7 +4387,7 @@ DAILY_HISTORY_WIDTH = 560
 
 
 def _daily() -> list:
-    """Campaign's DAILY CHALLENGE (DAILY_ITEM: its picture, tools/ce_menus.py's)
+    """PLAY's DAILY CHALLENGE (DAILY_ITEM: its picture, tools/ce_menus.py's)
     and its screens: the day's challenge, its leaderboard, the past days, and
     the window of a server not reached"""
     text = [("type", "text"), ("controller", 1)]
@@ -4694,6 +4708,8 @@ def multiplayer_files() -> dict:
                                              "(tools/port_settings.py) -->", head[2]] + _theater() + ["</menus>", ""],
         SOCIAL.replace("/", ".") + ".xml": [head[0], "<!-- The port's Social screen, in the PC version's style "
                                             "(tools/port_settings.py) -->", head[2]] + _social() + ["</menus>", ""],
+        PLAY.replace("/", ".") + ".xml": [head[0], "<!-- The main menu's PLAY, in the PC version's style "
+                                          "(tools/port_settings.py) -->", head[2]] + _play() + ["</menus>", ""],
     }
 
 
@@ -4720,7 +4736,9 @@ MENU_ITEM_SPACES = {"MO": 3.17, "OD": 2.8, "DS": 2.3,
                     "AL": 0.71, "LL": 0.8, "LE": 0.19, "EN": 4.22, "NG": 2.72, "GE": 2.5,
                     # (THEATER's: ER as the redraws' PLAYER has it; the
                     # others set by eye beside the PC version's items)
-                    "TH": 2.5, "HE": 2.6, "EA": 1.5, "AT": 0.5, "TE": 1.5, "ER": 3.24}
+                    "TH": 2.5, "HE": 2.6, "EA": 1.5, "AT": 0.5, "TE": 1.5, "ER": 3.24,
+                    # (PLAY's: as the redraws' MULTIPLAYER has them)
+                    "PL": 2.27, "LA": -0.1, "AY": -3.74}
 # the mods' status icons (port/assets/icons/lucide): a mod out of the order it
 # asks for, and one that cannot be played (another mod says it cannot be
 # played with it, or this build cannot play it): menu_functions.c's
@@ -5105,6 +5123,31 @@ def _theater() -> list:
 # card (social_card, drawn by social_menu.c while it is shown)
 
 
+def _play() -> list:
+    """the main menu's PLAY and its screen, as Campaign's: the Halo logo,
+    and Campaign's and Multiplayer's items (the PC version's, as they were on
+    the main menu), DAILY CHALLENGE (_daily) and Back where the main menu's
+    items were"""
+    base = PLAY
+    lines = _widget("main_menu/main_menu_item_play",
+                    [("type", "text"), ("width", 256), ("height", 33), ("bitmap", "main_menu/menu_play")],
+                    [f'<on event="a" open="{base}/play_screen"/>', f'<on event="start" open="{base}/play_screen"/>',
+                     '<on event="left_mouse" run="mouse emit accept event"/>'])
+    lines += _widget(f"{base}/play_screen", [("width", 640), ("height", 480),
+                                             ("flags", "pass_unhandled_to_focused_child")],
+                     ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                      '<child widget="main_menu/halo_logo" y="28"/>', f'<child widget="{base}/play_list"/>',
+                      '<child widget="main_menu/current_profile_name"/>'])
+    items = [("main_menu/main_menu_item_load_camp", 194), ("main_menu/main_menu_item_multiplayer", 192),
+             (DAILY_ITEM, 160), ("main_menu/campaign_select/menu_item_back", 192)]
+    lines += _widget(f"{base}/play_list", [("type", "column_list"), ("width", 640), ("height", 480),
+                                           ("flags", "pass_unhandled_to_focused_child up_down_tabs_items")],
+                     ['<on event="created" run="port play init"/>'] +
+                     [f'<child widget="{name}" x="{x}" y="{MAIN_MENU_ITEM_TOP + 32 + MAIN_MENU_ITEM_SPACING * index}"/>'
+                      for index, (name, x) in enumerate(items)])
+    return lines
+
+
 def _social() -> list:
     base = SOCIAL
     back = ['<on event="b" run="port social back"/>', '<on event="back" run="port social back"/>']
@@ -5161,6 +5204,13 @@ def _social() -> list:
                                                                '<on event="start" run="port social options"/>'])
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port social back"/>',
                                                          '<on event="start" run="port social back"/>'])
+    # (the main menu's social column: your totals and friends, and the chat
+    # box, drawn over these text boxes: menu_functions.c's
+    # menu_functions_text_box_drawn)
+    for key, (left, top, width, height) in (("social_home", SOCIAL_HOME), ("social_home_chat", SOCIAL_HOME_CHAT)):
+        lines += _widget(f"{base}/{key}", [("type", "text"), ("controller", 1), ("left", left), ("top", top),
+                                          ("width", width), ("height", height), ("font", "ui\\small_ui"),
+                                          ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])
     # (the main menu's hint that Y opens it, over the news' hint: a tap or a
     # click on it presses Y, as the news' does X (ui_widget.c's
     # ui_mouse_key_button); shown with social.enabled, "port news hint update")

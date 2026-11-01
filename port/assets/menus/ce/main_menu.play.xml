@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The main menu's PLAY, in the PC version's style (tools/port_settings.py) -->
+<menus>
+	<widget name="main_menu/main_menu_item_play" type="text" width="256" height="33" bitmap="main_menu/menu_play">
+		<on event="a" open="main_menu/play/play_screen"/>
+		<on event="start" open="main_menu/play/play_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/play/play_screen" width="640" height="480" flags="pass_unhandled_to_focused_child">
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/halo_logo" y="28"/>
+		<child widget="main_menu/play/play_list"/>
+		<child widget="main_menu/current_profile_name"/>
+	</widget>
+	<widget name="main_menu/play/play_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items">
+		<on event="created" run="port play init"/>
+		<child widget="main_menu/main_menu_item_load_camp" x="194" y="279"/>
+		<child widget="main_menu/main_menu_item_multiplayer" x="192" y="311"/>
+		<child widget="main_menu/campaign_select/menu_item_daily" x="160" y="343"/>
+		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="375"/>
+	</widget>
+</menus>

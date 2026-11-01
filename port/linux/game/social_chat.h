@@ -55,6 +55,17 @@ the game and the menus: a player's name clicked or tapped opens its menu */
 struct halo_ui_pointer;
 int social_chat_wants_pointer(void);
 void social_chat_pointer(struct halo_ui_pointer const *pointer);
+/* (menu_functions.c, as the main menu's social column is drawn) the box
+drawn docked there, with the menus (in their 640; shift: the screen's
+coordinates' from them), chosen there or not; it stays docked while drawn
+again within a moment (the overlay draws its on-screen keyboard and a
+player's menu by it). Opened from there: its keyboard is the controller's of
+this port (the keyboard's, when it was typed on last) */
+void social_chat_draw_docked(short x0, short y0, short x1, short y1, short shift, boolean chosen);
+void social_chat_open_docked(short port);
+/* (menu_functions.c) the box takes the keys and the controller: open, or
+closed a moment ago (its B and Start not the menus') */
+boolean social_chat_busy(void);
 /* (overlay_menu.c) L, R and the d-pad's up pressed together on a
 controller's port: the box opened, in the game or the menus, or closed */
 void social_chat_toggle_request(short port);

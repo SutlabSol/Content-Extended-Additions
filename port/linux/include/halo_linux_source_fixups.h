@@ -171,6 +171,11 @@ menus' pointer is its own, and it is drawn over the screen (interface.c) */
 /* TRUE when B steps out of a custom-map folder or the Map screen's
 difficulties and the screen stays (port/linux/game/menu_functions.c) */
 unsigned char menu_port_back(void *widget);
+/* TRUE for an event the menus are not to have (the fork's chat typed in;
+the main menu's social column focused), and for a click its social column
+takes (port/linux/game/menu_functions.c) */
+unsigned char menu_port_event_taken(void *widget, void *event);
+unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer);
 /* the campaign's skulls (port/linux/game/skulls.c) */
 #include "halo_skulls.h"
 /* a weapon's pickup prompt as the Tag Editor's Pickup settings have it
