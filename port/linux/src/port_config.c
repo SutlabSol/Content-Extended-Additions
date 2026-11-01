@@ -1388,6 +1388,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"social.chat: the fork's global chat (every player of the fork's online)\n"
 		"is heard; false hears the match's, the team's and private lines alone." },
+	{ "social.global_everywhere", _config_boolean, "true", "HALO_SOCIAL_GLOBAL_EVERYWHERE", _environment_value,
+		_platform_all,
+		"social.global_chat: global lines show with the others, in a match too;\n"
+		"false: only in the box's GLOBAL channel, which shows them alone." },
 	{ "social.record_matches", _config_boolean, "true", "HALO_SOCIAL_RECORD_MATCHES", _environment_value,
 		_platform_all,
 		"social.enabled: each multiplayer match played (kills, deaths, assists,\n"
@@ -1397,6 +1401,10 @@ static const struct config_setting config_settings[] =
 		_platform_all,
 		"social.chat: private lines reach you (and the box's PRIVATE channel is\n"
 		"there); false: no one's private line reaches you, nor do you send any." },
+	{ "social.private_anyone", _config_boolean, "true", "HALO_SOCIAL_PRIVATE_ANYONE", _environment_value,
+		_platform_all,
+		"social.private_chat: private lines with anyone; false: only your friends'\n"
+		"reach you, and you write to your friends alone." },
 	{ "social.show_reported", _config_boolean, "false", "HALO_SOCIAL_SHOW_REPORTED", _environment_value,
 		_platform_all,
 		"social.chat: the lines of players many others reported are shown\n"
@@ -1406,8 +1414,8 @@ static const struct config_setting config_settings[] =
 		"friends see you offline and no one can ask to be your friend." },
 	{ "social.friend_requests", _config_boolean, "true", "HALO_SOCIAL_FRIEND_REQUESTS", _environment_value,
 		_platform_all,
-		"social.friends: other players can ask to be your friend (by your code);\n"
-		"false: only those you ask can be." },
+		"social.friends: other players can ask to be your friend (from the chat\n"
+		"or your page); false: only those you give your code to can." },
 	{ "social.show_activity", _config_boolean, "true", "HALO_SOCIAL_SHOW_ACTIVITY", _environment_value,
 		_platform_all,
 		"social.friends: your friends see what you are playing, your latest\n"

@@ -26,25 +26,31 @@ the community server as the install's account (social.c; api-opence's
   asks social_chat_open: T, Y, D-pad Up and the controls' chat actions);
   elsewhere (the menus, the campaign), T and Y on the keyboard; on any
   controller, L, R and the d-pad's up together (overlay_menu.c). While it is
-  open: Tab (or D-pad Up and Down) the channel, Up and Down (or Y) who a
-  private line goes to, Page Up and Page Down (or the wheel) back through the
-  lines, Enter (or Start) sends, Escape (or B) closes. A controller types on
-  the on-screen keyboard as the upstream chat's (the stick moves, A presses,
-  X deletes), the touchscreen taps its keys. The platform's input takes it
+  open: Tab (or L and R) the channel, Up and Down (or Y) who a private line
+  goes to, Page Up and Page Down (or the wheel) back through the lines,
+  Enter (or Start) sends, Escape (or B) closes. A controller types on the
+  on-screen keyboard as the upstream chat's (the stick and the D-pad move,
+  A presses, X deletes), the touchscreen taps its keys. No hint of the keys
+  is shown. The platform's input takes it
   as the upstream chat's typing (network_chat_typing and the rest ask here).
 - Closed, the latest lines show a while and fade (not in a cinematic);
   display.text_chat hides it all. social.chat turns it on (else the upstream
-  chat is as it was); social.global_chat whether GLOBAL is heard;
+  chat is as it was); social.global_chat whether GLOBAL is heard, and
+  social.global_everywhere whether its lines show with the others (else only
+  with the box open at GLOBAL, which then shows them alone);
   social.private_chat whether PRIVATE is (the server keeps others' private
   lines from it too); social.show_reported whether the lines of players many
   others reported are (marked REPORTED: the server leaves them out else).
 - A player's name in the open box, clicked or tapped, opens its menu beside
   the box: SEND PRIVATE MESSAGE (social.private_chat), ADD FRIEND
   (social.friends, not a friend yet), VIEW PROFILE (its card, as the
-  Social screen's, over the middle of the screen), MUTE or UNMUTE, REPORT (A twice); Up and Down, Enter,
-  Escape on the keyboard. Only names the fork's chat knows the account of
-  (its own lines' players, and the upstream chat's of this game's room by
-  their names) open it (social_menu.c asks the server).
+  Social screen's, over the middle of the screen), MUTE or UNMUTE, REPORT (A
+  twice); Up and Down, Enter, Escape on the keyboard. A name the fork's chat
+  knows no account of (an upstream line's player not of the fork's) opens
+  MUTE IN THIS MATCH (or UNMUTE) alone: its lines hidden here, by its name,
+  until the game's room changes. No player's code is shown: another
+  account is known by the public id the server gives (social_menu.c asks
+  the server).
 - The players muted or blocked (social_menu.c's moderation list) are never
   heard: the server leaves their fork lines out, and their upstream lines
   (known by their names alone, as the upstream chat has no accounts) are
@@ -130,8 +136,10 @@ enum
 	SOCIAL_CHAT_POLL_RETRY_MILLISECONDS = 15000,
 	/* the players a private line may go to, at most */
 	SOCIAL_CHAT_MAXIMUM_PEERS = 32,
-	/* the names of the players muted or blocked kept, at most */
+	/* the names of the players muted or blocked kept, at most; and of those
+	muted in this match alone */
 	SOCIAL_CHAT_MAXIMUM_UNHEARD = 64,
+	SOCIAL_CHAT_MAXIMUM_MUTED_HERE = 32,
 	/* the names that can be clicked, at most (the lines shown open) */
 	SOCIAL_CHAT_MAXIMUM_NAME_HITS = 16,
 	/* a player's menu: its options at most, its width in hundredths of the
@@ -191,7 +199,9 @@ enum
 	_social_chat_option_mute,
 	_social_chat_option_unmute,
 	_social_chat_option_report,
-	_social_chat_option_back,
+	/* (a player of the upstream chat's alone, by its name, in this match) */
+	_social_chat_option_mute_here,
+	_social_chat_option_unmute_here,
 };
 
 /* the on-screen keyboard's last row's wide keys */
@@ -223,6 +233,8 @@ struct social_chat_line
 	boolean notice;
 	/* its player was reported by many (shown with social.show_reported) */
 	boolean reported;
+	/* one of this machine's, shown as it went, that the server refused */
+	boolean failed;
 	/* (system_milliseconds; 0: an old line, the history's, never shown as new) */
 	unsigned long time;
 };
@@ -263,6 +275,11 @@ static struct
 	/* the names of the players muted or blocked, whose upstream lines are hidden */
 	wchar_t unheard[SOCIAL_CHAT_MAXIMUM_UNHEARD][SOCIAL_CHAT_NAME_SIZE];
 	short unheard_count;
+	/* the upstream chat's players muted in this match (its room's) alone, by
+	their names */
+	wchar_t muted_here[SOCIAL_CHAT_MAXIMUM_MUTED_HERE][SOCIAL_CHAT_NAME_SIZE];
+	short muted_here_count;
+	char muted_here_room[SOCIAL_CHAT_ROOM_SIZE];
 	/* social.show_reported as the last poll had it (the history asked
 	again when it changes) */
 	boolean reported_shown;
@@ -270,6 +287,10 @@ static struct
 	ask next; the account's code the server last said */
 	int poll_ticket;
 	int send_ticket;
+	/* the line being sent, as shown (marked NOT SENT if refused): checked
+	still to be it by its text */
+	struct social_chat_line *sending_line;
+	char sending_text[SOCIAL_CHAT_TEXT_SIZE];
 	long cursor;
 	boolean polled;
 	unsigned long poll_at;
@@ -333,7 +354,7 @@ static char const *const social_chat_symbols[SOCIAL_CHAT_KEYBOARD_ROWS - 1] =
 static char const *const social_chat_channel_names[NUMBER_OF_SOCIAL_CHAT_CHANNELS] =
 	{ "MATCH", "TEAM", "PRIVATE", "GLOBAL" };
 static wchar_t const *const social_chat_channel_tags[NUMBER_OF_SOCIAL_CHAT_CHANNELS] =
-	{ L"", L"[TEAM] ", L"[PM] ", L"[ALL] " };
+	{ L"", L"[TEAM] ", L"[PM] ", L"[GLOBAL] " };
 
 static void social_chat_close(void);
 static void social_chat_player_close(void);
@@ -382,6 +403,15 @@ static boolean social_chat_global_heard(
 	static boolean heard;
 
 	return social_chat_setting("social.global_chat", &read_at, &heard);
+}
+
+static boolean social_chat_global_everywhere(
+	void)
+{
+	static unsigned long read_at = (unsigned long)-1;
+	static boolean everywhere;
+
+	return social_chat_setting("social.global_everywhere", &read_at, &everywhere);
 }
 
 static boolean social_chat_private_heard(
@@ -659,6 +689,82 @@ void social_chat_unheard_set(
 		social_chat.unheard[social_chat.unheard_count][SOCIAL_CHAT_NAME_SIZE - 1] = 0;
 		social_chat.unheard_count++;
 	}
+}
+
+/* ---------- the players muted in this match */
+
+static short social_chat_muted_here_find(
+	wchar_t const *name)
+{
+	short index;
+
+	for (index = 0; index < social_chat.muted_here_count; index++)
+	{
+		if (social_chat_names_equal(social_chat.muted_here[index], name))
+			return index;
+	}
+	return NONE;
+}
+
+static void social_chat_mute_here(
+	wchar_t const *name,
+	boolean muted)
+{
+	short index = social_chat_muted_here_find(name);
+
+	if (muted && index == NONE && social_chat.muted_here_count < SOCIAL_CHAT_MAXIMUM_MUTED_HERE)
+	{
+		ustrncpy(social_chat.muted_here[social_chat.muted_here_count], name, SOCIAL_CHAT_NAME_SIZE - 1);
+		social_chat.muted_here[social_chat.muted_here_count][SOCIAL_CHAT_NAME_SIZE - 1] = 0;
+		social_chat.muted_here_count++;
+	}
+	else if (!muted && index != NONE)
+	{
+		csmemmove(&social_chat.muted_here[index], &social_chat.muted_here[index + 1],
+			(social_chat.muted_here_count - index - 1) * sizeof(social_chat.muted_here[0]));
+		social_chat.muted_here_count--;
+	}
+}
+
+/* a name one of this machine's players has (its own upstream lines) */
+static boolean social_chat_name_is_local(
+	wchar_t const *name)
+{
+	short local_player_index;
+
+	for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
+		local_player_index = local_player_get_next(local_player_index))
+	{
+		long player_index = local_player_get_player_index(local_player_index);
+		struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+		wchar_t own[SOCIAL_CHAT_NAME_SIZE];
+
+		if (!player)
+			continue;
+		ustrncpy(own, player->name, MIN(NUMBEROF(player->name), SOCIAL_CHAT_NAME_SIZE - 1));
+		own[MIN(NUMBEROF(player->name), SOCIAL_CHAT_NAME_SIZE - 1)] = 0;
+		if (social_chat_names_equal(own, name))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* a line shown now: not of an upstream player muted in this match; a global
+one with social.global_everywhere, else only with the box open at GLOBAL,
+which then shows global lines alone (and notices) */
+static boolean social_chat_line_shown(
+	struct social_chat_line const *line)
+{
+	boolean global_open = social_chat.open && social_chat.channel == _social_chat_global;
+
+	if (!line->notice && !TEST_FLAG(line->sources, _social_chat_fork_bit) &&
+		social_chat_muted_here_find(line->name) != NONE)
+	{
+		return FALSE;
+	}
+	if (line->notice || social_chat_global_everywhere())
+		return TRUE;
+	return line->channel == _social_chat_global ? global_open : !global_open;
 }
 
 /* ---------- the private lines' accounts */
@@ -1009,6 +1115,13 @@ static void social_chat_send_answer(
 	if (result == _community_net_waiting)
 		return;
 	social_chat.send_ticket = 0;
+	/* (refused, or not reached: the line shown as it went marked so) */
+	if ((result != _community_net_answered || status != 200) && social_chat.sending_line &&
+		social_chat.sending_line->mine && !strcmp(social_chat.sending_line->text, social_chat.sending_text))
+	{
+		social_chat.sending_line->failed = TRUE;
+	}
+	social_chat.sending_line = NULL;
 	if (result != _community_net_answered)
 		social_chat_notice("The fork's chat could not be reached");
 	else if (status == 429)
@@ -1017,6 +1130,10 @@ static void social_chat_send_answer(
 		social_chat_notice("That player's account was not found");
 	else if (status == 403 && strstr(social_chat.answer, "private_off"))
 		social_chat_notice("That player takes no private lines");
+	else if (status == 403 && strstr(social_chat.answer, "own_friends_only"))
+		social_chat_notice("You take private lines from friends alone, so you write to friends alone");
+	else if (status == 403 && strstr(social_chat.answer, "friends_only"))
+		social_chat_notice("That player takes private lines from friends alone");
 	else if (status == 403 && strstr(social_chat.answer, "\"blocked\""))
 		social_chat_notice("You blocked that player: unblock them in Social to write to them");
 	else if (status == 403)
@@ -1123,6 +1240,8 @@ static void social_chat_say(
 			csstrncpy(line->peer, peer->code, SOCIAL_CHAT_CODE_SIZE - 1);
 			ustrncpy(line->peer_name, peer->name, SOCIAL_CHAT_NAME_SIZE - 1);
 		}
+		social_chat.sending_line = line;
+		csstrncpy(social_chat.sending_text, line->text, SOCIAL_CHAT_TEXT_SIZE - 1);
 	}
 }
 
@@ -1386,13 +1505,14 @@ static void social_chat_keyboard_update(
 		social_chat_send_typed();
 		return;
 	}
-	if (TEST_FLAG(pressed, HALO_CHAT_PAD_UP))
+	/* (L and R the channel; the D-pad moves on the keys, as the stick does) */
+	if (TEST_FLAG(pressed, HALO_CHAT_PAD_LEFT_SHOULDER))
 		social_chat_channel_step(-1);
-	if (TEST_FLAG(pressed, HALO_CHAT_PAD_DOWN))
+	if (TEST_FLAG(pressed, HALO_CHAT_PAD_RIGHT_SHOULDER))
 		social_chat_channel_step(1);
-	if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_UP))
+	if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_UP) || TEST_FLAG(held, HALO_CHAT_PAD_UP))
 		rows_down = -1;
-	else if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_DOWN))
+	else if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_DOWN) || TEST_FLAG(held, HALO_CHAT_PAD_DOWN))
 		rows_down = 1;
 	if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_LEFT) || TEST_FLAG(held, HALO_CHAT_PAD_LEFT))
 		columns_right = -1;
@@ -1493,6 +1613,15 @@ static void social_chat_player_options(
 	char const *code = social_chat_player.code;
 
 	social_chat_player.option_count = 0;
+	/* (a player of the upstream chat's alone: muted in this match, or not) */
+	if (!code[0])
+	{
+		social_chat_player.options[social_chat_player.option_count++] =
+			social_chat_muted_here_find(social_chat_player.name) != NONE ? _social_chat_option_unmute_here :
+			_social_chat_option_mute_here;
+		social_chat_player.chosen = 0;
+		return;
+	}
 	if (online && social_chat_private_heard())
 		social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_private;
 	if (online && config_boolean("social.friends") && !social_menu_is_friend(code))
@@ -1504,18 +1633,18 @@ static void social_chat_player_options(
 			_social_chat_option_unmute : _social_chat_option_mute;
 		social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_report;
 	}
-	social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_back;
-	social_chat_player.chosen = (short)PIN(social_chat_player.chosen, 0, social_chat_player.option_count - 1);
+	social_chat_player.chosen = (short)PIN(social_chat_player.chosen, 0, MAX(social_chat_player.option_count - 1, 0));
 }
 
-/* the menu of the player of this code (its name as the line shows it),
-beside the line at top */
+/* the menu of the player of this code ("" for an upstream player's: its
+name alone, as the line shows it), beside the line at top; none with
+nothing to do */
 static void social_chat_player_open(
 	char const *code,
 	wchar_t const *name,
 	short top)
 {
-	if (!code[0] || !strcmp(code, social_account_code()))
+	if ((!code[0] && !name[0]) || (code[0] && !strcmp(code, social_account_code())))
 		return;
 	csmemset(&social_chat_player.options, 0, sizeof(social_chat_player.options));
 	csstrncpy(social_chat_player.code, code, SOCIAL_CHAT_CODE_SIZE - 1);
@@ -1529,6 +1658,8 @@ static void social_chat_player_open(
 	social_chat_player.top = top;
 	social_chat_player.drawn = FALSE;
 	social_chat_player_options();
+	if (!social_chat_player.option_count)
+		social_chat_player_close();
 }
 
 /* B, Escape, a right click: the profile back to the options, else closed */
@@ -1599,6 +1730,11 @@ static void social_chat_player_pick(
 		{
 			social_chat_player.confirm_time = system_milliseconds();
 		}
+		break;
+	case _social_chat_option_mute_here:
+	case _social_chat_option_unmute_here:
+		social_chat_mute_here(social_chat_player.name, option == _social_chat_option_mute_here);
+		social_chat_player_close();
 		break;
 	default:
 		social_chat_player_close();
@@ -1791,6 +1927,17 @@ void social_chat_update(
 		social_chat_close();
 		return;
 	}
+	/* (the players muted in this match alone: heard again in the next) */
+	{
+		char room[SOCIAL_CHAT_ROOM_SIZE];
+
+		social_chat_room(room, sizeof(room));
+		if (strcmp(room, social_chat.muted_here_room))
+		{
+			csstrncpy(social_chat.muted_here_room, room, SOCIAL_CHAT_ROOM_SIZE - 1);
+			social_chat.muted_here_count = 0;
+		}
+	}
 	/* (the fork's lines) */
 	if (social_chat_online())
 	{
@@ -1975,6 +2122,8 @@ static void social_chat_head(
 		return;
 	if (line->reported)
 		ustrncpy(head, L"[REPORTED] ", count - 1);
+	else if (line->failed)
+		ustrncpy(head, L"[NOT SENT] ", count - 1);
 	head[count - 1] = 0;
 	ustrncpy(source, line->sources == (FLAG(_social_chat_upstream_bit) | FLAG(_social_chat_fork_bit)) ? L"U+F" :
 		TEST_FLAG(line->sources, _social_chat_upstream_bit) ? L"U" : L"F", NUMBEROF(source) - 1);
@@ -2215,18 +2364,11 @@ static short social_chat_open_draw(
 	if (social_chat.channel == _social_chat_private)
 	{
 		struct social_chat_peer const *peer = social_chat_peer_picked();
-		wchar_t code[SOCIAL_CHAT_CODE_SIZE];
 
 		ustrncpy(text, L"TO: ", NUMBEROF(text) - 1);
 		text[NUMBEROF(text) - 1] = 0;
 		if (peer)
-		{
 			ustrncat(text, peer->name, NUMBEROF(text) - 1 - ustrlen(text));
-			ustrncat(text, L" (", NUMBEROF(text) - 1 - ustrlen(text));
-			social_chat_wide_from_ascii(peer->code, code, NUMBEROF(code));
-			ustrncat(text, code, NUMBEROF(text) - 1 - ustrlen(text));
-			ustrncat(text, L")", NUMBEROF(text) - 1 - ustrlen(text));
-		}
 		else
 		{
 			ustrncat(text, L"no one yet", NUMBEROF(text) - 1 - ustrlen(text));
@@ -2263,26 +2405,12 @@ static short social_chat_open_draw(
 		social_chat_text(font_index, &bounds, &white, text);
 		top = (short)(top + line_height);
 	}
-	/* (the keys' hint, and the account's code) */
+	/* (no hint of the keys: only that the fork's chat is not reached) */
+	if (!social_chat_online())
 	{
-		char hint[160];
-		wchar_t wide[160];
+		wchar_t wide[64];
 
-		if (social_chat_keyboard.open)
-		{
-			snprintf(hint, sizeof(hint), "D-pad: channel  X: delete  Y: %s  Start: send  B: close",
-				social_chat.channel == _social_chat_private ? "player" : "caps");
-		}
-		else
-		{
-			snprintf(hint, sizeof(hint), "Tab: channel  %sEnter: send  Esc: close  Click a name: player",
-				social_chat.channel == _social_chat_private ? "Up/Down: player  " : "");
-		}
-		if (social_account_code()[0])
-			snprintf(hint + strlen(hint), sizeof(hint) - strlen(hint), "   ID %s", social_account_code());
-		else if (!social_chat_online())
-			snprintf(hint + strlen(hint), sizeof(hint) - strlen(hint), "   (fork chat offline)");
-		social_chat_wide_from_ascii(hint, wide, NUMBEROF(wide));
+		social_chat_wide_from_ascii("(fork chat offline)", wide, NUMBEROF(wide));
 		bounds.x0 = left;
 		bounds.x1 = (short)(left + width);
 		bounds.y0 = top;
@@ -2293,7 +2421,7 @@ static short social_chat_open_draw(
 	return top;
 }
 
-/* a player's menu, beside the box from top: its name and code, then its
+/* a player's menu, beside the box from top: its name, then its
 options (the one chosen lit) or its profile's lines; where each was drawn
 kept, for a click */
 static void social_chat_player_draw(
@@ -2307,7 +2435,7 @@ static void social_chat_player_draw(
 	static real_argb_color const blue = { 1.0f, 0x28 / 255.0f, 0x96 / 255.0f, 1.0f };
 	static real_argb_color const grey = { 1.0f, 0.65f, 0.65f, 0.65f };
 	static char const *const labels[] = { "SEND PRIVATE MESSAGE", "ADD FRIEND", "VIEW PROFILE", "MUTE", "UNMUTE",
-		"REPORT", "CLOSE" };
+		"REPORT", "MUTE IN THIS MATCH", "UNMUTE" };
 	real_argb_color white = get_ui_argb_white();
 	char text[SOCIAL_CHAT_PLAYER_TEXT_SIZE];
 	wchar_t wide[SOCIAL_CHAT_TEXT_SIZE];
@@ -2363,7 +2491,8 @@ static void social_chat_player_draw(
 		social_chat_player_options();
 		rows = social_chat_player.option_count;
 	}
-	rows = (short)(rows + 2);
+	/* (and its name) */
+	rows = (short)(rows + 1);
 	if (left + width > screen_width)
 		left = (short)MAX(screen_width - width, 0);
 	top = (short)PIN(top, 0, MAX(screen_height - rows * line_height - 2 * SOCIAL_CHAT_PADDING, 0));
@@ -2377,9 +2506,6 @@ static void social_chat_player_draw(
 	bounds.y0 = (short)(top + SOCIAL_CHAT_PADDING);
 	bounds.y1 = (short)(bounds.y0 + line_height);
 	social_chat_text(font_index, &bounds, &blue, social_chat_player.name);
-	offset_rectangle2d(&bounds, 0, line_height);
-	social_chat_wide_from_ascii(social_chat_player.code, wide, NUMBEROF(wide));
-	social_chat_text(font_index, &bounds, &grey, wide);
 	offset_rectangle2d(&bounds, 0, line_height);
 	if (social_chat_player.profile)
 	{
@@ -2438,7 +2564,9 @@ void social_chat_draw(
 	short rows_shown;
 	short foot_rows;
 	short rows_used = 0;
-	short first_back;
+	short shown[SOCIAL_CHAT_MAXIMUM_LINES];
+	short shown_count = 0;
+	short skipped;
 	short back;
 	short top;
 	short bottom;
@@ -2461,22 +2589,33 @@ void social_chat_draw(
 	left = (short)(screen_width * SOCIAL_CHAT_LEFT_PERCENT / 100);
 	width = (short)(screen_width * SOCIAL_CHAT_WIDTH_PERCENT / 100);
 	rows_shown = social_chat.open ? SOCIAL_CHAT_LINES_OPEN : SOCIAL_CHAT_LINES_CLOSED;
-	foot_rows = social_chat.open ? (short)(social_chat.channel == _social_chat_private ? 4 : 3) : 0;
+	/* (open: the channels, who a private line goes to, the line typed, and
+	that the fork's chat is offline) */
+	foot_rows = social_chat.open ? (short)(2 + (social_chat.channel == _social_chat_private) +
+		!social_chat_online()) : 0;
 	{
 		real_argb_color white = get_ui_argb_white();
 
 		draw_string_set_draw_mode(font_index, NONE, 0 /* left */, 0, &white);
 	}
 	/* (the lines shown, the newest at the bottom: open, the latest, from
-	where it is scrolled to; closed, the latest new ones not faded) */
-	first_back = social_chat.open ? social_chat.scroll : 0;
-	for (back = first_back; back < social_chat.line_count; back++)
+	where it is scrolled to; closed, the latest new ones not faded; those
+	not shown now, social_chat_line_shown, left out) */
+	skipped = 0;
+	for (back = 0; back < social_chat.line_count; back++)
 	{
 		struct social_chat_line const *line = social_chat_line_at(back);
 		wchar_t head[SOCIAL_CHAT_NAME_SIZE * 2 + 24];
 		wchar_t text[SOCIAL_CHAT_TEXT_SIZE];
 		short rows;
 
+		if (!social_chat_line_shown(line))
+			continue;
+		if (social_chat.open && skipped < social_chat.scroll)
+		{
+			skipped++;
+			continue;
+		}
 		if (!social_chat.open && (!line->time || now - line->time > SOCIAL_CHAT_LINE_MILLISECONDS +
 			SOCIAL_CHAT_FADE_MILLISECONDS))
 		{
@@ -2487,6 +2626,7 @@ void social_chat_draw(
 		if (rows_used + rows > rows_shown)
 			break;
 		rows_used = (short)(rows_used + rows);
+		shown[shown_count++] = back;
 	}
 	if (!social_chat.open && !rows_used)
 		return;
@@ -2514,11 +2654,10 @@ void social_chat_draw(
 	{
 		short y = (short)(top + SOCIAL_CHAT_PADDING);
 		short index;
-		short count = (short)(back - first_back);
 
-		for (index = (short)(count - 1); index >= 0; index--)
+		for (index = (short)(shown_count - 1); index >= 0; index--)
 		{
-			struct social_chat_line const *line = social_chat_line_at((short)(first_back + index));
+			struct social_chat_line const *line = social_chat_line_at(shown[index]);
 			wchar_t head[SOCIAL_CHAT_NAME_SIZE * 2 + 24];
 			wchar_t text[SOCIAL_CHAT_TEXT_SIZE];
 			real alpha = 1.0f;
@@ -2534,8 +2673,12 @@ void social_chat_draw(
 				short head_width = social_chat_line_draw(font_index, line, (short)(left + SOCIAL_CHAT_PADDING),
 					(short)(width - 2 * SOCIAL_CHAT_PADDING), y, line_height, alpha);
 
-				/* (its player's name can be clicked, open, when its account is known) */
-				if (social_chat.open && line->code[0] && !line->mine && !line->notice &&
+				/* (its player's name can be clicked, open: one whose account is
+				known, and an upstream player's not of this machine, muted in
+				this match by its name) */
+				if (social_chat.open && !line->mine && !line->notice && line->name[0] &&
+					(line->code[0] || (TEST_FLAG(line->sources, _social_chat_upstream_bit) &&
+						!social_chat_name_is_local(line->name))) &&
 					social_chat_player.hit_count < SOCIAL_CHAT_MAXIMUM_NAME_HITS)
 				{
 					short hit = social_chat_player.hit_count++;

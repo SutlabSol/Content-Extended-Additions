@@ -301,6 +301,7 @@ static char const *const social_setting_fields[][2] = {
 	{ "activity", "social.show_activity" },
 	{ "join", "social.instant_join" },
 	{ "privateChat", "social.private_chat" },
+	{ "privateAnyone", "social.private_anyone" },
 };
 
 static void social_settings_text(

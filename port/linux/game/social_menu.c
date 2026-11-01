@@ -992,7 +992,7 @@ static void action_take(
 	else if (status == 404)
 		message_set(social_menu.action_kind == _row_friend_accept ? "That request is gone." : "No player has that code.");
 	else if (status == 403 && strstr(answer, "not_accepting"))
-		message_set("%s takes no friend requests.", name);
+		message_set("%s takes friend requests by their code alone.", name);
 	else if (status == 403 && strstr(answer, "friends_off"))
 		message_set("Your friend list is off: Settings > Gameplay > Social > Friends.");
 	else if (status == 403 && strstr(answer, "\"blocked\""))
@@ -1695,13 +1695,14 @@ static real card_layout(
 	boolean self = player->had && !strcmp(player->relation, "self");
 	short index;
 
-	/* the name, and the code */
+	/* the name, and (one's own alone: a code is given by its player) the
+	friend code */
 	if (draw)
 	{
 		card_color(&color, 0.95f, 0.95f, 0.95f);
 		campaign_score_panel_text(&fonts->title, player->name, NULL, left, right, y, 1.0f, _campaign_score_text_left,
 			&color);
-		snprintf(other, sizeof(other), "CODE %s", player->code);
+		snprintf(other, sizeof(other), "%s%s", self ? "CODE " : "", self ? player->code : "");
 		card_color(&color, 0.6f, 0.66f, 0.75f);
 		campaign_score_panel_text(panel, other, NULL, left, right, y + (fonts->title.line_height - line) / 2.0f, 1.0f,
 			_campaign_score_text_right, &color);
@@ -2047,7 +2048,6 @@ void social_menu_row(
 		break;
 	case _row_recent_player:
 		utf8_from_wide(social_menu.recent_names[entry->value], name, name_size);
-		snprintf(state, (size_t)state_size, "%s", social_menu.recent_codes[entry->value]);
 		break;
 	case _row_matches:
 		snprintf(name, (size_t)name_size, "LATEST MATCHES");
@@ -2063,7 +2063,7 @@ void social_menu_row(
 	case _row_friend_add:
 		snprintf(name, (size_t)name_size, "ADD FRIEND");
 		if (!player->requests)
-			snprintf(state, (size_t)state_size, "NOT TAKEN");
+			snprintf(state, (size_t)state_size, "CODE ONLY");
 		break;
 	case _row_friend_accept:
 		snprintf(name, (size_t)name_size, "ACCEPT REQUEST");
@@ -2127,7 +2127,9 @@ static void player_head(
 	struct social_menu_player const *player = &social_menu.player;
 
 	snprintf(title, (size_t)title_size, "%s", player->name);
-	text_add(text, text_size, "Code: %s\n", player->code);
+	/* (one's own code alone: another's is theirs to give) */
+	if (!strcmp(player->code, social_account_code()))
+		text_add(text, text_size, "Code: %s\n", player->code);
 	if (social_menu.player_failed && !player->had)
 	{
 		text_add(text, text_size, "The server did not answer.\n");
@@ -2251,7 +2253,6 @@ void social_menu_details(
 			char ago[SOCIAL_MENU_TIME_SIZE];
 
 			snprintf(title, (size_t)title_size, "%s", person->name);
-			text_add(text, text_size, "Code: %s\n", person->code);
 			if (entry->kind == _row_friend)
 				presence_line(&person->presence, text, text_size);
 			ago_text(person->at, ago, sizeof(ago));
@@ -2269,7 +2270,7 @@ void social_menu_details(
 		break;
 	case _row_recent_player:
 		utf8_from_wide(social_menu.recent_names[entry->value], title, title_size);
-		text_add(text, text_size, "Code: %s\n\nA: their page.", social_menu.recent_codes[entry->value]);
+		text_add(text, text_size, "A: their page.");
 		break;
 	case _row_matches:
 		player_head(title, title_size, text, text_size);
@@ -2291,7 +2292,7 @@ void social_menu_details(
 	case _row_friend_add:
 		player_head(title, title_size, text, text_size);
 		text_add(text, text_size, player->requests ? "\nAsks them to be your friend." :
-			"\nThey take no friend requests.");
+			"\nThey take friend requests by their\ncode alone: ask them for it.");
 		break;
 	case _row_friend_accept:
 	case _row_friend_decline:
