@@ -284,6 +284,8 @@ static struct
 	short fetching;
 	int action_ticket;
 	short action_kind;
+	/* the action was the chat's (its player's names): what it did said there */
+	boolean action_from_chat;
 	char action_name[SOCIAL_MENU_NAME_SIZE];
 	/* the friends and requests: had, when, and whether it failed */
 	boolean friends_had;
@@ -436,6 +438,32 @@ static void upper_text(
 		if (*text >= 'a' && *text <= 'z')
 			*text = (char)(*text - 'a' + 'A');
 	}
+}
+
+/* a code as typed: its letters and digits in capitals, the dash put back
+after the fourth (the on-screen keyboard may have no "-": "abcd1234" is
+"ABCD-1234"); else as typed, for the server to refuse */
+static void code_normalize(
+	char *code)
+{
+	char kept[16];
+	long length = 0;
+	char const *cursor;
+
+	for (cursor = code; *cursor && length < (long)sizeof(kept) - 1; cursor++)
+	{
+		char character = *cursor;
+
+		if (character >= 'a' && character <= 'z')
+			character = (char)(character - 'a' + 'A');
+		if ((character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9'))
+			kept[length++] = character;
+	}
+	kept[length] = 0;
+	if (length == 8)
+		snprintf(code, 10, "%.4s-%.4s", kept, kept + 4);
+	else
+		upper_text(code);
 }
 
 /* a day of the calendar as days since 1970-01-01 (Howard Hinnant's) */
@@ -742,8 +770,10 @@ static void player_take(
 	social_menu.player_failed = !answered || status != 200;
 	if (social_menu.player_failed)
 	{
-		if (answered && status == 404)
+		if (answered && status == 404 && !strstr(social_menu.answer, "\"not_found\""))
 			message_set("No player has the code %s.", player->code);
+		else if (answered && status == 404)
+			message_set("The community server has no player pages yet:\nit needs updating.");
 		return;
 	}
 	data = answer_data(&document);
@@ -878,15 +908,18 @@ static void fetch(
 }
 
 /* an action: POST path of {code, ...}, said as done once answered */
-static void act(
+static void act_as(
 	short kind,
 	char const *path,
 	char const *code,
 	char const *name,
 	char const *action,
-	char const *reason)
+	char const *reason,
+	boolean from_chat)
 {
 	struct server_json json;
+
+	social_menu.action_from_chat = from_chat;
 
 	if (!social_menu_online())
 	{
@@ -918,6 +951,17 @@ static void act(
 	message_set("Asking the server...");
 }
 
+static void act(
+	short kind,
+	char const *path,
+	char const *code,
+	char const *name,
+	char const *action,
+	char const *reason)
+{
+	act_as(kind, path, code, name, action, reason, FALSE);
+}
+
 /* an action answered: what it did, or why not; what it changed asked for again */
 static void action_take(
 	boolean answered,
@@ -928,6 +972,8 @@ static void action_take(
 
 	if (!answered)
 		message_set("The server did not answer: try again.");
+	else if (status == 404 && strstr(answer, "\"not_found\""))
+		message_set("The community server has no friends yet: it needs updating.");
 	else if (status == 404)
 		message_set(social_menu.action_kind == _row_friend_accept ? "That request is gone." : "No player has that code.");
 	else if (status == 403 && strstr(answer, "not_accepting"))
@@ -986,6 +1032,10 @@ static void action_take(
 			break;
 		}
 	}
+	/* (said in the chat too, when it asked) */
+	if (social_menu.action_from_chat)
+		social_chat_notice_text(social_menu.message);
+	social_menu.action_from_chat = FALSE;
 	/* (what it changed) */
 	social_menu.friends_at = 0;
 	social_menu.friends_had = social_menu.friends_had && answered;
@@ -1039,6 +1089,12 @@ void social_menu_update(
 			action_take(result == _community_net_answered, status);
 		}
 	}
+	/* (a player asked for, by the screen or the chat; and the friends once,
+	which the chat's names ask about) */
+	if (social_menu.player_wanted && social_menu.player.code[0])
+		fetch(_fetch_player);
+	if (!social_menu.friends_had && !social_menu.friends_at)
+		fetch(_fetch_friends);
 	/* (the players muted and blocked: the chat's, whether the screen is open) */
 	if (social_menu.moderation_ticket)
 	{
@@ -1327,7 +1383,7 @@ void social_menu_poll(
 			char code[SOCIAL_MENU_TYPED_LENGTH * 3 + 1];
 
 			utf8_from_wide(social_menu.typed, code, sizeof(code));
-			upper_text(code);
+			code_normalize(code);
 			if (code[0])
 				act(_row_add_friend, "/friends", code, code, NULL, NULL);
 		}
@@ -1346,8 +1402,6 @@ void social_menu_poll(
 		if (!social_menu.friends_at || now - social_menu.friends_at > SOCIAL_MENU_REFRESH_MILLISECONDS)
 			fetch(_fetch_friends);
 	}
-	if (social_menu.player_wanted && social_menu.player.code[0])
-		fetch(_fetch_player);
 	rows_build();
 	if (social_menu.chosen >= social_menu.count)
 		social_menu.chosen = (short)MAX(0, social_menu.count - 1);
@@ -1819,8 +1873,8 @@ void social_menu_details(
 		break;
 	case _row_add_friend:
 		snprintf(title, (size_t)title_size, "ADD FRIEND");
-		text_add(text, text_size, "Type a player's code (XXXX-XXXX):\nthey become your friend once\nthey accept.\n\n"
-			"Yours is %s.", social_account_code());
+		text_add(text, text_size, "Type a player's code (XXXX-XXXX,\nthe dash can be left out): they\nbecome your "
+			"friend once they\naccept.\n\nYours is %s.", social_account_code());
 		break;
 	case _row_moderation:
 		snprintf(title, (size_t)title_size, "BLOCKED & MUTED");
@@ -2119,4 +2173,105 @@ void social_menu_join_failed(
 	void)
 {
 	message_set("That game could not be joined: internet play\n(network.online) is off, or the invite is old.");
+}
+
+/* ---------- the chat's (a player's name clicked: social_chat.c) */
+
+void social_menu_player_act(
+	char const *code,
+	char const *name,
+	short action)
+{
+	static char const *const actions[] = { NULL, "mute", "unmute", "report" };
+	static short const kinds[] = { _row_friend_add, _row_mute, _row_unmute, _row_reason };
+
+	if (action < 0 || action >= (short)NUMBEROF(kinds))
+		return;
+	act_as(kinds[action], action == _social_menu_act_friend ? "/friends" : "/moderation", code, name,
+		actions[action], action == _social_menu_act_report ? "chat" : NULL, TRUE);
+	/* (not asked: why, in the chat) */
+	if (!social_menu.action_ticket)
+	{
+		social_chat_notice_text(social_menu.message);
+		social_menu.action_from_chat = FALSE;
+	}
+}
+
+void social_menu_profile_ask(
+	char const *code,
+	char const *name)
+{
+	struct social_menu_player *player = &social_menu.player;
+
+	if (strcmp(player->code, code))
+	{
+		csmemset(player, 0, sizeof(*player));
+		snprintf(player->code, sizeof(player->code), "%s", code);
+		snprintf(player->name, sizeof(player->name), "%s", name && name[0] ? name : code);
+	}
+	social_menu.player_failed = FALSE;
+	social_menu.player_wanted = TRUE;
+}
+
+short social_menu_profile_text(
+	char const *code,
+	char *text,
+	long size)
+{
+	struct social_menu_player const *player = &social_menu.player;
+	char line[32];
+
+	text[0] = 0;
+	if (strcmp(player->code, code))
+		return 0;
+	if (!player->had)
+	{
+		if (!social_menu.player_failed)
+			return 0;
+		text_add(text, size, "%s", social_menu.message[0] ? social_menu.message : "The server did not answer.");
+		return -1;
+	}
+	if (!strcmp(player->relation, "friends"))
+		text_add(text, size, "Your friend.\n");
+	else if (!strcmp(player->relation, "incoming"))
+		text_add(text, size, "Wants to be your friend.\n");
+	else if (!strcmp(player->relation, "outgoing"))
+		text_add(text, size, "You asked to be friends.\n");
+	if (strcmp(player->relation, "self"))
+		presence_line(&player->presence, text, size);
+	kda_text(player->multiplayer.kills, player->multiplayer.deaths, player->multiplayer.assists, line, sizeof(line));
+	text_add(text, size, "Multiplayer: %ld matches, %ld won.\nKills %ld, deaths %ld, KDA %s.\n",
+		player->multiplayer.matches, player->multiplayer.wins, player->multiplayer.kills,
+		player->multiplayer.deaths, line);
+	text_add(text, size, "Campaign: %ld levels won.\nMedals: %ld.\n", player->campaign.matches,
+		player->multiplayer.medals + player->campaign.medals);
+	if (player->muted || player->blocked)
+		text_add(text, size, "%s.\n", player->blocked ? "Blocked" : "Muted");
+	return 1;
+}
+
+boolean social_menu_is_friend(
+	char const *code)
+{
+	short index;
+
+	for (index = 0; index < social_menu.friend_count; index++)
+	{
+		if (!strcmp(social_menu.friends[index].code, code))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+boolean social_menu_is_muted(
+	char const *code)
+{
+	short index;
+
+	for (index = 0; index < social_menu.moderated_count; index++)
+	{
+		if (!strcmp(social_menu.moderated[index].code, code))
+			return social_menu.moderated[index].muted;
+	}
+	return FALSE;
 }

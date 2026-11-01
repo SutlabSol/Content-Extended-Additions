@@ -38,6 +38,13 @@ the community server as the install's account (social.c; api-opence's
   social.private_chat whether PRIVATE is (the server keeps others' private
   lines from it too); social.show_reported whether the lines of players many
   others reported are (marked REPORTED: the server leaves them out else).
+- A player's name in the open box, clicked or tapped, opens its menu beside
+  the box: SEND PRIVATE MESSAGE (social.private_chat), ADD FRIEND
+  (social.friends, not a friend yet), VIEW PROFILE (a few lines of its
+  records, there), MUTE or UNMUTE, REPORT (A twice); Up and Down, Enter,
+  Escape on the keyboard. Only names the fork's chat knows the account of
+  (its own lines' players, and the upstream chat's of this game's room by
+  their names) open it (social_menu.c asks the server).
 - The players muted or blocked (social_menu.c's moderation list) are never
   heard: the server leaves their fork lines out, and their upstream lines
   (known by their names alone, as the upstream chat has no accounts) are
@@ -45,8 +52,10 @@ the community server as the install's account (social.c; api-opence's
 
 The fork's lines are asked for every SOCIAL_CHAT_POLL_FAST_MILLISECONDS in a
 network game or with the box open, else every SOCIAL_CHAT_POLL_MILLISECONDS:
-the server answers those after the last one had (its cursor), the first time
-its last few (shown in the box's history, not as new).
+the server answers those after the last one had (its cursor). As IRC, there
+is no history: the first time it answers only where to go on from (a server
+that still sends the last few lines has them left out here), and the lines
+are kept in memory alone, gone with the game.
 */
 
 #include "cseries.h"
@@ -77,6 +86,8 @@ its last few (shown in the box's history, not as new).
 #include "network_replay.h"
 #include "social.h"
 #include "social_chat.h"
+#include "social_menu.h"
+#include "halo_ui_pointer.h"
 #include "../src/community_net.h"
 #include "../src/port_config.h"
 #include "../src/server_json.h"
@@ -88,6 +99,7 @@ void platform_log(char const *format, ...);
 unsigned long system_milliseconds(void);
 unsigned long config_changes(void);
 int platform_clipboard_get(char *text, int size);
+long halo_screen_width(void);
 
 /* ---------- constants */
 
@@ -120,6 +132,14 @@ enum
 	SOCIAL_CHAT_MAXIMUM_PEERS = 32,
 	/* the names of the players muted or blocked kept, at most */
 	SOCIAL_CHAT_MAXIMUM_UNHEARD = 64,
+	/* the names that can be clicked, at most (the lines shown open) */
+	SOCIAL_CHAT_MAXIMUM_NAME_HITS = 16,
+	/* a player's menu: its options at most, its width in hundredths of the
+	screen's, and its profile's lines */
+	SOCIAL_CHAT_PLAYER_OPTIONS = 6,
+	SOCIAL_CHAT_PLAYER_WIDTH_PERCENT = 30,
+	SOCIAL_CHAT_PLAYER_TEXT_SIZE = 512,
+	SOCIAL_CHAT_PLAYER_CONFIRM_MILLISECONDS = 4000,
 	SOCIAL_CHAT_CARET_MILLISECONDS = 500,
 	/* a toggle this soon after the box opened is the same press (L, R and
 	up in a network game: its up opens it too, network_chat.c) */
@@ -162,6 +182,18 @@ enum
 	_social_chat_color_mine,
 };
 
+/* a player's menu's options */
+enum
+{
+	_social_chat_option_private,
+	_social_chat_option_friend,
+	_social_chat_option_profile,
+	_social_chat_option_mute,
+	_social_chat_option_unmute,
+	_social_chat_option_report,
+	_social_chat_option_back,
+};
+
 /* the on-screen keyboard's last row's wide keys */
 enum
 {
@@ -178,6 +210,9 @@ struct social_chat_line
 {
 	wchar_t name[SOCIAL_CHAT_NAME_SIZE];
 	char text[SOCIAL_CHAT_TEXT_SIZE];
+	/* its player's account's code ("" for one not known: a notice, an
+	upstream line of a player not of the fork's chat) */
+	char code[SOCIAL_CHAT_CODE_SIZE];
 	/* a private line's other account: its code and name */
 	char peer[SOCIAL_CHAT_CODE_SIZE];
 	wchar_t peer_name[SOCIAL_CHAT_NAME_SIZE];
@@ -242,6 +277,33 @@ static struct
 	char answer[COMMUNITY_NET_ANSWER_MAXIMUM];
 } social_chat = { { 0 }, 0, 0, FALSE, 0, NONE, 0 };
 
+/* a player's menu: its player, its options and the one chosen, its
+profile shown (else its options), a second REPORT waited for, and where its
+options were drawn (the screen's coordinates, a click's); and the names
+drawn last that can be clicked */
+static struct
+{
+	boolean open;
+	char code[SOCIAL_CHAT_CODE_SIZE];
+	wchar_t name[SOCIAL_CHAT_NAME_SIZE];
+	short options[SOCIAL_CHAT_PLAYER_OPTIONS + 1];
+	short option_count;
+	short chosen;
+	boolean profile;
+	unsigned long confirm_time;
+	short top;
+	boolean drawn;
+	rectangle2d option_bounds[SOCIAL_CHAT_PLAYER_OPTIONS + 1];
+	rectangle2d panel;
+	short hit_count;
+	struct
+	{
+		rectangle2d bounds;
+		char code[SOCIAL_CHAT_CODE_SIZE];
+		wchar_t name[SOCIAL_CHAT_NAME_SIZE];
+	} hits[SOCIAL_CHAT_MAXIMUM_NAME_HITS];
+} social_chat_player;
+
 /* the on-screen keyboard */
 static struct
 {
@@ -274,6 +336,10 @@ static wchar_t const *const social_chat_channel_tags[NUMBER_OF_SOCIAL_CHAT_CHANN
 	{ L"", L"[TEAM] ", L"[PM] ", L"[ALL] " };
 
 static void social_chat_close(void);
+static void social_chat_player_close(void);
+static void social_chat_player_back(void);
+static void social_chat_player_pick(void);
+static void social_chat_player_step(short step);
 
 /* ---------- settings */
 
@@ -521,6 +587,13 @@ static void social_chat_notice(
 	error(_error_log, "social chat notice: %s", line->text);
 }
 
+void social_chat_notice_text(
+	char const *text)
+{
+	if (text && text[0])
+		social_chat_notice(text);
+}
+
 void social_chat_upstream_line(
 	wchar_t const *name,
 	short color,
@@ -548,6 +621,15 @@ void social_chat_upstream_line(
 	social_chat_clean(line->text, text, SOCIAL_CHAT_TEXT_SIZE);
 	line->channel = channel;
 	line->color = color == 0 ? _social_chat_color_red : color == 1 ? _social_chat_color_blue : _social_chat_color_none;
+	/* (its account, when a player of this game's room has its name) */
+	for (index = 0; index < social_chat.peer_count; index++)
+	{
+		if (social_chat.peers[index].in_room && social_chat_names_equal(social_chat.peers[index].name, name))
+		{
+			csstrncpy(line->code, social_chat.peers[index].code, SOCIAL_CHAT_CODE_SIZE - 1);
+			break;
+		}
+	}
 	SET_FLAG(line->sources, _social_chat_upstream_bit, TRUE);
 }
 
@@ -722,13 +804,9 @@ static void social_chat_poll_start(
 
 	social_chat_room(social_chat.room, sizeof(social_chat.room));
 	social_player_name(name, sizeof(name));
-	/* (the reported players' lines shown or hidden anew: the history asked
-	again, as the server has it now) */
-	if (social_chat.reported_shown != social_chat_reported_shown())
-	{
-		social_chat.reported_shown = social_chat_reported_shown();
-		social_chat.polled = FALSE;
-	}
+	/* (the reported players' lines shown or hidden from the next ones on:
+	there is no history to ask again) */
+	social_chat.reported_shown = social_chat_reported_shown();
 	snprintf(path, sizeof(path), "/chat/messages?after=%ld&global=%d&reported=%d",
 		social_chat.polled ? social_chat.cursor : 0L, social_chat_global_heard() ? 1 : 0,
 		social_chat.reported_shown ? 1 : 0);
@@ -813,6 +891,9 @@ static void social_chat_take(
 		return;
 	if (!text[0])
 		return;
+	/* (no history: a line said before this game first asked is not taken) */
+	if (old)
+		return;
 	mine = from[0] && !strcmp(from, social_account_code());
 	social_chat_wide_from_utf8(name, wide_name, NUMBEROF(wide_name));
 	if (channel == _social_chat_private)
@@ -843,6 +924,8 @@ static void social_chat_take(
 	line->channel = channel;
 	line->mine = mine;
 	line->reported = reported != 0;
+	if (!mine)
+		csstrncpy(line->code, from, SOCIAL_CHAT_CODE_SIZE - 1);
 	line->color = mine ? _social_chat_color_mine : _social_chat_color_none;
 	if (channel == _social_chat_private)
 	{
@@ -1152,6 +1235,8 @@ static void social_chat_close(
 	social_chat_keyboard.open = FALSE;
 	social_chat_keyboard.drawn = FALSE;
 	social_chat.scroll = 0;
+	social_chat_player_close();
+	social_chat_player.hit_count = 0;
 }
 
 void social_chat_toggle_request(
@@ -1277,6 +1362,20 @@ static void social_chat_keyboard_update(
 	held &= ~social_chat_keyboard.opening;
 	pressed = held & ~social_chat_keyboard.held;
 	social_chat_keyboard.held = held;
+	/* (a player's menu open, by a tap: the D-pad and the stick choose, A
+	picks, B goes back) */
+	if (social_chat_player.open)
+	{
+		if (TEST_FLAG(pressed, HALO_CHAT_PAD_B))
+			social_chat_player_back();
+		else if (TEST_FLAG(pressed, HALO_CHAT_PAD_A))
+			social_chat_player_pick();
+		else if (TEST_FLAG(pressed, HALO_CHAT_PAD_UP) || TEST_FLAG(pressed, HALO_CHAT_PAD_STICK_UP))
+			social_chat_player_step(-1);
+		else if (TEST_FLAG(pressed, HALO_CHAT_PAD_DOWN) || TEST_FLAG(pressed, HALO_CHAT_PAD_STICK_DOWN))
+			social_chat_player_step(1);
+		return;
+	}
 	if (TEST_FLAG(pressed, HALO_CHAT_PAD_B))
 	{
 		social_chat_close();
@@ -1345,6 +1444,250 @@ static void social_chat_keyboard_update(
 	}
 }
 
+/* ---------- a player's menu (its name clicked) */
+
+/* a name as UTF-8 (the server's names) */
+static void social_chat_utf8_from_wide(
+	wchar_t const *wide,
+	char *text,
+	long size)
+{
+	long length = 0;
+	long index;
+
+	for (index = 0; wide[index] && length < size - 1; index++)
+	{
+		unsigned long character = (unsigned short)wide[index];
+
+		if (character < 0x80)
+			text[length++] = (char)character;
+		else if (character < 0x800 && length + 2 < size)
+		{
+			text[length++] = (char)(0xC0 | (character >> 6));
+			text[length++] = (char)(0x80 | (character & 0x3F));
+		}
+		else if (length + 3 < size)
+		{
+			text[length++] = (char)(0xE0 | (character >> 12));
+			text[length++] = (char)(0x80 | ((character >> 6) & 0x3F));
+			text[length++] = (char)(0x80 | (character & 0x3F));
+		}
+		else
+			break;
+	}
+	text[length] = 0;
+}
+
+static void social_chat_player_close(
+	void)
+{
+	social_chat_player.open = FALSE;
+	social_chat_player.drawn = FALSE;
+}
+
+/* the options for its player, as the settings and the server say now */
+static void social_chat_player_options(
+	void)
+{
+	boolean online = social_chat_online() && social_account_code()[0];
+	char const *code = social_chat_player.code;
+
+	social_chat_player.option_count = 0;
+	if (online && social_chat_private_heard())
+		social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_private;
+	if (online && config_boolean("social.friends") && !social_menu_is_friend(code))
+		social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_friend;
+	if (online)
+	{
+		social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_profile;
+		social_chat_player.options[social_chat_player.option_count++] = social_menu_is_muted(code) ?
+			_social_chat_option_unmute : _social_chat_option_mute;
+		social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_report;
+	}
+	social_chat_player.options[social_chat_player.option_count++] = _social_chat_option_back;
+	social_chat_player.chosen = (short)PIN(social_chat_player.chosen, 0, social_chat_player.option_count - 1);
+}
+
+/* the menu of the player of this code (its name as the line shows it),
+beside the line at top */
+static void social_chat_player_open(
+	char const *code,
+	wchar_t const *name,
+	short top)
+{
+	if (!code[0] || !strcmp(code, social_account_code()))
+		return;
+	csmemset(&social_chat_player.options, 0, sizeof(social_chat_player.options));
+	csstrncpy(social_chat_player.code, code, SOCIAL_CHAT_CODE_SIZE - 1);
+	social_chat_player.code[SOCIAL_CHAT_CODE_SIZE - 1] = 0;
+	ustrncpy(social_chat_player.name, name, SOCIAL_CHAT_NAME_SIZE - 1);
+	social_chat_player.name[SOCIAL_CHAT_NAME_SIZE - 1] = 0;
+	social_chat_player.open = TRUE;
+	social_chat_player.profile = FALSE;
+	social_chat_player.chosen = 0;
+	social_chat_player.confirm_time = 0;
+	social_chat_player.top = top;
+	social_chat_player.drawn = FALSE;
+	social_chat_player_options();
+}
+
+/* B, Escape, a right click: the profile back to the options, else closed */
+static void social_chat_player_back(
+	void)
+{
+	if (social_chat_player.profile)
+		social_chat_player.profile = FALSE;
+	else
+		social_chat_player_close();
+}
+
+static void social_chat_player_pick(
+	void)
+{
+	char name[SOCIAL_CHAT_NAME_SIZE * 3];
+	char const *code = social_chat_player.code;
+	short option;
+
+	if (social_chat_player.profile)
+	{
+		social_chat_player_back();
+		return;
+	}
+	if (social_chat_player.chosen < 0 || social_chat_player.chosen >= social_chat_player.option_count)
+		return;
+	option = social_chat_player.options[social_chat_player.chosen];
+	social_chat_utf8_from_wide(social_chat_player.name, name, sizeof(name));
+	switch (option)
+	{
+	case _social_chat_option_private:
+		{
+			short index;
+
+			social_chat_peer_note(code, social_chat_player.name, FALSE);
+			index = social_chat_peer_find(code);
+			if (index != NONE)
+			{
+				social_chat.channel = _social_chat_private;
+				social_chat.peer = index;
+			}
+			social_chat_player_close();
+		}
+		break;
+	case _social_chat_option_friend:
+		social_menu_player_act(code, name, _social_menu_act_friend);
+		social_chat_player_close();
+		break;
+	case _social_chat_option_profile:
+		social_chat_player.profile = TRUE;
+		social_menu_profile_ask(code, name);
+		break;
+	case _social_chat_option_mute:
+	case _social_chat_option_unmute:
+		social_menu_player_act(code, name, option == _social_chat_option_mute ? _social_menu_act_mute :
+			_social_menu_act_unmute);
+		social_chat_player_close();
+		break;
+	case _social_chat_option_report:
+		/* (a second press, soon after) */
+		if (social_chat_player.confirm_time &&
+			system_milliseconds() - social_chat_player.confirm_time <= SOCIAL_CHAT_PLAYER_CONFIRM_MILLISECONDS)
+		{
+			social_menu_player_act(code, name, _social_menu_act_report);
+			social_chat_player_close();
+		}
+		else
+		{
+			social_chat_player.confirm_time = system_milliseconds();
+		}
+		break;
+	default:
+		social_chat_player_close();
+		break;
+	}
+}
+
+static void social_chat_player_step(
+	short step)
+{
+	if (social_chat_player.profile || social_chat_player.option_count <= 0)
+		return;
+	social_chat_player.chosen = (short)((social_chat_player.chosen + step + social_chat_player.option_count) %
+		social_chat_player.option_count);
+}
+
+static boolean social_chat_inside(
+	rectangle2d const *bounds,
+	short x,
+	short y)
+{
+	return x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1;
+}
+
+void social_chat_pointer(
+	struct halo_ui_pointer const *pointer)
+{
+	short x;
+	short y;
+	short index;
+
+	if (!social_chat.open)
+		return;
+	if (pointer->wheel_steps && !social_chat_player.open)
+		social_chat.scroll = (short)PIN(social_chat.scroll + pointer->wheel_steps, 0, MAX(social_chat.line_count - 1, 0));
+	if (pointer->right_clicks && social_chat_player.open)
+		social_chat_player_back();
+	/* (the pointer over an option chooses it) */
+	x = (short)(pointer->x + (halo_screen_width() - 640) / 2);
+	y = pointer->y;
+	if (social_chat_player.open && social_chat_player.drawn && pointer->moved && !social_chat_player.profile)
+	{
+		for (index = 0; index < social_chat_player.option_count; index++)
+		{
+			if (social_chat_inside(&social_chat_player.option_bounds[index], x, y))
+				social_chat_player.chosen = index;
+		}
+	}
+	if (!pointer->left_clicks)
+		return;
+	x = (short)(pointer->click_x + (halo_screen_width() - 640) / 2);
+	y = pointer->click_y;
+	if (social_chat_player.open && social_chat_player.drawn)
+	{
+		if (social_chat_player.profile && social_chat_inside(&social_chat_player.panel, x, y))
+		{
+			social_chat_player_back();
+			return;
+		}
+		for (index = 0; index < social_chat_player.option_count; index++)
+		{
+			if (social_chat_inside(&social_chat_player.option_bounds[index], x, y))
+			{
+				social_chat_player.chosen = index;
+				social_chat_player_pick();
+				return;
+			}
+		}
+		if (social_chat_inside(&social_chat_player.panel, x, y))
+			return;
+		social_chat_player_close();
+	}
+	for (index = 0; index < social_chat_player.hit_count; index++)
+	{
+		if (social_chat_inside(&social_chat_player.hits[index].bounds, x, y))
+		{
+			social_chat_player_open(social_chat_player.hits[index].code, social_chat_player.hits[index].name,
+				social_chat_player.hits[index].bounds.y0);
+			return;
+		}
+	}
+}
+
+int social_chat_wants_pointer(
+	void)
+{
+	return social_chat.open && !console_is_active();
+}
+
 /* the keyboard's keys, as the box takes them */
 static void social_chat_keys_update(
 	void)
@@ -1353,6 +1696,19 @@ static void social_chat_keys_update(
 
 	while (social_chat.open && input_get_key(&key))
 	{
+		/* (a player's menu open: its keys alone) */
+		if (social_chat_player.open)
+		{
+			if (key.key_code == _key_escape || key.key_code == _key_backspace)
+				social_chat_player_back();
+			else if (key.key_code == _key_up_arrow)
+				social_chat_player_step(-1);
+			else if (key.key_code == _key_down_arrow || key.key_code == _key_tab)
+				social_chat_player_step(1);
+			else if (key.key_code == _key_return || key.key_code == _keypad_enter)
+				social_chat_player_pick();
+			continue;
+		}
 		switch (key.key_code)
 		{
 		case _key_escape:
@@ -1683,8 +2039,8 @@ static short social_chat_line_rows(
 }
 
 /* a line drawn from top, a row each line_height: its head in its colour,
-then its text */
-static void social_chat_line_draw(
+then its text; its head's width */
+static short social_chat_line_draw(
 	long font_index,
 	struct social_chat_line const *line,
 	short left,
@@ -1750,6 +2106,7 @@ static void social_chat_line_draw(
 		start = (short)(start + count + skip);
 		rows++;
 	}
+	return head_width;
 }
 
 /* the on-screen keyboard, under the box, its key picked lit; where it was
@@ -1918,7 +2275,7 @@ static short social_chat_open_draw(
 		}
 		else
 		{
-			snprintf(hint, sizeof(hint), "Tab: channel  %sEnter: send  Esc: close",
+			snprintf(hint, sizeof(hint), "Tab: channel  %sEnter: send  Esc: close  Click a name: player",
 				social_chat.channel == _social_chat_private ? "Up/Down: player  " : "");
 		}
 		if (social_account_code()[0])
@@ -1934,6 +2291,111 @@ static short social_chat_open_draw(
 		top = (short)(top + line_height);
 	}
 	return top;
+}
+
+/* a player's menu, beside the box from top: its name and code, then its
+options (the one chosen lit) or its profile's lines; where each was drawn
+kept, for a click */
+static void social_chat_player_draw(
+	long font_index,
+	short line_height,
+	short screen_width,
+	short screen_height,
+	short left,
+	short top)
+{
+	static real_argb_color const blue = { 1.0f, 0x28 / 255.0f, 0x96 / 255.0f, 1.0f };
+	static real_argb_color const grey = { 1.0f, 0.65f, 0.65f, 0.65f };
+	static char const *const labels[] = { "SEND PRIVATE MESSAGE", "ADD FRIEND", "VIEW PROFILE", "MUTE", "UNMUTE",
+		"REPORT", "CLOSE" };
+	real_argb_color white = get_ui_argb_white();
+	char text[SOCIAL_CHAT_PLAYER_TEXT_SIZE];
+	wchar_t wide[SOCIAL_CHAT_TEXT_SIZE];
+	short width = (short)(screen_width * SOCIAL_CHAT_PLAYER_WIDTH_PERCENT / 100);
+	short rows;
+	short row;
+	short index;
+	rectangle2d bounds;
+	short status = 0;
+
+	text[0] = 0;
+	if (social_chat_player.profile)
+	{
+		status = social_menu_profile_text(social_chat_player.code, text, sizeof(text));
+		if (!status)
+			snprintf(text, sizeof(text), "Asking the server...");
+		/* (its lines, and BACK) */
+		rows = 1;
+		for (index = 0; text[index]; index++)
+			rows = (short)(rows + (text[index] == '\n'));
+		rows = (short)(rows + 1);
+	}
+	else
+	{
+		social_chat_player_options();
+		rows = social_chat_player.option_count;
+	}
+	rows = (short)(rows + 2);
+	if (left + width > screen_width)
+		left = (short)MAX(screen_width - width, 0);
+	top = (short)PIN(top, 0, MAX(screen_height - rows * line_height - 2 * SOCIAL_CHAT_PADDING, 0));
+	social_chat_player.panel.x0 = left;
+	social_chat_player.panel.y0 = top;
+	social_chat_player.panel.x1 = (short)(left + width);
+	social_chat_player.panel.y1 = (short)(top + rows * line_height + 2 * SOCIAL_CHAT_PADDING);
+	draw_quad(&social_chat_player.panel, (pixel32)0xD0 << 24);
+	bounds.x0 = (short)(left + SOCIAL_CHAT_PADDING);
+	bounds.x1 = (short)(left + width - SOCIAL_CHAT_PADDING);
+	bounds.y0 = (short)(top + SOCIAL_CHAT_PADDING);
+	bounds.y1 = (short)(bounds.y0 + line_height);
+	social_chat_text(font_index, &bounds, &blue, social_chat_player.name);
+	offset_rectangle2d(&bounds, 0, line_height);
+	social_chat_wide_from_ascii(social_chat_player.code, wide, NUMBEROF(wide));
+	social_chat_text(font_index, &bounds, &grey, wide);
+	offset_rectangle2d(&bounds, 0, line_height);
+	if (social_chat_player.profile)
+	{
+		char *line = text;
+
+		while (line && *line)
+		{
+			char *end = strchr(line, '\n');
+
+			if (end)
+				*end = 0;
+			social_chat_wide_from_utf8(line, wide, NUMBEROF(wide));
+			social_chat_text(font_index, &bounds, &white, wide);
+			offset_rectangle2d(&bounds, 0, line_height);
+			line = end ? end + 1 : NULL;
+		}
+		social_chat_wide_from_ascii("< BACK", wide, NUMBEROF(wide));
+		social_chat_text(font_index, &bounds, &blue, wide);
+		social_chat_player.drawn = TRUE;
+		return;
+	}
+	for (row = 0; row < social_chat_player.option_count; row++)
+	{
+		short option = social_chat_player.options[row];
+		boolean chosen = row == social_chat_player.chosen;
+		char label[48];
+
+		snprintf(label, sizeof(label), "%s", option == _social_chat_option_report && social_chat_player.confirm_time &&
+			system_milliseconds() - social_chat_player.confirm_time <= SOCIAL_CHAT_PLAYER_CONFIRM_MILLISECONDS ?
+			"REPORT: AGAIN TO SEND" : labels[option]);
+		social_chat_player.option_bounds[row] = bounds;
+		social_chat_player.option_bounds[row].x0 = left;
+		social_chat_player.option_bounds[row].x1 = (short)(left + width);
+		if (chosen)
+		{
+			rectangle2d lit = social_chat_player.option_bounds[row];
+
+			draw_quad(&lit, 0xC02896FFUL);
+		}
+		social_chat_wide_from_ascii(label, wide, NUMBEROF(wide));
+		social_chat_text(font_index, &bounds, &white, wide);
+		offset_rectangle2d(&bounds, 0, line_height);
+	}
+	social_chat_player.drawn = TRUE;
 }
 
 void social_chat_draw(
@@ -1956,6 +2418,8 @@ void social_chat_draw(
 	unsigned long now = system_milliseconds();
 
 	social_chat_keyboard.drawn = FALSE;
+	social_chat_player.drawn = FALSE;
+	social_chat_player.hit_count = 0;
 	if (!social_chat_shown() || network_replay_playing() || (!social_chat.open && cinematic_in_progress()))
 		return;
 	if (!social_chat.open && !social_chat.line_count)
@@ -2038,14 +2502,37 @@ void social_chat_draw(
 				alpha = 1.0f - (real)(now - line->time - SOCIAL_CHAT_LINE_MILLISECONDS) /
 					(real)SOCIAL_CHAT_FADE_MILLISECONDS;
 			}
-			social_chat_line_draw(font_index, line, (short)(left + SOCIAL_CHAT_PADDING),
-				(short)(width - 2 * SOCIAL_CHAT_PADDING), y, line_height, alpha);
+			{
+				short head_width = social_chat_line_draw(font_index, line, (short)(left + SOCIAL_CHAT_PADDING),
+					(short)(width - 2 * SOCIAL_CHAT_PADDING), y, line_height, alpha);
+
+				/* (its player's name can be clicked, open, when its account is known) */
+				if (social_chat.open && line->code[0] && !line->mine && !line->notice &&
+					social_chat_player.hit_count < SOCIAL_CHAT_MAXIMUM_NAME_HITS)
+				{
+					short hit = social_chat_player.hit_count++;
+
+					social_chat_player.hits[hit].bounds.x0 = (short)(left + SOCIAL_CHAT_PADDING);
+					social_chat_player.hits[hit].bounds.x1 = (short)(left + SOCIAL_CHAT_PADDING + head_width);
+					social_chat_player.hits[hit].bounds.y0 = y;
+					social_chat_player.hits[hit].bounds.y1 = (short)(y + line_height);
+					csstrncpy(social_chat_player.hits[hit].code, line->code, SOCIAL_CHAT_CODE_SIZE - 1);
+					social_chat_player.hits[hit].code[SOCIAL_CHAT_CODE_SIZE - 1] = 0;
+					ustrncpy(social_chat_player.hits[hit].name, line->name, SOCIAL_CHAT_NAME_SIZE - 1);
+					social_chat_player.hits[hit].name[SOCIAL_CHAT_NAME_SIZE - 1] = 0;
+				}
+			}
 			y = (short)(y + rows * line_height);
 		}
 		if (social_chat.open)
 		{
 			y = social_chat_open_draw(font_index, line_height, (short)(left + SOCIAL_CHAT_PADDING),
 				(short)(width - 2 * SOCIAL_CHAT_PADDING), y);
+			if (social_chat_player.open)
+			{
+				social_chat_player_draw(font_index, line_height, screen_width, screen_height,
+					(short)(left + width + SOCIAL_CHAT_PADDING), social_chat_player.top);
+			}
 			if (social_chat_keyboard.open)
 			{
 				short keyboard_width = (short)(screen_width * SOCIAL_CHAT_KEYBOARD_PERCENT / 100);

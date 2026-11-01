@@ -198,13 +198,33 @@ void social_player_name(
 	char *name,
 	long size)
 {
-	struct player_profile profile;
+	/* (as the main menu's current_profile_name: the active profile as the
+	menus hold it, else the one used last, read from its file at most once
+	a second) */
+	static struct player_profile profile;
+	static long read_index = NONE;
+	static unsigned long read_time;
+	static boolean read_good;
 	long profile_index = player_ui_get_active_player_profile_index(0);
 
-	if (profile_index == NONE)
-		profile_index = player_ui_get_player1_last_used_profile_index();
 	name[0] = 0;
-	if (profile_index != NONE && player_profile_get(profile_index, &profile))
+	if (profile_index != NONE)
+	{
+		player_ui_get_active_player_profile(0, &profile);
+		read_index = NONE;
+		read_good = TRUE;
+	}
+	else if ((profile_index = player_ui_get_player1_last_used_profile_index()) == NONE)
+	{
+		return;
+	}
+	else if (profile_index != read_index || system_milliseconds() - read_time > 1000)
+	{
+		read_index = profile_index;
+		read_good = player_profile_get(profile_index, &profile);
+		read_time = system_milliseconds();
+	}
+	if (read_good)
 		social_utf8_from_wide(profile.player_name, NUMBEROF(profile.player_name), name, size);
 }
 

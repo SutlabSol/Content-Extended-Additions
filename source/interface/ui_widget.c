@@ -7037,11 +7037,20 @@ static void ui_widgets_process_mouse(
 	ui_debug_frame++;
 	/* port: the overlay menu takes the pointer while it is open, over the
 	menus or the game (port/linux/game/overlay_menu.c) */
-	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active() || overlay_menu_open(), &pointer) != 0;
+	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active() || overlay_menu_open() ||
+		social_chat_wants_pointer(), &pointer) != 0;
 	if (overlay_menu_open())
 	{
 		if (pointer_active)
 			overlay_menu_pointer(&pointer);
+		pointer_active = FALSE;
+	}
+	/* port: the fork's chat box, open, takes it too: a player's name clicked
+	(port/linux/game/social_chat.c) */
+	else if (social_chat_wants_pointer())
+	{
+		if (pointer_active)
+			social_chat_pointer(&pointer);
 		pointer_active = FALSE;
 	}
 	if (pointer_active)

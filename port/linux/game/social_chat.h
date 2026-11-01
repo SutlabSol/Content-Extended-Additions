@@ -48,6 +48,13 @@ short social_chat_recent_players(char (*codes)[16], wchar_t (*names)[32], short 
 /* (social_menu.c) the names of the players muted or blocked: their
 upstream lines hidden (the server leaves out their fork lines) */
 void social_chat_unheard_set(wchar_t const (*names)[32], short count);
+/* (social_menu.c) a line of the box's own: what a player's menu asked did */
+void social_chat_notice_text(char const *text);
+/* (ui_widget.c, as the overlay menu's) the box open takes the pointer, in
+the game and the menus: a player's name clicked or tapped opens its menu */
+struct halo_ui_pointer;
+int social_chat_wants_pointer(void);
+void social_chat_pointer(struct halo_ui_pointer const *pointer);
 /* (overlay_menu.c) L, R and the d-pad's up pressed together on a
 controller's port: the box opened, in the game or the menus, or closed */
 void social_chat_toggle_request(short port);

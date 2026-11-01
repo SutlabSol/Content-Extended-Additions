@@ -100,4 +100,28 @@ char const *social_menu_join_invite(void);
 /* (menu_functions.c) the join could not be started: said on the screen */
 void social_menu_join_failed(void);
 
+/* ---------- the chat's: a player's name clicked (social_chat.c) */
+
+/* what the chat's player menu asks of a player */
+enum
+{
+	_social_menu_act_friend,
+	_social_menu_act_mute,
+	_social_menu_act_unmute,
+	_social_menu_act_report,
+};
+
+/* a friend request, a mute, an unmute or a report (as from chat) of the
+player of this code (its name as shown): what it did, or why not, said as
+a notice of the chat's */
+void social_menu_player_act(char const *code, char const *name, short action);
+/* the player's records asked for (the Social screen's player page's,
+shared), and a few lines of them: 1 had, 0 still asked, -1 not answered
+(why in text) */
+void social_menu_profile_ask(char const *code, char const *name);
+short social_menu_profile_text(char const *code, char *text, long size);
+/* whether the player is a friend, and muted, as the server last said */
+boolean social_menu_is_friend(char const *code);
+boolean social_menu_is_muted(char const *code);
+
 #endif
