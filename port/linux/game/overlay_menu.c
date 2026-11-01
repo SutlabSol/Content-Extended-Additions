@@ -51,6 +51,7 @@ the data root (below, "the files' entries").
 #include "halo_overlay_menu.h"
 #include "halo_ui_pointer.h"
 #include "tag_editor.h"
+#include "social_chat.h"
 
 #include "../src/posix.h"
 #include "../../third_party/tomlc17/tomlc17.h"
@@ -1581,14 +1582,24 @@ unsigned char overlay_menu_take_pad(
 	{
 		COMBINATION = (1UL << HALO_OVERLAY_PAD_LEFT_SHOULDER) | (1UL << HALO_OVERLAY_PAD_RIGHT_SHOULDER) |
 			(1UL << HALO_OVERLAY_PAD_DPAD_DOWN),
+		/* port: L, R and up: the fork's chat box (social_chat.c) */
+		CHAT_COMBINATION = (1UL << HALO_OVERLAY_PAD_LEFT_SHOULDER) | (1UL << HALO_OVERLAY_PAD_RIGHT_SHOULDER) |
+			(1UL << HALO_OVERLAY_PAD_UP),
 	};
 	static unsigned long changes = (unsigned long)-1;
 	static boolean enabled = TRUE;
+	static boolean chat_combinations[OVERLAY_PORTS];
 	boolean combination = (buttons & COMBINATION) == COMBINATION;
+	boolean chat_combination = (buttons & CHAT_COMBINATION) == CHAT_COMBINATION;
 	boolean was_open = overlay.open;
 
 	if (port < 0 || port >= OVERLAY_PORTS)
 		return overlay.open;
+	/* (the chat box opened or closed, but not over the overlay, whose up it
+	is) */
+	if (chat_combination && !chat_combinations[port] && !overlay.open && !combination)
+		social_chat_toggle_request(port);
+	chat_combinations[port] = chat_combination;
 	if (changes != config_changes())
 	{
 		changes = config_changes();

@@ -45,6 +45,15 @@ QUIT_ITEM_PLACE = main_menu_item_place("quit_game")
 # the Theater (port/linux/REPLAY.md): the replays a host records, its rows
 # (_theater)
 THEATER = "main_menu/theater"
+# the Map Manager (_map_manager): its screens, the map lists' MANAGE MAP
+# (in their button bars, left of OK: a text button straight in a list draws
+# its words from its middle) and their X and Y, which open it as MANAGE MAP
+# does
+MAPS = "main_menu/map_manager"
+MAP_MANAGE_BUTTON = f"{MAPS}/map_manage_button"
+MAP_MANAGE_BUTTON_X = 154
+# (the map lists' X and Y open it, as MANAGE MAP does)
+MAP_MANAGE_HANDLERS = ['<on event="x" run="port map manage"/>', '<on event="y" run="port map manage"/>']
 # the daily challenge's screens, and Campaign's DAILY CHALLENGE (_daily),
 # above Back, which goes a row down (wider than the other items, about the
 # same middle; menu_functions.c's campaign_menu_initialize takes it away,
@@ -2662,8 +2671,15 @@ WIDGET_PATCHES = {
         f'<on event="custom_activation" run="mp level select" open="{MT}/connected/gametype_select_screen_wrapper"/>',
         '<on event="b" run="port map list back"/>',
         '<on event="back" run="port map list back"/>',
+        *MAP_MANAGE_HANDLERS,
     ]},
-    "main_menu/solo_level_select/solo_level_select_list": {"swap": {"main_menu/new_select/list_item_0": MAP_KIND_CHOOSER}},
+    "main_menu/solo_level_select/solo_level_select_list": {"swap": {"main_menu/new_select/list_item_0": MAP_KIND_CHOOSER},
+                                                           "handlers": [
+        '<on event="created" run="initialize sp level list solo"/>',
+        '<on event="deleted" run="dispose sp level list"/>',
+        '<on event="custom_activation" run="solo level set map" open="main_menu/difficulty_select/difficulty_select_list_screen"/>',
+        *MAP_MANAGE_HANDLERS,
+    ]},
     # (each description shows the other kind's maps too: a campaign level's
     # picture, name and words on the Map screen, a multiplayer map's on New
     # Game's)
@@ -2695,6 +2711,10 @@ WIDGET_PATCHES = {
     "main_menu/solo_level_select/replay_level_right_data": {"set": {"text_scale": LEVEL_DATA_TEXT_SCALE}},
     "main_menu/solo_level_select/solo_level_select_button_bar": {"children": [
         f'<child widget="{LEADERBOARD_BUTTON}" x="24" y="1"/>',
+        f'<child widget="{MAP_MANAGE_BUTTON}" x="{MAP_MANAGE_BUTTON_X}" y="1"/>',
+    ]},
+    f"{MT}/mp_map_select/mp_map_select_button_bar": {"children": [
+        f'<child widget="{MAP_MANAGE_BUTTON}" x="{MAP_MANAGE_BUTTON_X}" y="1"/>',
     ]},
     f"{MT}/join_game/header_join_game": {"children": [
         f'<child widget="{MT}/join_game/header_server_browser"/>',
@@ -2806,6 +2826,7 @@ WIDGET_PATCHES = {
 # are (port/assets/menus/port_svg): bitmap name, text
 TITLES = {
     "main_menu/mods/header_mods": "MODS",
+    "main_menu/map_manager/header_maps": "MAPS",
     "main_menu/theater/header_theater": "THEATER",
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
@@ -4556,6 +4577,7 @@ def multiplayer_files() -> dict:
         f"{MT}/local".replace("/", ".") + ".xml": head + _create_local() + ["</menus>", ""],
         "main_menu/new_select".replace("/", ".") + ".port.xml": head + _map_kind() + ["</menus>", ""],
         "main_menu/solo_level_select".replace("/", ".") + ".port.xml": head + _level_records() + _leaderboard() +
+        _map_manager() +
         ["</menus>", ""],
         PROFILE.replace("/", ".") + ".port.xml": head + _hint_widgets(PROFILE, PROFILE_HINTS) + ["</menus>", ""],
         # (and the main menu's news)
@@ -4766,6 +4788,85 @@ def _mods() -> list:
     lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="port mods save" back="true"/>',
                                               '<on event="start" run="port mods save" back="true"/>'])
     lines += _hint_widgets(base, MOD_HINTS, MOD_HINT_PICTURES)
+    return lines
+
+
+# ---------- the Map Manager (port/linux/game/map_manager.c): one Custom
+# Edition map, opened from the map lists (New Game's and the Map screen's)
+# by their MANAGE MAP (MAP_MANAGE_BUTTON, at the top right; X or Y on a
+# controller), laid out as the Tag Injector is: on the left two thirds the
+# rows of the list shown (the map's FOLDER, DESCRIPTION, PICTURE and DELETE
+# MAP, its description's lines, the folders it can be moved to, its picture
+# and shots, its replays), a row each with its name and state; on the right
+# third, in the lobby's frame, the row chosen's details, and under them its
+# picture or shot (map_picture, its picture the code's: ui_widget.c), of the
+# menus' picture shape (menu_functions.c's "port maps" and "port map manage"
+# functions)
+
+# (MAPS, MAP_MANAGE_BUTTON: at the top, as WIDGET_PATCHES names them)
+MAP_MANAGER_ROWS = MOD_ROWS
+# the picture: left, top, width and height (140x114's shape, at the frame's
+# foot)
+MAP_PICTURE_BOUNDS = (412, 239, 200, 163)
+
+
+def _map_manager() -> list:
+    base = MAPS
+    back = ['<on event="b" run="port maps back"/>', '<on event="back" run="port maps back"/>']
+    lines = _widget(f"{base}/map_manager_screen", [("width", 640), ("height", 480),
+                                                   ("flags", "pass_unhandled_to_focused_child pause_game"),
+                                                   ("bitmap", "bitmaps/gradient")],
+                    [*back, '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
+                     f'<child widget="{base}/maps_list"/>', f'<child widget="{base}/header_maps"/>'])
+    lines += _header(f"{base}/header_maps", f"{base}/header_maps")
+    rows = [f'<child widget="{base}/op_map_{index + 1}" x="20" y="{73 + 30 * index}"/>'
+            for index in range(MAP_MANAGER_ROWS)]
+    lines += _widget(f"{base}/maps_list", [("type", "column_list"), ("width", 640), ("height", 480),
+                                           ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                                           ("description", f"{base}/map_details")],
+                     ['<data input="port maps update"/>', '<on event="created" run="port maps init"/>',
+                      '<on event="deleted" run="port maps close"/>', *rows,
+                      f'<child widget="{base}/button_bar" y="414"/>'])
+    for index in range(MAP_MANAGER_ROWS):
+        lines += _widget(f"{base}/op_map_{index + 1}",
+                         [("width", 390), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                          ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
+                          ("color", "#FF2896FF")],
+                         ['<on event="a" run="port maps choose"/>', '<on event="start" run="port maps choose"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/map_name" x="12"/>',
+                          f'<child widget="{base}/map_state" x="250"/>'])
+    lines += _widget(f"{base}/map_name",
+                     [("type", "text"), ("controller", 1), ("width", 238), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_y", 4)], [])
+    lines += _widget(f"{base}/map_state",
+                     [("type", "text"), ("controller", 1), ("width", 134), ("height", 22), ("font", "ui\\small_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 6), ("text_flags", "no_focus_test")],
+                     [])
+    # (in the lobby's frame, sel_list_desc_bkd's: the row chosen's title, the
+    # rest, and under them its map's picture)
+    lines += _widget(f"{base}/map_details", [("width", 640), ("height", 480)],
+                     [f'<child widget="{base}/map_details_name"/>', f'<child widget="{base}/map_details_text"/>',
+                      f'<child widget="{base}/map_picture"/>'])
+    lines += _widget(f"{base}/map_details_name",
+                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
+                      ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    left, top, width, height = MAP_PICTURE_BOUNDS
+    lines += _widget(f"{base}/map_details_text",
+                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 130), ("width", 200),
+                      ("height", top - 130), ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/map_picture", [("controller", 1), ("left", left), ("top", top), ("width", width),
+                                            ("height", height), ("bitmap", "blank")], [])
+    lines += _widget(f"{base}/button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port maps back"/>',
+                                                         '<on event="start" run="port maps back"/>'])
+    # (the map lists' MANAGE MAP, shown with a Custom Edition map of
+    # custom_maps chosen: menu_functions.c's map_manage_show)
+    lines += _text_button(MAP_MANAGE_BUTTON, "%x-button MANAGE", ['<on event="a" run="port map manage"/>',
+                                                                 '<on event="start" run="port map manage"/>'])
     return lines
 
 

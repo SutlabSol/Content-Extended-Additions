@@ -145,6 +145,10 @@ struct custom_edition_map
 	wchar_t description[MAXIMUM_DESCRIPTION_LENGTH + 1];
 	boolean picture_read;
 	struct bitmap_data *picture;
+	/* the folder's listing has <name>.bmp and <name>.txt (its own name's,
+	not a hash's base name's: the Map Manager's, map_manager.c) */
+	boolean own_picture;
+	boolean own_description;
 };
 
 struct custom_edition_maps_globals
@@ -155,6 +159,10 @@ struct custom_edition_maps_globals
 	/* campaign maps, kept out of the level list */
 	short campaign_count;
 	struct custom_edition_map campaigns[MAXIMUM_CUSTOM_EDITION_CAMPAIGNS];
+	/* custom_maps' own folders, empty ones too, sorted by name (the Map
+	Manager's: a folder made there is listed before a map is moved in) */
+	short folder_count;
+	char folders[CUSTOM_EDITION_MAP_FOLDERS_MAXIMUM][CUSTOM_EDITION_MAP_CATEGORY_LENGTH];
 	/* the latest level list: the Xbox levels, then the CE maps */
 	short xbox_level_count;
 	char *levels[MAXIMUM_XBOX_LEVELS + CUSTOM_EDITION_MAPS_MAXIMUM];
@@ -287,6 +295,7 @@ static void custom_edition_maps_forget(
 	}
 	globals->map_count = 0;
 	globals->campaign_count = 0;
+	globals->folder_count = 0;
 
 	return;
 }
@@ -372,6 +381,8 @@ name; DESCRIPTION_BASE_NAME, a map named for its hash, its name without it),
 and none is not looked for. */
 #define DESCRIPTION_OWN_NAME 1
 #define DESCRIPTION_BASE_NAME 2
+/* (and the listing has the map's picture of its own name, <name>.bmp) */
+#define PICTURE_OWN_NAME 4
 
 static void custom_edition_map_description_read(
 	struct custom_edition_map *map,
@@ -545,6 +556,8 @@ static void custom_edition_map_add(
 	csprintf(map->level_name, "%s%s", CUSTOM_EDITION_LEVEL_NAME_PREFIX, name);
 	display_name_make(name, map->display_name);
 	custom_edition_map_description_read(map, descriptions);
+	map->own_description = (descriptions & DESCRIPTION_OWN_NAME) != 0;
+	map->own_picture = (descriptions & PICTURE_OWN_NAME) != 0;
 	/* (named for its hash by a build of before: its name given back,
 	map_share_files.c; custom_maps' own files alone, not a subfolder's) */
 	if (!category[0])
@@ -585,9 +598,12 @@ static void custom_edition_maps_scan_files(
 		uint64_t time;
 	} *files = NULL;
 	long file_count = 0, file_room = 0;
-	/* the hashes of the names its descriptions have (<name>.txt) */
+	/* the hashes of the names its descriptions have (<name>.txt), and its
+	pictures (<name>.bmp) */
 	uint64_t *descriptions = NULL;
 	long description_count = 0;
+	uint64_t *pictures = NULL;
+	long picture_count = 0;
 	char pattern[MAXIMUM_FILENAME_LENGTH + 1];
 	WIN32_FIND_DATAA data;
 	HANDLE find;
@@ -634,10 +650,16 @@ static void custom_edition_maps_scan_files(
 	CloseHandle(find);
 
 	descriptions = file_count ? malloc((size_t)file_count * sizeof(*descriptions)) : NULL;
+	pictures = file_count ? malloc((size_t)file_count * sizeof(*pictures)) : NULL;
 	for (index = 0; descriptions && index < file_count; index++)
 	{
 		if (!csstrcasecmp(files[index].extension, DESCRIPTION_EXTENSION + 1))
 			descriptions[description_count++] = name_hash(files[index].name, NULL);
+	}
+	for (index = 0; pictures && index < file_count; index++)
+	{
+		if (!csstrcasecmp(files[index].extension, PICTURE_EXTENSION + 1))
+			pictures[picture_count++] = name_hash(files[index].name, NULL);
 	}
 	for (index = 0; index < file_count; index++)
 	{
@@ -669,11 +691,21 @@ static void custom_edition_maps_scan_files(
 				if (base && descriptions[other] == base)
 					found |= DESCRIPTION_BASE_NAME;
 			}
+			for (other = 0; other < picture_count; other++)
+			{
+				if (pictures[other] == own)
+					found |= PICTURE_OWN_NAME;
+			}
 		}
 		custom_edition_map_add(root, directory, category, file->name, file->extension, file->size, file->time, found);
 	}
-	free(descriptions);
-	free(files);
+	/* (the game's debug free asserts on NULL) */
+	if (pictures)
+		free(pictures);
+	if (descriptions)
+		free(descriptions);
+	if (files)
+		free(files);
 
 	return;
 }
@@ -712,11 +744,25 @@ static void custom_edition_maps_scan_root(
 			continue;
 		}
 		csprintf(directory, "%s%s\\", root, name);
+		/* (custom_maps' folders kept, whatever is in them: the Map
+		Manager's) */
+		if (!csstrcmp(root, CUSTOM_EDITION_MAP_DIRECTORY) &&
+			custom_edition_maps_globals.folder_count < CUSTOM_EDITION_MAP_FOLDERS_MAXIMUM)
+		{
+			csstrcpy(custom_edition_maps_globals.folders[custom_edition_maps_globals.folder_count++], name);
+		}
 		custom_edition_maps_scan_files(root, directory, name);
 	} while (FindNextFileA(find, &data));
 	CloseHandle(find);
 
 	return;
+}
+
+static int custom_edition_folder_compare(
+	void const *first,
+	void const *second)
+{
+	return (int)csstrcasecmp((char const *)first, (char const *)second);
 }
 
 /* Versions of a map listed (its name the same but for the hash a version's
@@ -801,6 +847,7 @@ static void custom_edition_maps_look_for(
 	}
 	qsort(globals->maps, globals->map_count, sizeof(globals->maps[0]), custom_edition_map_compare);
 	qsort(globals->campaigns, globals->campaign_count, sizeof(globals->campaigns[0]), custom_edition_map_compare);
+	qsort(globals->folders, globals->folder_count, sizeof(globals->folders[0]), custom_edition_folder_compare);
 	custom_edition_maps_tell_versions_apart(globals->maps, globals->map_count);
 	custom_edition_maps_tell_versions_apart(globals->campaigns, globals->campaign_count);
 	error(_error_silent, "custom edition: %d multiplayer maps for the level list, %d campaign maps (%lu ms)",
@@ -811,16 +858,15 @@ static void custom_edition_maps_look_for(
 
 /* Loads the map's picture as a texture. Returns NULL if it has none, or if
 it can't be shown (logged). */
+static struct bitmap_data *custom_edition_map_picture_stream_read(
+	FILE *stream,
+	char const *path);
+
 static struct bitmap_data *custom_edition_map_picture_read(
 	struct custom_edition_map const *map)
 {
 	char path[MAXIMUM_FILENAME_LENGTH + 1];
-	struct bmp_file_picture picture;
-	enum bmp_file_status status;
-	struct bitmap_data *bitmap = NULL;
-	uint8_t *file = NULL;
 	FILE *stream;
-	long size = 0;
 
 	if (!custom_edition_map_beside(map, PICTURE_EXTENSION, path, sizeof(path)))
 		return NULL;
@@ -836,6 +882,22 @@ static struct bitmap_data *custom_edition_map_picture_read(
 	{
 		return NULL;
 	}
+
+	return custom_edition_map_picture_stream_read(stream, path);
+}
+
+/* The picture file open at stream (path, for the log) as a texture, and
+the stream closed. NULL if it can't be shown (logged). */
+static struct bitmap_data *custom_edition_map_picture_stream_read(
+	FILE *stream,
+	char const *path)
+{
+	struct bmp_file_picture picture;
+	enum bmp_file_status status;
+	struct bitmap_data *bitmap = NULL;
+	uint8_t *file = NULL;
+	long size = 0;
+
 	if (fseek(stream, 0, SEEK_END) == 0 &&
 		(size = ftell(stream)) >= 0 &&
 		size <= MAXIMUM_PICTURE_FILE_BYTES &&
@@ -1189,4 +1251,77 @@ struct bitmap_data *custom_edition_maps_picture(
 	}
 
 	return map->picture;
+}
+
+/* ---------- the Map Manager's (map_manager.c) */
+
+short custom_edition_maps_folder_count(
+	void)
+{
+	if (!custom_edition_maps_globals.looked_for)
+		custom_edition_maps_look_for();
+
+	return custom_edition_maps_globals.folder_count;
+}
+
+char const *custom_edition_maps_folder_name(
+	short index)
+{
+	struct custom_edition_maps_globals *globals = &custom_edition_maps_globals;
+
+	if (!globals->looked_for)
+		custom_edition_maps_look_for();
+
+	return index >= 0 && index < globals->folder_count ? globals->folders[index] : NULL;
+}
+
+boolean custom_edition_maps_file_get(
+	short display_index,
+	struct custom_edition_map_file *file)
+{
+	struct custom_edition_map const *map = custom_edition_map_get(display_index);
+
+	if (!map)
+		return FALSE;
+	csmemset(file, 0, sizeof(*file));
+	csstrncpy(file->name, map->name, sizeof(file->name) - 1);
+	csstrncpy(file->category, map->category, sizeof(file->category) - 1);
+	file->managed = !csstrcmp(map->folder, CUSTOM_EDITION_MAP_DIRECTORY);
+	file->campaign = display_index >= FIRST_CUSTOM_CAMPAIGN_DISPLAY_INDEX;
+	file->has_picture = map->own_picture;
+	file->has_description = map->own_description;
+
+	return TRUE;
+}
+
+boolean custom_edition_maps_file_path(
+	short display_index,
+	char const *extension,
+	char *path,
+	long size)
+{
+	struct custom_edition_map const *map = custom_edition_map_get(display_index);
+
+	return map && custom_edition_map_beside(map, extension, path, size);
+}
+
+struct bitmap_data *custom_edition_maps_picture_file_read(
+	char const *path)
+{
+	FILE *stream = fopen(path, "rb");
+
+	return stream ? custom_edition_map_picture_stream_read(stream, path) : NULL;
+}
+
+void custom_edition_maps_picture_forget(
+	short display_index)
+{
+	struct custom_edition_map *map = custom_edition_map_get(display_index);
+
+	if (!map)
+		return;
+	if (map->picture)
+		bitmap_delete(map->picture);
+	map->picture = NULL;
+	map->picture_read = FALSE;
 }

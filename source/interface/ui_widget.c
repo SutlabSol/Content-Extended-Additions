@@ -655,6 +655,7 @@ struct widget_instance;
 #include "interface/ui_widget_game_data_input_functions.h"
 #include "custom_edition_maps.h" /* port: port/linux/game/custom_edition_maps.c */
 #include "tag_preview.h" /* port: port/linux/game/tag_preview.c */
+#include "map_manager.h" /* port: port/linux/game/map_manager.c */
 #include "interface/ui_widget_event_handler_functions.h"
 #include "interface/ui_widget_text_search_and_replace_functions.h"
 #include "interface/virtual_keyboard.h"
@@ -7303,6 +7304,10 @@ static void widget_instance_render_recursive(
 	custom_edition_picture = custom_edition_maps_picture(definition->background_bitmap.index, &frame_index);
 	tag_preview_picture_shown = !custom_edition_picture && widget->name && !strcmp(widget->name, "tag_preview") ?
 		tag_preview_picture() : NULL;
+	/* port: (and the Map Manager's picture of the row chosen, over its
+	map_picture widget, the same way: port/linux/game/map_manager.c) */
+	if (!custom_edition_picture && !tag_preview_picture_shown && widget->name && !strcmp(widget->name, "map_picture"))
+		tag_preview_picture_shown = map_manager_menu_picture();
 	if (tag_preview_picture_shown)
 		custom_edition_picture = tag_preview_picture_shown;
 	bitmap = custom_edition_picture ? custom_edition_picture : bitmap_group_get_bitmap_from_sequence(

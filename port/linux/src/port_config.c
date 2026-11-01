@@ -1373,6 +1373,26 @@ static const struct config_setting config_settings[] =
 		"This install's own key on the community server, made the first time it\n"
 		"is asked: it keeps your scores yours. Keep it secret; copy it to move\n"
 		"your scores to another install." },
+	{ "social.enabled", _config_boolean, "true", "HALO_SOCIAL", _environment_value, _platform_all,
+		"With community.enabled: this install's account on the community server\n"
+		"(made the first time, with no sign-up: community.key is its key), the\n"
+		"records of its matches and levels (social.record_matches), and the\n"
+		"fork's chat (social.chat). false: none of them is sent or asked." },
+	{ "social.chat", _config_boolean, "true", "HALO_SOCIAL_CHAT", _environment_value, _platform_all,
+		"The fork's chat box, in the game and the menus: the network games' text\n"
+		"chat in it (its lines marked U), and the fork's own through the\n"
+		"community server (marked F): the match's, the team's, private ones and\n"
+		"global ones. T, Y, D-pad Up in a network game, or L + R + D-pad Up open\n"
+		"it. false: the network games' text chat as it was." },
+	{ "social.global_chat", _config_boolean, "true", "HALO_SOCIAL_GLOBAL_CHAT", _environment_value,
+		_platform_all,
+		"social.chat: the fork's global chat (every player of the fork's online)\n"
+		"is heard; false hears the match's, the team's and private lines alone." },
+	{ "social.record_matches", _config_boolean, "true", "HALO_SOCIAL_RECORD_MATCHES", _environment_value,
+		_platform_all,
+		"social.enabled: each multiplayer match played (kills, deaths, assists,\n"
+		"medals with game.multiplayer_medals, won or lost) and each campaign\n"
+		"level won is added to the account's records." },
 
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"

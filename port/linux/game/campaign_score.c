@@ -81,6 +81,7 @@ lobby) loads.
 #include "campaign_score_values.h"
 #include "campaign_medals.h"
 #include "community.h"
+#include "social.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "halo_skulls.h"
@@ -721,6 +722,27 @@ static long campaign_score_count_of(
 	{
 		if ((player_index == NONE || campaign_score_entries[index].player_index == player_index) &&
 			campaign_score_entries[index].kind == kind)
+		{
+			total++;
+		}
+	}
+	return total;
+}
+
+/* how many of a medal a player (absolute index; NONE: anyone's) won in this
+level or game, as the log has them (social.c's records) */
+long campaign_score_medal_count(
+	short player_index,
+	short medal)
+{
+	long total = 0;
+	long index;
+
+	for (index = 0; index < campaign_score_entry_count; index++)
+	{
+		if ((player_index == NONE || campaign_score_entries[index].player_index == player_index) &&
+			campaign_score_entries[index].kind == _campaign_score_entry_medal &&
+			campaign_score_entries[index].variant_index == medal)
 		{
 			total++;
 		}
@@ -1688,6 +1710,8 @@ static void campaign_score_win_compose(
 				MAX(network_game_get_game()->player_count, 1) : local_players;
 			community_level_won(tag_get_name(global_scenario_index), &online, profile.player_name, profile_index,
 				alone, campaign_score_pending_count);
+			/* (and the account's records: social.c) */
+			social_level_won(absolute_index, &online, tag_get_name(global_scenario_index), profile.player_name);
 		}
 		campaign_score_report_fill(report, absolute_index);
 		report->record_score = TEST_FLAG(records, _campaign_score_record_score_bit);

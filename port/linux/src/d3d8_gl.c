@@ -7554,6 +7554,69 @@ failed:
 }
 
 #endif
+/* port/linux/game/map_pictures.c's: the frame read back for a Custom
+Edition map's picture */
+int map_pictures_capture_wanted(void);
+void map_pictures_capture_take(const unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long pitch, int bgra);
+
+/* the back buffer's pixels, the top row first (as write_screenshot reads
+them), handed to map_pictures_capture_take; the caller's readback state
+kept */
+static void read_map_picture(struct render_target_entry *target)
+{
+	unsigned long width = target->target.gl_width, height = target->target.gl_height;
+	unsigned long image_size = width * height * 4;
+	unsigned char *pixels;
+	GLint framebuffer, pack_buffer, alignment, row_length;
+	int bgra = 1;
+
+	if (!width || !height)
+		return;
+	pixels = malloc(image_size);
+	if (!pixels)
+		return;
+	glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &framebuffer);
+	glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pack_buffer);
+	glGetIntegerv(GL_PACK_ALIGNMENT, &alignment);
+	glGetIntegerv(GL_PACK_ROW_LENGTH, &row_length);
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer_get(target->target.texture, 0));
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+	glPixelStorei(GL_PACK_ALIGNMENT, 4);
+	glPixelStorei(GL_PACK_ROW_LENGTH, 0);
+#ifdef HALO_GLES
+	/* (OpenGL ES reads RGBA, and a half float target only as floats) */
+	bgra = 0;
+	if (target->target.format == GL_RGBA16F)
+	{
+		float *texels = malloc(image_size * sizeof(float));
+		unsigned long index;
+
+		if (texels)
+		{
+			glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_RGBA, GL_FLOAT, texels);
+			for (index = 0; index < image_size; index++)
+			{
+				float texel = texels[index] < 0.0f ? 0.0f : texels[index] > 1.0f ? 1.0f : texels[index];
+
+				pixels[index] = (unsigned char)(texel * 255.0f + 0.5f);
+			}
+			free(texels);
+		}
+	}
+	else
+		glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+#else
+	glReadPixels(0, 0, (GLsizei)width, (GLsizei)height, GL_BGRA, GL_UNSIGNED_BYTE, pixels);
+#endif
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebuffer);
+	glBindBuffer(GL_PIXEL_PACK_BUFFER, pack_buffer);
+	glPixelStorei(GL_PACK_ALIGNMENT, alignment);
+	glPixelStorei(GL_PACK_ROW_LENGTH, row_length);
+	map_pictures_capture_take(pixels, width, height, width * 4, bgra);
+	free(pixels);
+}
+
 static void write_screenshot(struct render_target_entry *target)
 {
 	const char *directory = *config_string("debug.screenshot_directory") ?
@@ -8063,6 +8126,8 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 #endif
 		if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0)
 			write_screenshot(back_buffer);
+		if (map_pictures_capture_wanted())
+			read_map_picture(back_buffer);
 #if !defined(HALO_GLES) && !defined(HALO_GUEST)
 		if (platform_screenshot_take_request())
 			write_key_screenshot(back_buffer);

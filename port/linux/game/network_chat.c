@@ -93,6 +93,7 @@ mutes.
 #include "halo_keyboard.h"
 #include "server_director.h"
 #include "network_replay.h"
+#include "social_chat.h"
 
 #include <stdio.h>
 
@@ -1254,6 +1255,9 @@ static void chat_add_line(
 	chat_player_name_ascii(player, name);
 	error(_error_log, "chat%s: %s: %s", channel == _chat_channel_team ? " (team)" :
 		channel == _chat_channel_vehicle ? " (vehicle)" : "", name, line->text);
+	/* port: and the fork's chat box (social_chat.c) */
+	social_chat_upstream_line(line->name, game_engine_has_teams() ? (short)(player->team_index == 0 ? 0 : 1) : NONE,
+		channel != _chat_channel_everyone, line->text);
 }
 
 /* a notice shown (the host's): its text alone */
@@ -1266,6 +1270,8 @@ static void chat_add_notice(
 	line->channel = _chat_channel_everyone;
 	line->hearers = chat_local_players();
 	error(_error_log, "chat notice: %s", line->text);
+	/* port: and the fork's chat box (social_chat.c) */
+	social_chat_upstream_notice(line->text);
 }
 
 /* ---------- the host */
@@ -1951,7 +1957,8 @@ static void chat_keyboard_update(
 unsigned char network_chat_keyboard_open(
 	void)
 {
-	return chat_input.active && chat_keyboard.open;
+	/* port: or the fork's chat box's (social_chat.c) */
+	return (chat_input.active && chat_keyboard.open) || social_chat_keyboard_open();
 }
 
 /* whether the chat is out of sight: a menu up (the pause menu, however it
@@ -2087,9 +2094,20 @@ void network_chat_update(
 			(TEST_FLAG(pad_pressed, HALO_CHAT_PAD_UP) && !network_replay_playing())) &&
 			!console_is_active() && !overlay_menu_open())
 		{
+			/* port: the fork's chat box in its place (social_chat.c), which
+			takes the line wherever the host's settings let it go */
+			if (social_chat_replaces_upstream())
+			{
+				if (!social_chat_typing())
+				{
+					social_chat_open(pressed ? (TEST_FLAG(pressed, HALO_KEYBOARD_CHAT) ? _social_chat_match :
+						_social_chat_team) : requested_port != NONE && requested_channel != _chat_channel_everyone ?
+						_social_chat_team : _social_chat_match, pressed ? NONE : requested_port != NONE ? requested_port : 0);
+				}
+			}
 			/* (no typing where the host has the chat off: it says so, once a
 			while) */
-			if (!TEST_FLAG(chat_config_flags(), _chat_config_allowed_bit))
+			else if (!TEST_FLAG(chat_config_flags(), _chat_config_allowed_bit))
 			{
 				if (!chat_off_noticed || now - chat_off_noticed_at >= CHAT_LINE_MILLISECONDS + CHAT_FADE_MILLISECONDS)
 				{
@@ -2181,13 +2199,24 @@ void network_chat_update(
 
 short network_chat_controller(void)
 {
-	return chat_input.active && chat_keyboard.open ? chat_input.controller : NONE;
+	/* port: or the fork's chat box's (social_chat.c) */
+	return chat_input.active && chat_keyboard.open ? chat_input.controller : social_chat_controller();
 }
 
 boolean network_chat_typing(
 	void)
 {
-	return chat_input.active;
+	return chat_input.active || social_chat_typing();
+}
+
+/* port: (social_chat.c) whether a line said now would go: a network game's,
+its host letting its players chat, not a public game joined from the server
+browser (whose chat is off, unless a master server's dedicated server's) */
+boolean network_chat_available(
+	void)
+{
+	return chat_network_game() && game_in_progress() && TEST_FLAG(chat_config_flags(), _chat_config_allowed_bit) &&
+		(chat_host() || chat_listing_allows(chat_joined_listed(), p2p_joined_listed_dedicated() != 0));
 }
 
 /* ---------- drawing */
@@ -2648,6 +2677,9 @@ static void chat_keyboard_draw(
 void network_chat_draw(
 	short local_player_index)
 {
+	/* port: the fork's chat box shows them (social_chat.c) */
+	if (social_chat_replaces_upstream())
+		return;
 	long font_index = hud_get_font_index();
 	unsigned long now = system_milliseconds();
 	boolean speaker = chat_input.active ? local_player_index == controller_remap_local_player(chat_input.controller) :

@@ -3866,6 +3866,11 @@ void WINAPI D3DDevice_Clear(DWORD count, CONST D3DRECT *rectangles, DWORD flags,
 
 /* ---------- presentation */
 
+/* port/linux/game/map_pictures.c's: the frame read back for a Custom Edition map's picture */
+int map_pictures_capture_wanted(void);
+void map_pictures_capture_take(const unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long pitch, int bgra);
+
 void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destination_rectangle,
 	void *unused, void *unused2)
 {
@@ -3877,9 +3882,26 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 	{
 		struct vk_command_present *command = stream_command(VK_COMMAND_PRESENT, sizeof(*command));
 		float scale[2];
+		/* (a Custom Edition map's picture: the frame read back, port/linux/game/map_pictures.c) */
+		unsigned char *picture = NULL;
+		unsigned long picture_width = 0, picture_height = 0;
 
 		surface_describe(&device.back_buffer, FALSE, &command->back_buffer, scale);
+		command->readback = 0;
+		if (command->back_buffer.kind == VK_SURFACE_COLOR && map_pictures_capture_wanted())
+		{
+			picture_width = command->back_buffer.pixel_width;
+			picture_height = command->back_buffer.pixel_height;
+			picture = calloc(picture_width * picture_height, 4);
+			command->readback = (uint32_t)(uintptr_t)picture;
+		}
 		stream_flush();
+		/* (the host copied the pixels in during the hand-over) */
+		if (picture)
+		{
+			map_pictures_capture_take(picture, picture_width, picture_height, picture_width * 4, 1);
+			free(picture);
+		}
 		/* the host starts the next frame with nothing bound, and with no data */
 		targets_known = FALSE;
 		data_id = 0;

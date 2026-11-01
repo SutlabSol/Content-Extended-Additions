@@ -53,6 +53,10 @@ enum halo_keyboard_action
 (a bit for each halo_keyboard_action): theirs is the first's; none while a
 menu or the console is up, or a chat line is typed */
 unsigned long halo_keyboard_actions(short controller_index);
+/* ... and in the menus too (none while a line, a menu's text field or the
+console is typed in): the fork's chat box's keys (port/linux/game/
+social_chat.c) */
+unsigned long halo_keyboard_actions_anywhere(void);
 /* whether a key of the keyboard was pressed after a controller's buttons or
 sticks, or the touchscreen, were last used (sdl_platform.c): a name typed in
 the overlay menu shows its on-screen keyboard only when not */

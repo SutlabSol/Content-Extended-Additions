@@ -321,6 +321,9 @@
 	<bitmap name="main_menu/theater/header_theater">
 		<frame png="ce/port/main_menu/theater/header_theater.png" width="512" height="64"/>
 	</bitmap>
+	<bitmap name="main_menu/map_manager/header_maps">
+		<frame png="ce/port/main_menu/map_manager/header_maps.png" width="512" height="64"/>
+	</bitmap>
 	<bitmap name="main_menu/mods/header_mods">
 		<frame png="ce/port/main_menu/mods/header_mods.png" width="512" height="64"/>
 	</bitmap>

@@ -134,6 +134,8 @@ their handlers open opens.
 #include "custom_edition_maps.h"
 #include "tag_injector.h"
 #include "tag_pack.h"
+#include "map_manager.h"
+#include "map_pictures.h"
 #include "randomizer.h"
 #include "firing_range.h"
 #include "tag_multiplayer.h"
@@ -1761,6 +1763,52 @@ static char const *custom_map_level_name(short kind, short entry)
 	return custom_edition_maps_level_name(map_kind_display_index(kind, entry));
 }
 
+/* ---- the map lists' MANAGE MAP (and their X and Y): the Custom Edition
+map chosen opened in the Map Manager (map_manager.c), whose B comes back to
+the list as it was, its kind, folder and row */
+static struct
+{
+	/* the custom_maps map chosen in the list shown (its display index), NONE
+	for none, and whether that list is New Game's */
+	short display;
+	boolean level_list;
+	/* the list as the Map Manager was opened from it, put back as it is
+	made again */
+	boolean returning;
+	short kind;
+	char category[CUSTOM_EDITION_MAP_CATEGORY_LENGTH];
+	short category_entry;
+	short first, chosen;
+} map_manage = { NONE };
+
+/* the list's map chosen (NONE: none, or one that is not custom_maps'), and
+MANAGE MAP shown with one */
+static void map_manage_show(struct widget_instance *list, short display, boolean level_list)
+{
+	struct custom_edition_map_file file;
+
+	if (display != NONE && (!custom_edition_maps_file_get(display, &file) || !file.managed))
+		display = NONE;
+	map_manage.display = display;
+	map_manage.level_list = level_list;
+	visible_set(named(list, "map_manage_button", 0), display != NONE);
+}
+
+/* the list as it was before the Map Manager, once: FALSE when it was not
+opened from it */
+static boolean map_manage_return(short *kind, char *category, short *category_entry, short *first, short *chosen)
+{
+	if (!map_manage.returning)
+		return FALSE;
+	map_manage.returning = FALSE;
+	*kind = map_manage.kind;
+	csstrcpy(category, map_manage.category);
+	*category_entry = map_manage.category_entry;
+	*first = map_manage.first;
+	*chosen = map_manage.chosen;
+	return TRUE;
+}
+
 /* "initialize sp level list solo" starts on the level last played */
 static boolean level_list_initialize(struct widget_instance *list, short controller)
 {
@@ -1784,6 +1832,8 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	level_list.category_entry = 0;
 	level_list.chosen = level;
 	level_list.first = map_kind_first(level, NUMBER_OF_SINGLE_PLAYER_LEVELS);
+	map_manage_return(&level_list.kind, level_list.category, &level_list.category_entry, &level_list.first,
+		&level_list.chosen);
 	map_kind_set(list, level_list.kind);
 	map_kind_focus(list, level_list.first, level_list.chosen);
 	return TRUE;
@@ -1843,6 +1893,7 @@ static void level_list_update(struct widget_instance *list)
 	short kind = map_kind_shown(list, TRUE, level_list.kind), count, entry, level;
 
 	daily_overlays_hide(description);
+	map_manage_show(list, NONE, TRUE);
 	if (kind != level_list.kind)
 	{
 		level_list.kind = kind;
@@ -1883,6 +1934,8 @@ static void level_list_update(struct widget_instance *list)
 		}
 		visible_set(named(description, "replay_level_right_item", 0), display != NONE);
 		map_description_show(description, NONE, display);
+		if (kind == MAP_KIND_CUSTOM_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_MULTIPLAYER)
+			map_manage_show(list, display, TRUE);
 		/* (no LEADERBOARD for a map: only the campaign's levels have records) */
 		visible_set(named(screen_of(list), "button_leaderboard", 0), FALSE);
 		/* (a map's: no level's records) */
@@ -4052,12 +4105,33 @@ challenge's screen */
 #define DAILY_SCREEN_NAME "pc\\main_menu\\daily\\daily_screen"
 #define DAILY_LEADERBOARD_NAME "pc\\main_menu\\daily\\leaderboard\\leaderboard_screen"
 
+/* (and after the Map Manager left for the game, a map's pictures taken or
+a Theater played for one, or a Theater shot taken of a map with a picture:
+the Map Manager again, at that map's pictures (or which of the two to
+keep), whose BACK is the main menu, the map list it came from not kept) */
+#define MAP_MANAGER_SCREEN_NAME "pc\\main_menu\\map_manager\\map_manager_screen"
+
 void pc_menus_shell_loaded(void)
 {
 	struct community_challenge const *challenge;
 	long main_menu, daily_screen;
 	boolean random;
+	char map_name[CUSTOM_EDITION_MAP_NAME_SIZE];
+	boolean choosing;
 
+	if (map_pictures_return_take(map_name, sizeof(map_name), &choosing))
+	{
+		long manager_screen = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAP_MANAGER_SCREEN_NAME);
+
+		map_manage.returning = FALSE;
+		main_menu = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME);
+		if (main_menu != NONE && manager_screen != NONE)
+		{
+			map_manager_open_at(map_name, TRUE, choosing);
+			ui_widget_load_by_name_or_tag(NULL, manager_screen, NULL, NONE, main_menu, NONE, NONE);
+		}
+		return;
+	}
 	if (!community_daily_won_take(&random))
 		return;
 	main_menu = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME);
@@ -5523,6 +5597,9 @@ static char const *const mod_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "mod_d
 measures (one screen is shown at a time) */
 static char const *const tag_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "tag_details_name", "tag_details_text",
 	"tag_name" };
+/* ... and the Map Manager's, the same way */
+static char const *const map_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "map_details_name", "map_details_text",
+	"map_name" };
 static short const mod_text_box_characters[NUMBER_OF_MOD_TEXT_BOXES] = { 17, 30, 24 };
 
 /* (port/linux/src/port_mods.c, port_mods.h's) */
@@ -9714,6 +9791,207 @@ static boolean theater_export(void)
 #endif
 }
 
+/* ---------- the Map Manager (a map list's MANAGE MAP: map_manager.c): its
+lists laid out as the Tag Injector's, a row each with its name and state,
+scrolling over more; on the right, in the lobby's frame, the row chosen's
+details, the last thing done above them, and its map's picture or shot
+under them (map_picture, drawn by ui_widget.c). A goes down a list or does
+what the row says, B goes back up, and from the first to the map list */
+
+#define MAP_MANAGER_ROWS 11
+/* the details' lines above the picture */
+#define MAP_MANAGER_DETAILS_LINES 8
+
+static struct
+{
+	/* the list shown last (its rows focused again when it changes), and
+	what the details and each row show (made again when it changes) */
+	short list_shown;
+	char shown[MOD_DETAILS_LENGTH];
+	char row_shown[MAP_MANAGER_ROWS][2 * ROW_TEXT_LENGTH + 16];
+} maps_screen;
+
+/* the row (op_map_<n>) a widget is or is in, else NULL */
+static struct widget_instance *maps_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_map_", 7))
+			return widget;
+	}
+	return NULL;
+}
+
+/* the place on the list of the row, else NONE */
+static short maps_row_place(struct widget_instance *row)
+{
+	short place = row ? (short)(*map_manager_first() + atoi(row->name + 7) - 1) : NONE;
+
+	return place >= 0 && place < map_manager_count() ? place : NONE;
+}
+
+/* "port maps init" (the list's created) and "port maps close" (its
+deleted) */
+static boolean maps_screen_reset(boolean opening)
+{
+	short index;
+
+	if (opening)
+		map_manager_open();
+	else
+		map_manager_close();
+	/* (the map lists built again as they open: their maps may have moved) */
+	map_browse_forget();
+	maps_screen.list_shown = NONE;
+	maps_screen.shown[0] = 0;
+	csmemset(maps_screen.row_shown, 0, sizeof(maps_screen.row_shown));
+	/* (the text boxes' measures it shares with the Mods screen: none until
+	they are drawn) */
+	for (index = 0; index < NUMBER_OF_MOD_TEXT_BOXES; index++)
+	{
+		mods_screen.fonts[index] = NONE;
+		mods_screen.widths[index] = 0;
+	}
+	return TRUE;
+}
+
+/* "port maps update": what was typed taken, the rows (the list moving on
+at its ends while there are more past them), each one's name (cut short
+where it is too long) and state, and the details of the one chosen */
+static void maps_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *focused;
+	struct widget_instance *details = list->parameters.list.extended_description;
+	short *first;
+	short *chosen;
+	short count;
+	short focused_index;
+
+	map_manager_poll();
+	first = map_manager_first();
+	chosen = map_manager_chosen();
+	count = map_manager_count();
+	/* (a list opened: its row chosen focused) */
+	if (map_manager_list() != maps_screen.list_shown)
+	{
+		maps_screen.list_shown = map_manager_list();
+		if (*chosen < *first || *chosen >= *first + MAP_MANAGER_ROWS)
+			*first = (short)PIN(*chosen - MAP_MANAGER_ROWS / 2, 0, MAX(count - MAP_MANAGER_ROWS, 0));
+		focus_row(list, count ? (short)(*chosen - *first) : NONE);
+		csmemset(maps_screen.row_shown, 0, sizeof(maps_screen.row_shown));
+	}
+	focused = maps_row(list->focused_child);
+	focused_index = focused ? (short)(atoi(focused->name + 7) - 1) : NONE;
+	if (focused_index == MAP_MANAGER_ROWS - 1 && *first + MAP_MANAGER_ROWS < count && list_scrolls_at_end())
+	{
+		(*first)++;
+		focus_row(list, --focused_index);
+	}
+	else if (focused_index == 0 && *first > 0 && list_scrolls_at_end())
+	{
+		(*first)--;
+		focus_row(list, ++focused_index);
+	}
+	if (*first > 0 && *first + MAP_MANAGER_ROWS > count)
+		*first = (short)MAX(0, count - MAP_MANAGER_ROWS);
+	if (focused_index != NONE && *first + focused_index < count)
+		*chosen = (short)(*first + focused_index);
+	for (row = list->child; row; row = row->next)
+	{
+		short place;
+		short row_index;
+		char name[ROW_TEXT_LENGTH];
+		char state[ROW_TEXT_LENGTH];
+		char shown[sizeof(maps_screen.row_shown[0])];
+
+		if (strncmp(row->name, "op_map_", 7))
+			continue;
+		row->animation.current_frame_index = row == focused ? 1 : 0;
+		place = maps_row_place(row);
+		row->visible = place != NONE;
+		if (place == NONE)
+		{
+			if (row == focused)
+				focus_row(list, count ? (short)(count - 1 - *first) : NONE);
+			continue;
+		}
+		row_index = (short)PIN(atoi(row->name + 7) - 1, 0, MAP_MANAGER_ROWS - 1);
+		map_manager_row(place, name, sizeof(name), state, sizeof(state));
+		snprintf(shown, sizeof(shown), "%s|%s|%ld", name, state, mods_screen.fonts[_mod_row_name]);
+		if (strcmp(shown, maps_screen.row_shown[row_index]))
+		{
+			char shortened[MOD_DETAILS_LENGTH];
+			wchar_t wide[ROW_TEXT_LENGTH];
+
+			if (mods_text_fits(_mod_row_name, name, strlen(name)))
+				snprintf(shortened, sizeof(shortened), "%s", name);
+			else
+				mods_text_shorten(_mod_row_name, name, strlen(name), shortened, sizeof(shortened));
+			mods_wide_text(shortened, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "map_name", 0), wide);
+			mods_wide_text(state, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "map_state", 0), wide);
+			snprintf(maps_screen.row_shown[row_index], sizeof(maps_screen.row_shown[0]), "%s", shown);
+		}
+	}
+	if (details)
+	{
+		char title[MOD_DETAILS_LENGTH];
+		char text[MOD_DETAILS_LENGTH];
+		char wrapped[MOD_DETAILS_LENGTH];
+		char shown[sizeof(maps_screen.shown)];
+		wchar_t wide[MOD_DETAILS_LENGTH];
+
+		map_manager_details(count ? *chosen : NONE, title, sizeof(title), text, sizeof(text));
+		/* (made again only when what they show, or its fonts, change) */
+		snprintf(shown, sizeof(shown), "%ld %d %ld %d|%s|%s", mods_screen.fonts[_mod_details_name],
+			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],
+			mods_screen.widths[_mod_details_text], title, text);
+		if (strcmp(shown, maps_screen.shown))
+		{
+			snprintf(maps_screen.shown, sizeof(maps_screen.shown), "%s", shown);
+			wrapped[0] = 0;
+			mods_wrap(title, wrapped, sizeof(wrapped), _mod_details_name, 2, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "map_details_name", 0), wide, NUMBEROF(wide));
+			wrapped[0] = 0;
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, MAP_MANAGER_DETAILS_LINES, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "map_details_text", 0), wide, NUMBEROF(wide));
+		}
+	}
+}
+
+/* "port maps choose" (A on a row): a Theater loading closes the menus
+with its game; the map deleted, back to the map list */
+static boolean maps_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short place = maps_row_place(maps_row(widget));
+
+	if (place == NONE)
+		place = *map_manager_chosen();
+	*map_manager_chosen() = place;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	if (map_manager_choose(place) == _map_manager_closes)
+	{
+		ui_widget_port_go_back(widget);
+		*widget_deleted = TRUE;
+	}
+	return TRUE;
+}
+
+/* "port maps back" (B, and BACK): up a list, else away */
+static boolean maps_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	if (map_manager_back())
+		return TRUE;
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
 or LAN; Join Game > Server Browser (blank, for now), LAN, Direct Link): the
 Xbox's networking, run by the engine's port entry points
@@ -10229,6 +10507,12 @@ static boolean map_list_initialize(struct widget_instance *list)
 			last_used = view == NONE ? 0 : view;
 		}
 	}
+	/* (back from the Map Manager: the list as it was) */
+	if (map_manage_return(&map_list.kind, map_list.category, &map_list.category_entry, &map_list.first,
+		&map_list.chosen))
+	{
+		last_used = map_list.chosen;
+	}
 	map_kind_set(list, map_list.kind);
 	map_step_open(list, MAP_STEP_MAPS, last_used);
 	return TRUE;
@@ -10245,6 +10529,7 @@ static void map_list_update(struct widget_instance *list)
 	boolean custom = kind == MAP_KIND_CUSTOM_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_MULTIPLAYER;
 
 	daily_overlays_hide(description);
+	map_manage_show(list, NONE, FALSE);
 	if (kind != map_list.kind)
 	{
 		map_list.kind = kind;
@@ -10290,8 +10575,42 @@ static void map_list_update(struct widget_instance *list)
 		}
 		visible_set(named(description, "mp_map_right_item", 0), display != NONE);
 		map_description_show(description, NONE, display);
+		/* (a map's difficulties listed: it is being played, not managed) */
+		if (custom && map_list.step == MAP_STEP_MAPS)
+			map_manage_show(list, display, FALSE);
 	}
 	profile_name_show(description);
+}
+
+/* "port map manage" (MANAGE MAP, or X or Y in a map list): the map chosen
+in the Map Manager, over the list's screen, which its B returns to as it
+was */
+static boolean map_manage_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	struct custom_edition_map_file file;
+	long manager_screen = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAP_MANAGER_SCREEN_NAME);
+
+	if (map_manage.display == NONE || manager_screen == NONE ||
+		!custom_edition_maps_file_get(map_manage.display, &file) || !file.managed)
+	{
+		return TRUE;
+	}
+	map_manage.returning = TRUE;
+	map_manage.kind = map_manage.level_list ? level_list.kind : map_list.kind;
+	csstrcpy(map_manage.category, map_manage.level_list ? level_list.category : map_list.category);
+	map_manage.category_entry = map_manage.level_list ? level_list.category_entry : map_list.category_entry;
+	map_manage.first = map_manage.level_list ? level_list.first : map_list.first;
+	map_manage.chosen = map_manage.level_list ? level_list.chosen : map_list.chosen;
+	map_manager_open_at(file.name, FALSE, FALSE);
+	if (!ui_widget_load_by_name_or_tag(NULL, manager_screen, NULL, NONE, screen_of(widget)->definition_tag_index,
+		NONE, NONE))
+	{
+		map_manage.returning = FALSE;
+		return TRUE;
+	}
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	*widget_deleted = TRUE;
+	return TRUE;
 }
 
 /* "mp level select" (the list's OK): the map chosen, or a level's
@@ -14683,7 +15002,8 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	measured in, mods_text_fits) */
 	for (row = 0; widget->name && row < NUMBER_OF_MOD_TEXT_BOXES; row++)
 	{
-		if (!strcmp(widget->name, mod_text_box_names[row]) || !strcmp(widget->name, tag_text_box_names[row]))
+		if (!strcmp(widget->name, mod_text_box_names[row]) || !strcmp(widget->name, tag_text_box_names[row]) ||
+			!strcmp(widget->name, map_text_box_names[row]))
 		{
 			mods_screen.fonts[row] = draw_string_get_font();
 			mods_screen.widths[row] = (short)(bounds->x1 - bounds->x0);
@@ -16925,6 +17245,22 @@ boolean pc_menu_event_function_invoke(
 		{
 			return theater_export();
 		}
+		else if (!strcmp(name, "port maps init") || !strcmp(name, "port maps close"))
+		{
+			return maps_screen_reset(!strcmp(name, "port maps init"));
+		}
+		else if (!strcmp(name, "port maps choose"))
+		{
+			return maps_choose(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port maps back"))
+		{
+			return maps_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port map manage"))
+		{
+			return map_manage_open(widget, widget_deleted);
+		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
 			return controls_load(!strcmp(name, "controls screen defaults"));
@@ -17316,6 +17652,8 @@ void pc_menu_game_data_function_invoke(
 		tags_update(widget);
 	else if (!strcmp(name, "port theater update"))
 		theater_update(widget);
+	else if (!strcmp(name, "port maps update"))
+		maps_update(widget);
 	else if (!strcmp(name, "color picker update"))
 		color_list_update(widget);
 	else if (!strcmp(name, "3wide player profile list update"))

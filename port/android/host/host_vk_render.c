@@ -1556,11 +1556,67 @@ static void present_unsubmitted(uint32_t image)
 		backend_unavailable("the frame's acquire semaphore could not be made again");
 }
 
+/* ---------- a picture's readback: the back buffer as it is presented, copied into the guest's memory that its PRESENT
+names (a Custom Edition map's picture, port/linux/game/map_pictures.c). Rare: the frame is waited for */
+
+static struct
+{
+	VkBuffer buffer;
+	VkDeviceMemory memory;
+	void *mapped;
+	VkDeviceSize size;
+} readback;
+
+/* the back buffer's copy into the readback buffer recorded (made, or made again for another size); 0 if it cannot be */
+static int readback_record(VkCommandBuffer cmd, struct host_vk_target *back_buffer)
+{
+	VkDeviceSize size = (VkDeviceSize)back_buffer->key.pixel_width * back_buffer->key.pixel_height * 4;
+	VkBufferMemoryBarrier after = { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+	VkBufferImageCopy region;
+
+	if (!size)
+		return 0;
+	if (readback.size != size)
+	{
+		if (readback.buffer)
+			vkDestroyBuffer(B.device, readback.buffer, NULL);
+		if (readback.memory)
+			vkFreeMemory(B.device, readback.memory, NULL);
+		readback.buffer = VK_NULL_HANDLE;
+		readback.memory = VK_NULL_HANDLE;
+		readback.size = 0;
+		if (!host_vk_buffer_make(size, VK_BUFFER_USAGE_TRANSFER_DST_BIT, &readback.buffer, &readback.memory,
+			&readback.mapped))
+		{
+			return 0;
+		}
+		readback.size = size;
+	}
+	host_vk_target_transition(cmd, back_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+	memset(&region, 0, sizeof(region));
+	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	region.imageSubresource.layerCount = 1;
+	region.imageExtent.width = back_buffer->key.pixel_width;
+	region.imageExtent.height = back_buffer->key.pixel_height;
+	region.imageExtent.depth = 1;
+	vkCmdCopyImageToBuffer(cmd, back_buffer->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback.buffer, 1, &region);
+	/* (the host reads the buffer once the frame's fence has passed) */
+	after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	after.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+	after.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	after.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	after.buffer = readback.buffer;
+	after.size = VK_WHOLE_SIZE;
+	vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, NULL, 1, &after, 0, NULL);
+	return 1;
+}
+
 static void command_present(const struct vk_command_present *command)
 {
 	VkCommandBuffer cmd = host_vk_frame_command();
 	struct host_vk_target *back_buffer = NULL;
 	uint32_t image = UINT32_MAX;
+	int reading = 0;
 
 	host_vk_rendering_end();
 	host_vk_visibility_frame_end(cmd);
@@ -1570,6 +1626,8 @@ static void command_present(const struct vk_command_present *command)
 	/* the next frame starts with nothing bound (the guest tells the host its targets again) */
 	B.color = B.depth = NULL;
 	B.samples = 0;
+	if (back_buffer && !B.dead && command->readback)
+		reading = readback_record(cmd, back_buffer);
 	if (back_buffer && !B.dead)
 		image = host_vk_present_record(cmd, back_buffer);
 	else
@@ -1579,6 +1637,17 @@ static void command_present(const struct vk_command_present *command)
 		present_unsubmitted(image);
 	else if (image != UINT32_MAX && !B.dead)
 		host_vk_present_queue(image);
+	/* (the picture's pixels, once the GPU has drawn the frame: the slot's next use waits on its fence again, which
+	has passed) */
+	if (reading && !B.dead && B.frames[B.frame].submitted)
+	{
+		struct host_vk_frame *frame = &B.frames[B.frame];
+
+		host_vk_wait_fence(frame->fence, "a picture's readback", frame->number);
+		retire(frame->number);
+		if (!B.dead)
+			memcpy((void *)(uintptr_t)command->readback, readback.mapped, (size_t)readback.size);
+	}
 	host_vk_data_frame_end();
 	host_vk_services_tick();
 	B.frame = (B.frame + 1) % HOST_VK_FRAMES;

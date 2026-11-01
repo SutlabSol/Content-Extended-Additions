@@ -98,6 +98,11 @@ long campaign_score_player_kills(long player_index);
 long campaign_score_player_deaths(long player_index);
 long campaign_score_team_points(void);
 boolean campaign_score_is_competitive(void);
+/* (social.c) how many of a medal (campaign_medals.h's) a player (absolute
+index; NONE: anyone's) won in this level or game: its log's, as reverted
+checkpoints left it; a multiplayer game's, this machine's players' alone
+with game.multiplayer_medals */
+long campaign_score_medal_count(short player_index, short medal);
 long campaign_score_level_ticks(void);
 /* (game.c's game_tick) the level's time counted on, each tick: a checkpoint
 reverted to takes nothing from it */

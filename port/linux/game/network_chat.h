@@ -44,6 +44,10 @@ void network_chat_say_unchecked(short channel, char const *text);
 /* whether a line is being typed: the keyboard types into it, and drives no
 player (xinput_sdl.c), as with the console */
 boolean network_chat_typing(void);
+/* (social_chat.c) whether a line said now would go: a network game's, its
+host letting its players chat (not a public game joined from the server
+browser, unless a master server's dedicated server's) */
+boolean network_chat_available(void);
 /* Physical controller owning the on-screen keyboard, or NONE. */
 short network_chat_controller(void);
 /* (hud_unit.c) where the local player's motion sensor was drawn: its left

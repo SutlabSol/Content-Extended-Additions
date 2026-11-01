@@ -3837,6 +3837,13 @@ static boolean main_loop_iteration(
 				community_update(main_globals.main_menu_scenario_loaded);
 				daily_menu_poll();
 			}
+			/* port: the account, its records and the fork's chat
+			(port/linux/game/social.c) */
+			{
+				extern void social_update(void);
+
+				social_update();
+			}
 			/* port: network games' text chat (port/linux/game/network_chat.c) */
 			network_chat_update();
 			profile_scope_enter(main_network_start_frame_section)
