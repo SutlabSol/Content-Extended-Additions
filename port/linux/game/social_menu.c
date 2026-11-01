@@ -13,7 +13,11 @@ community server's answers.
   the main loop, so that an answer that comes after the screen closed still
   counts.
 - The friends and requests are asked for again every
-  SOCIAL_MENU_REFRESH_MILLISECONDS while a list of them is shown.
+  SOCIAL_MENU_REFRESH_MILLISECONDS while a list of them is shown, and
+  whenever the key of them the server sends with the chat's lines and the
+  presence changes (social_menu_friends_key). What changed since the last
+  list is said in the chat: a request to you (those waiting too, once), one
+  of yours accepted or declined (friends_notice).
 - An action that cannot be taken back at once (removing a friend, a block,
   a report) wants A pressed twice.
 - A friend's game is joined by its invite (social.instant_join on its side,
@@ -308,6 +312,15 @@ static struct
 	short incoming_count;
 	struct social_menu_person outgoing[SOCIAL_MENU_REQUESTS];
 	short outgoing_count;
+	/* the friendships' key the server said last, and whether the lists are
+	to be asked for again for it; the account the lists had are of (what
+	changed is said against them), and the requests waiting said once */
+	char friends_key[SOCIAL_MENU_CODE_SIZE * 2];
+	boolean friends_due;
+	char friends_account[SOCIAL_MENU_CODE_SIZE];
+	boolean incoming_said;
+	/* the action's player's code */
+	char action_code[SOCIAL_MENU_CODE_SIZE];
 	/* the friends' activity */
 	boolean activity_had;
 	boolean activity_failed;
@@ -707,10 +720,82 @@ static void totals_read(
 	totals->medals = json_number(document, token, "medals", 0);
 }
 
+static boolean people_have(
+	struct social_menu_person const *people,
+	short count,
+	char const *code)
+{
+	short index;
+
+	for (index = 0; index < count; index++)
+	{
+		if (!strcmp(people[index].code, code))
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* the lists had again: said in the chat, against those had before (were),
+a request to you new (each waiting, the first time), one of yours gone:
+accepted (a friend now) or declined */
+static void friends_notice(
+	boolean compare,
+	struct social_menu_person const *were_incoming,
+	short were_incoming_count,
+	struct social_menu_person const *were_outgoing,
+	short were_outgoing_count)
+{
+	char text[SOCIAL_MENU_NAME_SIZE + 96];
+	short index;
+
+	if (!config_boolean("social.friends"))
+		return;
+	for (index = 0; index < social_menu.incoming_count; index++)
+	{
+		struct social_menu_person const *person = &social_menu.incoming[index];
+
+		if (compare ? people_have(were_incoming, were_incoming_count, person->code) : social_menu.incoming_said)
+			continue;
+		snprintf(text, sizeof(text), "%s sent you a friend request.", person->name);
+		social_chat_notice_text(text);
+	}
+	social_menu.incoming_said = TRUE;
+	if (!compare)
+		return;
+	for (index = 0; index < were_outgoing_count; index++)
+	{
+		struct social_menu_person const *person = &were_outgoing[index];
+
+		if (people_have(social_menu.outgoing, social_menu.outgoing_count, person->code))
+			continue;
+		if (people_have(social_menu.friends, social_menu.friend_count, person->code))
+			snprintf(text, sizeof(text), "%s accepted your friend request.", person->name);
+		else
+			snprintf(text, sizeof(text), "%s declined your friend request.", person->name);
+		social_chat_notice_text(text);
+	}
+}
+
+void social_menu_friends_key(
+	char const *key)
+{
+	if (!key[0] || !strcmp(key, social_menu.friends_key))
+		return;
+	/* (the first key said: the lists had already are of it) */
+	if (social_menu.friends_key[0] || !social_menu.friends_had)
+		social_menu.friends_due = TRUE;
+	snprintf(social_menu.friends_key, sizeof(social_menu.friends_key), "%s", key);
+}
+
 static void friends_take(
 	boolean answered)
 {
+	static struct social_menu_person were_incoming[SOCIAL_MENU_REQUESTS];
+	static struct social_menu_person were_outgoing[SOCIAL_MENU_REQUESTS];
 	struct server_json_document document;
+	short were_incoming_count = social_menu.incoming_count;
+	short were_outgoing_count = social_menu.outgoing_count;
+	boolean compare = social_menu.friends_had && !strcmp(social_menu.friends_account, social_account_code());
 	int data;
 
 	social_menu.friends_at = system_milliseconds();
@@ -725,6 +810,8 @@ static void friends_take(
 	}
 	if (data >= 0)
 	{
+		csmemcpy(were_incoming, social_menu.incoming, sizeof(were_incoming));
+		csmemcpy(were_outgoing, social_menu.outgoing, sizeof(were_outgoing));
 		social_menu.friends_enabled = json_boolean(&document, data, "enabled");
 		social_menu.friend_count = people_read(&document, server_json_member(&document, data, "friends"),
 			social_menu.friends, SOCIAL_MENU_FRIENDS);
@@ -733,6 +820,8 @@ static void friends_take(
 		social_menu.outgoing_count = people_read(&document, server_json_member(&document, data, "outgoing"),
 			social_menu.outgoing, SOCIAL_MENU_REQUESTS);
 		social_menu.friends_had = TRUE;
+		friends_notice(compare, were_incoming, were_incoming_count, were_outgoing, were_outgoing_count);
+		snprintf(social_menu.friends_account, sizeof(social_menu.friends_account), "%s", social_account_code());
 	}
 	else
 	{
@@ -966,6 +1055,7 @@ static void act_as(
 	}
 	social_menu.action_kind = kind;
 	snprintf(social_menu.action_name, sizeof(social_menu.action_name), "%s", name && name[0] ? name : code);
+	snprintf(social_menu.action_code, sizeof(social_menu.action_code), "%s", code);
 	message_set("Asking the server...");
 }
 
@@ -1054,7 +1144,21 @@ static void action_take(
 	if (social_menu.action_from_chat)
 		social_chat_notice_text(social_menu.message);
 	social_menu.action_from_chat = FALSE;
-	/* (what it changed) */
+	/* (what it changed; a request of yours taken back, or gone with a
+	block, not said as declined) */
+	if (answered && status == 200)
+	{
+		short index;
+
+		for (index = 0; index < social_menu.outgoing_count; index++)
+		{
+			if (!strcmp(social_menu.outgoing[index].code, social_menu.action_code))
+			{
+				social_menu.outgoing[index] = social_menu.outgoing[--social_menu.outgoing_count];
+				break;
+			}
+		}
+	}
 	social_menu.friends_at = 0;
 	social_menu.friends_had = social_menu.friends_had && answered;
 	social_menu.moderation_due = TRUE;
@@ -1113,6 +1217,12 @@ void social_menu_update(
 		fetch(_fetch_player);
 	if (!social_menu.friends_had && !social_menu.friends_at)
 		fetch(_fetch_friends);
+	/* (and again once the server's key of them changed) */
+	if (social_menu.friends_due && !social_menu.fetch_ticket && !social_menu.action_ticket)
+	{
+		fetch(_fetch_friends);
+		social_menu.friends_due = social_menu.fetch_ticket == 0;
+	}
 	/* (the players muted and blocked: the chat's, whether the screen is open) */
 	if (social_menu.moderation_ticket)
 	{
@@ -2011,9 +2121,30 @@ void social_menu_home_friend_open(
 {
 	if (row < 0 || row >= social_menu_home_rows())
 		return;
+	social_menu_player_open_next(social_menu.friends[row].code, social_menu.friends[row].name);
+}
+
+long social_menu_requests_waiting(
+	void)
+{
+	long friends_online = 0;
+	long requests = 0;
+
+	if (!social_enabled() || !config_boolean("social.friends"))
+		return 0;
+	if (social_menu.friends_had)
+		return social_menu.incoming_count;
+	social_presence_counts(&friends_online, &requests);
+	return requests;
+}
+
+void social_menu_player_open_next(
+	char const *code,
+	char const *name)
+{
 	social_menu.opening = _social_menu_open_player;
-	snprintf(social_menu.opening_code, sizeof(social_menu.opening_code), "%s", social_menu.friends[row].code);
-	snprintf(social_menu.opening_name, sizeof(social_menu.opening_name), "%s", social_menu.friends[row].name);
+	snprintf(social_menu.opening_code, sizeof(social_menu.opening_code), "%s", code);
+	snprintf(social_menu.opening_name, sizeof(social_menu.opening_name), "%s", name);
 }
 
 short social_menu_home_hit(

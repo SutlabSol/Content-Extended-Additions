@@ -133,9 +133,9 @@
 		<on event="start" run="port social back"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/social/social_home" type="text" controller="1" left="316" top="244" width="304" height="118" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	<widget name="main_menu/social/social_home" type="text" controller="1" left="316" top="160" width="304" height="110" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
-	<widget name="main_menu/social/social_home_chat" type="text" controller="1" left="316" top="368" width="304" height="78" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	<widget name="main_menu/social/social_home_chat" type="text" controller="1" left="316" top="276" width="304" height="170" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/social/y_butn_social" width="16" height="20">
 	</widget>

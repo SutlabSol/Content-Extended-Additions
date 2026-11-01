@@ -21,16 +21,18 @@ from xml.sax.saxutils import quoteattr
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
 # the mods' screen, and its rows (_mods); the main menu's items
 # (ce/main_menu.xml), MAIN_MENU_ITEM_SPACING apart, in its left column (the
-# social column on its right: SOCIAL_HOME): PLAY (Campaign and Multiplayer,
-# _play), THEATER (_theater), the PC version's Profiles and Settings, MODS
-# in Credits' place (Credits is left out: tools/ce_menus.py's LEFT_OUT), and
-# Quit (their CHILD_OFFSETS); the list's order is its up and down's
+# social column on its right: SOCIAL_HOME), centred in it with the news' and
+# Social's hints under them: PLAY (Campaign and Multiplayer, _play), FORGE
+# (not yet: a picture alone, greyed, out of the list), THEATER (_theater),
+# the PC version's Profiles and Settings, MODS in Credits' place (Credits is
+# left out: tools/ce_menus.py's LEFT_OUT), and Quit (their CHILD_OFFSETS);
+# the list's order is its up and down's
 MODS = "main_menu/mods"
 MOD_ROWS = 11
-MAIN_MENU_ITEM_LEFT = 40
-MAIN_MENU_ITEM_TOP = 247
+MAIN_MENU_ITEM_LEFT = 30
+MAIN_MENU_ITEM_TOP = 176
 MAIN_MENU_ITEM_SPACING = 32
-MAIN_MENU_ITEMS = ["play", "theater", "profile", "settings", "mods", "quit_game"]
+MAIN_MENU_ITEMS = ["play", "forge", "theater", "profile", "settings", "mods", "quit_game"]
 
 
 def main_menu_item_place(item: str) -> tuple:
@@ -42,15 +44,23 @@ PLAY_ITEM_PLACE = main_menu_item_place("play")
 MODS_ITEM_PLACE = main_menu_item_place("mods")
 THEATER_ITEM_PLACE = main_menu_item_place("theater")
 QUIT_ITEM_PLACE = main_menu_item_place("quit_game")
+FORGE_ITEM_PLACE = main_menu_item_place("forge")
+FORGE_ITEM = "main_menu/main_menu_item_forge"
+# PLAY's FIREFIGHT (not yet: greyed, out of its list, after Multiplayer)
+FIREFIGHT_ITEM = "main_menu/play/menu_item_firefight"
 # PLAY's screen (_play): Campaign's and Multiplayer's items, and Back, where
 # the main menu's were
 PLAY = "main_menu/play"
 # the main menu's social column, right of its items (menu_functions.c's
 # "social_home" and "social_home_chat" text boxes, drawn by social_menu.c
 # and social_chat.c): your totals and your friends (left, top, width,
-# height), and the fork's chat box under them; Right goes into it, Left back
-SOCIAL_HOME = (316, 244, 304, 118)
-SOCIAL_HOME_CHAT = (316, 368, 304, 78)
+# height), and the fork's chat box under them, tall for five lines; Right
+# goes into it, Left back. The Halo logo is raised for them (its letters
+# from 94 to 167 of its bitmap), on PLAY's screen too, and the build number
+# and renderer sit between it and them (ce_menus.py's CHILD_OFFSETS)
+SOCIAL_HOME = (316, 160, 304, 110)
+SOCIAL_HOME_CHAT = (316, 276, 304, 170)
+MAIN_MENU_LOGO_TOP = -44
 # the Theater (port/linux/REPLAY.md): the replays a host records, its rows
 # (_theater)
 THEATER = "main_menu/theater"
@@ -67,9 +77,9 @@ MAP_MANAGE_HANDLERS = ['<on event="x" run="port map manage"/>', '<on event="y" r
 # (over the news' hint), and Settings' Chat's BLOCKED & MUTED
 SOCIAL = "main_menu/social"
 SOCIAL_ROWS = 11
-# (under the social column, right of the profile's name)
-SOCIAL_HINT_PLACE = (510, 452)
-NEWS_HINT_PLACE = (400, 452)
+# (under the main menu's items, the news' first, about their middle)
+NEWS_HINT_PLACE = (MAIN_MENU_ITEM_LEFT + 50, QUIT_ITEM_PLACE[1] + 44)
+SOCIAL_HINT_PLACE = (MAIN_MENU_ITEM_LEFT + 137, QUIT_ITEM_PLACE[1] + 44)
 # the daily challenge's screens, and PLAY's DAILY CHALLENGE (_daily, _play),
 # above Back (wider than the other items, about the same middle;
 # menu_functions.c's play_menu_initialize takes it away, and Back up in its
@@ -2715,7 +2725,9 @@ WIDGET_PATCHES = {
     # (and the hint that X opens it, over the build number: a tap or a click
     # on it presses X, its picture a key's icon to the pointer, x_butn_news)
     # (and the social column: _social's social_home and social_home_chat)
+    # (and FORGE, greyed, in its place among the items, out of their list)
     "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
+        f'<child widget="{FORGE_ITEM}" x="{FORGE_ITEM_PLACE[0]}" y="{FORGE_ITEM_PLACE[1]}"/>',
         f'<child widget="{SOCIAL}/social_home"/>',
         f'<child widget="{SOCIAL}/social_home_chat"/>',
         f'<child widget="{SOCIAL}/y_butn_social" x="{SOCIAL_HINT_PLACE[0]}" y="{SOCIAL_HINT_PLACE[1]}"/>',
@@ -4738,7 +4750,13 @@ MENU_ITEM_SPACES = {"MO": 3.17, "OD": 2.8, "DS": 2.3,
                     # others set by eye beside the PC version's items)
                     "TH": 2.5, "HE": 2.6, "EA": 1.5, "AT": 0.5, "TE": 1.5, "ER": 3.24,
                     # (PLAY's: as the redraws' MULTIPLAYER has them)
-                    "PL": 2.27, "LA": -0.1, "AY": -3.74}
+                    "PL": 2.27, "LA": -0.1, "AY": -3.74,
+                    # (FORGE's and FIREFIGHT's: FI and IG as the redraws'
+                    # PROFILES and SETTINGS have them, the others as pairs
+                    # of the same shapes: OR as ON, RG as RO, IR as IP, RE as
+                    # PR, EF as ER, GH as GN, HT as NT)
+                    "FO": 1.6, "OR": 3.18, "RG": 1.6, "FI": 2.73, "IR": 4.13, "RE": 2.76, "EF": 3.24,
+                    "IG": 3.47, "GH": 3.39, "HT": 1.66}
 # the mods' status icons (port/assets/icons/lucide): a mod out of the order it
 # asks for, and one that cannot be played (another mod says it cannot be
 # played with it, or this build cannot play it): menu_functions.c's
@@ -4759,11 +4777,12 @@ def redraw_letters(redraws: Path) -> dict:
     return letters
 
 
-def menu_item_frames(text: str, redraws: Path, width: int = 256) -> list:
+def menu_item_frames(text: str, redraws: Path, width: int = 256, disabled: bool = False) -> list:
     """the frames (svg, width, height) of a main menu item of the port's: its
     text in the redraws' own letters (redraw_letters), spaced, placed and
     coloured as their items are, dim, then white with their blue glow; a
-    wider one (DAILY CHALLENGE's) as wide as `width`, about the same middle"""
+    wider one (DAILY CHALLENGE's) as wide as `width`, about the same middle;
+    one not yet there (disabled), its one frame grey"""
     from fontTools.pens.boundsPen import BoundsPen
     from fontTools.svgLib.path import parse_path
 
@@ -4786,6 +4805,11 @@ def menu_item_frames(text: str, redraws: Path, width: int = 256) -> list:
     paths = [f'    <path id="g{letter}" d="{letters[letter]}"/>' for letter in sorted(set(glyphs))]
     head = ['<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" '
             f'width="{width}" height="64" viewBox="0 0 {width} 64">', "  <defs>", *paths]
+    if disabled:
+        grey = [*head, "  </defs>", f'  <!-- "{text}" (not yet: grey) -->',
+                '  <g id="text" fill="#8c9099" fill-opacity="0.40">', *[f"    {use}" for use in uses], "  </g>",
+                "</svg>", ""]
+        return [("\n".join(grey), width, 64)]
     dim = [*head, "  </defs>", f'  <!-- "{text}" (normal state: dim blue) -->',
            '  <g id="text" fill="#2895ff" fill-opacity="0.467">', *[f"    {use}" for use in uses], "  </g>", "</svg>", ""]
     glow = [*head, f'    <filter id="glow" filterUnits="userSpaceOnUse" x="0" y="0" width="{width}" height="64">',
@@ -5133,18 +5157,23 @@ def _play() -> list:
                     [("type", "text"), ("width", 256), ("height", 33), ("bitmap", "main_menu/menu_play")],
                     [f'<on event="a" open="{base}/play_screen"/>', f'<on event="start" open="{base}/play_screen"/>',
                      '<on event="left_mouse" run="mouse emit accept event"/>'])
+    # (its items' places: FIREFIGHT's, greyed, in the screen, out of the list)
+    places = [("main_menu/main_menu_item_load_camp", 194), ("main_menu/main_menu_item_multiplayer", 192),
+              (FIREFIGHT_ITEM, 192), (DAILY_ITEM, 160), ("main_menu/campaign_select/menu_item_back", 192)]
+    top = {name: MAIN_MENU_ITEM_TOP + 32 + MAIN_MENU_ITEM_SPACING * index for index, (name, _) in enumerate(places)}
     lines += _widget(f"{base}/play_screen", [("width", 640), ("height", 480),
                                              ("flags", "pass_unhandled_to_focused_child")],
                      ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
-                      '<child widget="main_menu/halo_logo" y="28"/>', f'<child widget="{base}/play_list"/>',
+                      f'<child widget="main_menu/halo_logo" y="{MAIN_MENU_LOGO_TOP}"/>', f'<child widget="{base}/play_list"/>',
+                      f'<child widget="{FIREFIGHT_ITEM}" x="192" y="{top[FIREFIGHT_ITEM]}"/>',
                       '<child widget="main_menu/current_profile_name"/>'])
-    items = [("main_menu/main_menu_item_load_camp", 194), ("main_menu/main_menu_item_multiplayer", 192),
-             (DAILY_ITEM, 160), ("main_menu/campaign_select/menu_item_back", 192)]
     lines += _widget(f"{base}/play_list", [("type", "column_list"), ("width", 640), ("height", 480),
                                            ("flags", "pass_unhandled_to_focused_child up_down_tabs_items")],
                      ['<on event="created" run="port play init"/>'] +
-                     [f'<child widget="{name}" x="{x}" y="{MAIN_MENU_ITEM_TOP + 32 + MAIN_MENU_ITEM_SPACING * index}"/>'
-                      for index, (name, x) in enumerate(items)])
+                     [f'<child widget="{name}" x="{x}" y="{top[name]}"/>' for name, x in places if name != FIREFIGHT_ITEM])
+    # (the items not there yet: their pictures alone, greyed)
+    lines += _widget(FORGE_ITEM, [("width", 256), ("height", 33), ("bitmap", "main_menu/menu_forge")], [])
+    lines += _widget(FIREFIGHT_ITEM, [("width", 256), ("height", 33), ("bitmap", "main_menu/menu_firefight")], [])
     return lines
 
 
@@ -5211,8 +5240,9 @@ def _social() -> list:
         lines += _widget(f"{base}/{key}", [("type", "text"), ("controller", 1), ("left", left), ("top", top),
                                           ("width", width), ("height", height), ("font", "ui\\small_ui"),
                                           ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])
-    # (the main menu's hint that Y opens it, over the news' hint: a tap or a
-    # click on it presses Y, as the news' does X (ui_widget.c's
+    # (the main menu's hint that Y opens it, beside the news' hint, yellow
+    # while friend requests wait (menu_functions.c's pc_menu_text_color): a
+    # tap or a click on it presses Y, as the news' does X (ui_widget.c's
     # ui_mouse_key_button); shown with social.enabled, "port news hint update")
     lines += _widget(f"{base}/y_butn_social", [("width", 16), ("height", 20)], [])
     lines += _widget(f"{base}/social_hint", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),

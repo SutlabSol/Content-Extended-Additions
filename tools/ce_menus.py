@@ -100,9 +100,11 @@ CHILD_OFFSETS = {
     **{("ui\\shell\\main_menu\\main_menu_select_list", f"ui\\shell\\main_menu\\main_menu_item_{item}"):
        port_settings.main_menu_item_place(item)
        for item in ("profile", "settings", "quit_game")},
-    # (the build number over the main menu's social column:
-    # port_settings.SOCIAL_HOME)
-    ("ui\\shell\\main_menu\\main_menu", "ui\\shell\\main_menu\\build_number"): (316, 224),
+    # (the build number over the main menu's social column, and the logo
+    # raised for it: port_settings.SOCIAL_HOME)
+    ("ui\\shell\\main_menu\\main_menu", "ui\\shell\\main_menu\\build_number"): (316, 140),
+    ("ui\\shell\\main_menu\\main_menu", "ui\\shell\\main_menu\\halo_logo"):
+        (0, port_settings.MAIN_MENU_LOGO_TOP),
     ("ui\\shell\\main_menu\\campaign_select\\campaign_menu_select_list",
      "ui\\shell\\main_menu\\campaign_select\\menu_item_back"): port_settings.CAMPAIGN_BACK_ITEM_PLACE,
     ("ui\\shell\\main_menu\\multiplayer_type_select\\multiplayer_type_select_list",
@@ -747,6 +749,11 @@ def main() -> None:
     lines.append(art.port_picture("main_menu/menu_theater", port_settings.menu_item_frames("THEATER", art.redraws)))
     # (and its PLAY, Campaign's and Multiplayer's: port_settings._play)
     lines.append(art.port_picture("main_menu/menu_play", port_settings.menu_item_frames("PLAY", art.redraws)))
+    # (and the items not there yet, greyed: the main menu's FORGE, PLAY's FIREFIGHT)
+    lines.append(art.port_picture("main_menu/menu_forge",
+                                  port_settings.menu_item_frames("FORGE", art.redraws, disabled=True)))
+    lines.append(art.port_picture("main_menu/menu_firefight",
+                                  port_settings.menu_item_frames("FIREFIGHT", art.redraws, disabled=True)))
     lines.append(art.port_picture("mods/status", port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide")))
     lines.append(art.port_picture("mods/status_small",
                                   port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide", 16)))

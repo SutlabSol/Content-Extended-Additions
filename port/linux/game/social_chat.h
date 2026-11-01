@@ -63,6 +63,19 @@ player's menu by it). Opened from there: its keyboard is the controller's of
 this port (the keyboard's, when it was typed on last) */
 void social_chat_draw_docked(short x0, short y0, short x1, short y1, short shift, boolean chosen);
 void social_chat_open_docked(short port);
+/* (menu_functions.c, the main menu's right stick) docked and closed, a line
+chosen, shown by an arrow: step -1 one older (chosen first: the newest),
+1 one newer (past the newest: none chosen); whether that changed anything.
+The chosen line's player's card: the Social screen set to open at it
+(social_menu.h), and where it opens (_social_menu_open_*; NONE: none, a
+notice's or an upstream player's not of the fork's chat) */
+boolean social_chat_dock_pick_step(short step);
+short social_chat_dock_pick_open(void);
+/* (a controller's Right) the chosen line's player's menu (as a name
+clicked: send a private line, add, profile, mute, report), the box opened
+for it alone by this port and closed with it; FALSE for none (a notice, your
+own line) */
+boolean social_chat_dock_pick_menu(short port);
 /* (menu_functions.c) the box takes the keys and the controller: open, or
 closed a moment ago (its B and Start not the menus') */
 boolean social_chat_busy(void);

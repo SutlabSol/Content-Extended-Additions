@@ -17,16 +17,17 @@
 		<on event="created" run="main menu intialize" label="ring_loop"/>
 		<on event="back" open="main_menu/quit_select/quit_screen" platform="desktop android web"/>
 		<on event="b" open="main_menu/quit_select/quit_screen" platform="desktop android web"/>
-		<child widget="main_menu/halo_logo" y="28"/>
+		<child widget="main_menu/halo_logo" y="-44"/>
 		<child widget="main_menu/main_menu_select_list"/>
+		<child widget="main_menu/main_menu_item_forge" x="30" y="208"/>
 		<child widget="main_menu/social/social_home"/>
 		<child widget="main_menu/social/social_home_chat"/>
-		<child widget="main_menu/social/y_butn_social" x="510" y="452"/>
-		<child widget="main_menu/social/social_hint" x="510" y="452"/>
-		<child widget="main_menu/news/x_butn_news" x="400" y="452"/>
-		<child widget="main_menu/news/news_hint" x="400" y="452"/>
-		<child widget="main_menu/build_number" x="316" y="224"/>
-		<child widget="main_menu/renderer" x="440" y="224"/>
+		<child widget="main_menu/social/y_butn_social" x="167" y="412"/>
+		<child widget="main_menu/social/social_hint" x="167" y="412"/>
+		<child widget="main_menu/news/x_butn_news" x="80" y="412"/>
+		<child widget="main_menu/news/news_hint" x="80" y="412"/>
+		<child widget="main_menu/build_number" x="316" y="140"/>
+		<child widget="main_menu/renderer" x="440" y="140"/>
 	</widget>
 	<widget name="main_menu/main_menu_item_load_camp" type="text" width="256" height="33" bitmap="main_menu/menu_load_campaign" string_list="main_menu/main_menu_options" string_index="1" font="ui\small_ui" color="#000080FF">
 		<on event="a" run="new game if no plyr profiles" label="load_campaign" open="main_menu/campaign_select/campaign_menu" branch="true"/>
@@ -65,12 +66,12 @@
 		<on event="down"/>
 		<on event="x" run="port news open"/>
 		<on event="y" run="port social open"/>
-		<child widget="main_menu/main_menu_item_play" x="40" y="247"/>
-		<child widget="main_menu/main_menu_item_theater" x="40" y="279"/>
-		<child widget="main_menu/main_menu_item_profile" x="40" y="311"/>
-		<child widget="main_menu/main_menu_item_settings" x="40" y="343"/>
-		<child widget="main_menu/main_menu_item_mods" x="40" y="375"/>
-		<child widget="main_menu/main_menu_item_quit_game" x="40" y="407" platform="desktop android web"/>
+		<child widget="main_menu/main_menu_item_play" x="30" y="176"/>
+		<child widget="main_menu/main_menu_item_theater" x="30" y="240"/>
+		<child widget="main_menu/main_menu_item_profile" x="30" y="272"/>
+		<child widget="main_menu/main_menu_item_settings" x="30" y="304"/>
+		<child widget="main_menu/main_menu_item_mods" x="30" y="336"/>
+		<child widget="main_menu/main_menu_item_quit_game" x="30" y="368" platform="desktop android web"/>
 	</widget>
 	<widget name="main_menu/new_campaign_creating_profile" width="640" height="480" flags="pass_unhandled_to_focused_child no_history" auto_close="1">
 		<on event="deleted" run="new campaign decision" open="main_menu/new_campaign_saving_profile"/>

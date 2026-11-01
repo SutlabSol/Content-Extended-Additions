@@ -12283,10 +12283,13 @@ enum
 /* the Tag Injector's rows of what failed to load (tags_row_failed) */
 #define TAG_FAILED_COLOR 0xE8C547FFUL
 #define ROW_COLOR_GREYED 0x8A8F99FFUL
+/* the main menu's Social hint while friend requests wait (the Y button's) */
+#define SOCIAL_HINT_REQUESTS_COLOR 0xFFC72CFFUL
 
 /* ui_widget.c: a text's colour in place of its own (FALSE: its own): a
-server browser row's ping by how good it is, and the Tag Injector's rows of
-what failed to load in yellow */
+server browser row's ping by how good it is, the Tag Injector's rows of
+what failed to load in yellow, and the main menu's Social hint yellow while
+friend requests wait */
 boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *color)
 {
 	short row = widget->parent ? browser_row_index(widget->parent) : NONE;
@@ -12295,6 +12298,16 @@ boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *colo
 	short ping;
 	unsigned long rgba;
 
+	if (widget->name && !strcmp(widget->name, "social_hint"))
+	{
+		if (social_menu_requests_waiting() <= 0)
+			return FALSE;
+		rgba = SOCIAL_HINT_REQUESTS_COLOR;
+		color->red = (real)((rgba >> 24) & 0xFF) / 255.0f;
+		color->green = (real)((rgba >> 16) & 0xFF) / 255.0f;
+		color->blue = (real)((rgba >> 8) & 0xFF) / 255.0f;
+		return TRUE;
+	}
 	if (tag_row_widget)
 	{
 		short tag_row_index = (short)(atoi(tag_row_widget->name + 7) - 1);
@@ -15225,12 +15238,17 @@ down choose a friend or, past them, the chat; A opens the Social screen at
 the friend's card, or writes in the chat; Y and X are Social's and the
 news', as on the items. A click on a friend or the chat does the same.
 Meanwhile the main menu's list gets none of the controller
-(menu_port_event_taken, which ui_widget.c asks before each event) */
+(menu_port_event_taken, which ui_widget.c asks before each event). The
+right stick, focused or not, goes through the chat's lines (up and down,
+an arrow by the one chosen) and, pushed right, opens its player's menu, as
+a name clicked in the chat does (your own line: the Social screen at your
+card) */
 
 /* ui_widget.c's event types (its own: event_manager.c publishes none) */
 enum
 {
 	MENU_EVENT_LEFT_STICK = 1,
+	MENU_EVENT_RIGHT_STICK = 2,
 	MENU_EVENT_BUTTON = 3,
 	/* the column drawn this lately: the main menu shown */
 	SOCIAL_HOME_SHOWN_MILLISECONDS = 250,
@@ -15249,7 +15267,8 @@ static struct
 
 static boolean social_home_shown(void)
 {
-	return social_home.drawn_at && system_milliseconds() - social_home.drawn_at < SOCIAL_HOME_SHOWN_MILLISECONDS;
+	/* (signed: drawn_at, made odd, may be a millisecond ahead) */
+	return social_home.drawn_at && (long)(system_milliseconds() - social_home.drawn_at) < SOCIAL_HOME_SHOWN_MILLISECONDS;
 }
 
 /* A on a row, or a click: a friend's card (the Social screen over the main
@@ -15270,9 +15289,38 @@ static void social_home_pick(struct widget_instance *screen, short row, short po
 	}
 }
 
+/* the right stick on the main menu: the docked chat's line chosen, or its
+player's menu (the right stick's y is the other way from the left's) */
+static void social_home_chat_stick(struct widget_instance *widget, struct event_record const *event)
+{
+	short across = event->data.stick.x == SHORT_MIN ? -1 : event->data.stick.x == SHORT_MAX ? 1 : 0;
+	short down = event->data.stick.y == SHORT_MAX ? 1 : event->data.stick.y == SHORT_MIN ? -1 : 0;
+
+	if (down)
+	{
+		if (social_chat_dock_pick_step(down))
+			ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (across > 0 && social_chat_dock_pick_menu(event->controller_index))
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+	}
+	else if (across > 0)
+	{
+		short where = social_chat_dock_pick_open();
+		boolean deleted = FALSE;
+
+		if (where == NONE)
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		else
+			social_screen_open(widget, where, &deleted);
+	}
+}
+
 /* halo_linux_source_fixups.h: an event the menus are not to have: any
 while the fork's chat is typed in (or just closed); on the main menu, the
-controller's while its social column has the focus, and its Right into it */
+controller's while its social column has the focus, and its Right into it,
+and the right stick (social_home_chat_stick) */
 unsigned char menu_port_event_taken(void *instance, void *record)
 {
 	struct widget_instance *widget = instance;
@@ -15282,14 +15330,22 @@ unsigned char menu_port_event_taken(void *instance, void *record)
 	short down = 0;
 	short rows;
 
-	if (event->type != MENU_EVENT_BUTTON && event->type != MENU_EVENT_LEFT_STICK)
+	if (event->type != MENU_EVENT_BUTTON && event->type != MENU_EVENT_LEFT_STICK &&
+		event->type != MENU_EVENT_RIGHT_STICK)
+	{
 		return FALSE;
+	}
 	if (social_chat_busy())
 		return TRUE;
 	if (!widget || !widget->name || strcmp(widget->name, "main_menu") || !social_home_shown() || !social_enabled())
 	{
 		social_home.focused = FALSE;
 		return FALSE;
+	}
+	if (event->type == MENU_EVENT_RIGHT_STICK)
+	{
+		social_home_chat_stick(widget, event);
+		return TRUE;
 	}
 	if (event->type == MENU_EVENT_BUTTON)
 	{

@@ -289,7 +289,7 @@ void social_player_name(
 		read_time = 0;
 		return;
 	}
-	if (!read_time || system_milliseconds() - read_time > 1000)
+	if (!read_time || (long)(system_milliseconds() - read_time) > 1000)
 	{
 		read_good = player_ui_reset_campaign_progress(FALSE, read_name, NUMBEROF(read_name));
 		read_time = system_milliseconds() | 1;
@@ -1217,6 +1217,12 @@ static void social_presence_update(
 		{
 			social.friends_online = social_answer_number(social.answer, "friendsOnline", social.friends_online);
 			social.requests_waiting = social_answer_number(social.answer, "requests", social.requests_waiting);
+			{
+				char key[32];
+
+				social_answer_text(social.answer, "friends", key, sizeof(key));
+				social_menu_friends_key(key);
+			}
 		}
 		else
 		{

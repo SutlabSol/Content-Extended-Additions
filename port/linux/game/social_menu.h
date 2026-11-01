@@ -68,6 +68,11 @@ enum
 /* (social.c, each frame) the players muted and blocked asked for once the
 account is had, again after one is changed: the chat's (social_chat.h) */
 void social_menu_update(void);
+/* (social_chat.c's poll, social.c's presence) the key of the account's
+friendships the server said ("" for none said): the friends asked for again
+when it changed, and what changed said in the chat (a request to you, yours
+accepted or declined) */
+void social_menu_friends_key(char const *key);
 
 /* the list the screen opens at next (_social_menu_open_*), set before the
 screen is opened */
@@ -104,12 +109,17 @@ void social_menu_card_draw(short x0, short y0, short x1, short y1);
 social_home text box (the menus' 640; the column focused, and the row
 chosen: a friend's, or past them the chat's), its friends' rows, the row a
 click hits (NONE for none) or whether it is in the column at all, and the
-Social screen set to open at a friend's card */
+Social screen set to open at a friend's card (or, from the docked chat, at
+the card of the player of this code and name) */
 void social_menu_home_draw(short x0, short y0, short x1, short y1, boolean focused, short chosen);
 short social_menu_home_rows(void);
 short social_menu_home_hit(short x, short y);
 boolean social_menu_home_inside(short x, short y);
 void social_menu_home_friend_open(short row);
+void social_menu_player_open_next(char const *code, char const *name);
+/* (menu_functions.c, the main menu's Social hint, yellow while there are
+any) the friend requests waiting for you */
+long social_menu_requests_waiting(void);
 
 /* a player's card is shown (the list's details and frame hidden); it has
 the OPTIONS button (another player's); the button pressed: what can be done
