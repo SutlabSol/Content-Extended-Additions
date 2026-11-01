@@ -4,10 +4,10 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/social_friends_settings_screen" width="640" height="480" flags="pass_unhandled_to_focused_child pause_game" bitmap="bitmaps/gradient">
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/header_gameplay"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/header_social"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/options_menu"/>
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/header_gameplay" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/settings_select/player_setup/player_profile_edit/gameplay/header_gameplay">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/header_social" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/social/header_social">
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/help" type="text" controller="1" left="68" top="350" width="482" height="60" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/help_strings" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
@@ -79,8 +79,8 @@
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/friends/help_strings">
 		<string text=""/>
 		<string text="Your friend list. Off: your friends see you\noffline, and no one can ask to be your friend."/>
-		<string text="Anyone: players can ask from the chat or your\npage. Code only: those you gave your code to."/>
+		<string text="Anyone: players can ask from the chat or your\npage. Code only: by your code (Social hides it)."/>
 		<string text="Your friends see what you play and your latest\nmatches. Hide: only that you are online."/>
-		<string text="Your friends can join the internet game you\nhost from their friend list, with no invite."/>
+		<string text="Friends join your private or password game\nfrom their friend list. Public ones always can."/>
 	</strings>
 </menus>

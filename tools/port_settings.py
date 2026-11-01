@@ -813,13 +813,7 @@ SCREENS["gameplay/community"] = {
          "Default: the OpenCE server. Custom: another\ncommunity server, at the address below.",
          None),
     ],
-    # (SOCIAL, under SERVER ADDRESS: shown with ONLINE on, as the rows
-    # above it are)
-    "categories": [
-        ("SOCIAL", "gameplay/community/social",
-         "Your account, friends and the fork's chat:\nwhat others see of you, and who you hear."),
-    ],
-    "categories_after_fields": True,
+    # (the social settings are the Social screen's SETTINGS: _social)
     "fields": [
         ("SERVER ADDRESS:", "port daily server edit", "server_address",
          "The custom server's address, https://... A types\nit, Enter keeps it; OK writes it."),
@@ -828,10 +822,12 @@ SCREENS["gameplay/community"] = {
     "handlers": ['<on event="created" run="port daily settings init"/>'],
 }
 # (the social side, port/linux/game/social.c: the account, its records, and
-# its Chat and Friends screens; the Social screen itself is the main menu's
-# Y, _social)
+# its Chat and Friends screens, opened by the Social screen's SETTINGS (the
+# main menu's Y, _social; menu_functions.c's social_screen_choose), with its
+# header; in the profile settings' folder still, as they were)
+_SOCIAL_HEADER = ("header_social", f"{SOCIAL}/header_social")
 SCREENS["gameplay/community/social"] = {
-    "screen": "social_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "screen": "social_settings_screen", "header": _SOCIAL_HEADER, "spacing": 30,
     "rows": [
         ("SOCIAL:", "social.enabled", ON_OFF,
          "Your account on the community server, with no\nsign-up: friends, the fork's chat, your records.",
@@ -846,15 +842,9 @@ SCREENS["gameplay/community/social"] = {
         ("FRIENDS", "gameplay/community/social/friends",
          "Your friend list: requests, what friends see\nof you, and joining the games you host."),
     ],
-    # (the Social screen at your own card: menu_functions.c's
-    # social_screen_open)
-    "actions": [
-        ("MY PROFILE", "port social profile", "profile",
-         "Your card: your code, your multiplayer and\ncampaign totals, and every medal you won.", []),
-    ],
 }
 SCREENS["gameplay/community/social/chat"] = {
-    "screen": "social_chat_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "screen": "social_chat_settings_screen", "header": _SOCIAL_HEADER, "spacing": 30,
     "rows": [
         ("FORK CHAT:", "social.chat", ON_OFF,
          "The fork's chat box, in games and the menus\n(T, Y; L + R + D-pad Up). Off: the game's own.",
@@ -875,27 +865,21 @@ SCREENS["gameplay/community/social/chat"] = {
          "The lines of players many others reported:\nhidden, or shown marked REPORTED.",
          None),
     ],
-    # (the Social screen at its list of the muted and blocked:
-    # menu_functions.c's social_screen_open)
-    "actions": [
-        ("BLOCKED & MUTED", "port social moderation", "moderation",
-         "The players you muted or blocked: A opens the\nlist, where each one's page unmutes or unblocks.", []),
-    ],
 }
 SCREENS["gameplay/community/social/friends"] = {
-    "screen": "social_friends_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "screen": "social_friends_settings_screen", "header": _SOCIAL_HEADER, "spacing": 30,
     "rows": [
         ("FRIEND LIST:", "social.friends", ON_OFF,
          "Your friend list. Off: your friends see you\noffline, and no one can ask to be your friend.",
          None),
         ("FRIEND INVITES:", "social.friend_requests", [("ANYONE", "true"), ("CODE ONLY", "false")],
-         "Anyone: players can ask from the chat or your\npage. Code only: those you gave your code to.",
+         "Anyone: players can ask from the chat or your\npage. Code only: by your code (Social hides it).",
          None),
         ("ACTIVITY:", "social.show_activity", [("SHOW", "true"), ("HIDE", "false")],
          "Your friends see what you play and your latest\nmatches. Hide: only that you are online.",
          None),
         ("INSTANT JOIN:", "social.instant_join", [("ALLOW", "true"), ("BLOCK", "false")],
-         "Your friends can join the internet game you\nhost from their friend list, with no invite.",
+         "Friends join your private or password game\nfrom their friend list. Public ones always can.",
          None),
     ],
 }
@@ -5136,8 +5120,9 @@ def _theater() -> list:
     return lines
 
 
-# ---------- Social (port/linux/game/social_menu.c): the main menu's Y, and
-# Settings > Gameplay > Community > Social > Chat's BLOCKED & MUTED, laid out
+# ---------- Social (port/linux/game/social_menu.c): the main menu's Y (its
+# SETTINGS row the social settings' screens, SCREENS["gameplay/community/
+# social"]; YOUR CODE and NEW CODE under YOU), laid out
 # as the Map Manager is: on the left two thirds the rows of the list shown
 # (YOU, FRIENDS, FRIEND REQUESTS, ACTIVITY, RECENT PLAYERS, ADD FRIEND BY
 # CODE, BLOCKED & MUTED; a list of friends, a player's page and what can be
@@ -5226,9 +5211,13 @@ def _social() -> list:
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child widget="{base}/button_options" x="380" y="1"/>',
+                     [f'<child widget="{base}/button_join" x="250" y="1"/>',
+                      f'<child widget="{base}/button_options" x="380" y="1"/>',
                       f'<child widget="{base}/button_back" x="510" y="1"/>'])
-    # (OPTIONS: a player's card's, another's only, "port social update")
+    # (JOIN: a player's card's, a game of theirs that may be joined; OPTIONS:
+    # a player's card's, another's only; "port social update" shows them)
+    lines += _text_button(f"{base}/button_join", "JOIN", ['<on event="a" run="port social join"/>',
+                                                         '<on event="start" run="port social join"/>'])
     lines += _text_button(f"{base}/button_options", "OPTIONS", ['<on event="a" run="port social options"/>',
                                                                '<on event="start" run="port social options"/>'])
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port social back"/>',

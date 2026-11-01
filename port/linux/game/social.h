@@ -21,6 +21,9 @@ boolean social_enabled(void);
 
 /* the account's code ("XXXX-XXXX"), "" until the server says it */
 char const *social_account_code(void);
+/* (social_menu.c's NEW CODE) the account's code from an answer of the
+server's ({data: {account: {code}}}): FALSE for none in it */
+boolean social_account_code_take(char const *answer);
 
 /* the account's multiplayer totals, as the server last said them (as the
 game starts, and after each record): FALSE until it has */

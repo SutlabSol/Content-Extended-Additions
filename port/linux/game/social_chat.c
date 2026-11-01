@@ -2998,6 +2998,9 @@ void social_chat_draw(
 	void)
 {
 	social_chat_draw_in(FALSE);
+	/* (a friend's game being joined: its panel, over the box too) */
+	social_menu_join_draw((short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0),
+		(short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0));
 }
 
 void social_chat_draw_docked(

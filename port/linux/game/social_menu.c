@@ -15,7 +15,8 @@ community server's answers.
 - The friends and requests are asked for again every
   SOCIAL_MENU_REFRESH_MILLISECONDS while a list of them is shown, and
   whenever the key of them the server sends with the chat's lines and the
-  presence changes (social_menu_friends_key). What changed since the last
+  presence changes (social_menu_friends_key), which changes with what the
+  friends are doing too (online, playing, an invite). What changed since the last
   list is said in the chat: a request to you (those waiting too, once), one
   of yours accepted or declined (friends_notice).
 - An action that cannot be taken back at once (removing a friend, a block,
@@ -35,6 +36,8 @@ community server's answers.
 #include "interface/interface.h"
 #include "interface/ui_widget.h"
 #include "interface/virtual_keyboard.h"
+#include "networking/network_client_manager.h"
+#include "networking/network_game_globals.h"
 #include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
 #include "text/font_group.h"
@@ -46,6 +49,7 @@ community server's answers.
 #include "social_chat.h"
 #include "social_menu.h"
 #include "../src/community_net.h"
+#include "../src/p2p.h"
 #include "../src/port_config.h"
 #include "../src/server_json.h"
 
@@ -64,6 +68,7 @@ unsigned long system_milliseconds(void);
 #define SOCIAL_MENU_LABEL_SIZE 64
 #define SOCIAL_MENU_TIME_SIZE 32
 #define SOCIAL_MENU_INVITE_SIZE 168
+#define SOCIAL_MENU_HOST_KEY_SIZE 40
 /* what is kept of the server's lists */
 #define SOCIAL_MENU_FRIENDS 100
 #define SOCIAL_MENU_REQUESTS 48
@@ -114,6 +119,8 @@ enum
 	_row_add_friend,
 	_row_moderation,
 	_row_friend,
+	/* (under a friend whose game may be joined: it joined) */
+	_row_friend_join,
 	_row_incoming,
 	_row_outgoing,
 	_row_activity_entry,
@@ -134,6 +141,9 @@ enum
 	_row_match,
 	_row_moderated,
 	_row_reason,
+	_row_code,
+	_row_new_code,
+	_row_settings,
 };
 
 /* a note row's words */
@@ -175,6 +185,12 @@ struct social_menu_presence
 	long players;
 	long maximum;
 	char invite[SOCIAL_MENU_INVITE_SIZE];
+	/* a public game with a password: its listing's key (its host's key
+	hash, hex), which the server browser finds it by */
+	char host_key[SOCIAL_MENU_HOST_KEY_SIZE];
+	boolean locked;
+	/* a private game (no invite for friends): said so */
+	boolean private_game;
 	char last_seen[SOCIAL_MENU_TIME_SIZE];
 };
 
@@ -319,6 +335,9 @@ static struct
 	boolean friends_due;
 	char friends_account[SOCIAL_MENU_CODE_SIZE];
 	boolean incoming_said;
+	/* your code shown (with FRIEND INVITES at CODE ONLY it is hidden until
+	asked for: own_code) */
+	boolean code_shown;
 	/* the action's player's code */
 	char action_code[SOCIAL_MENU_CODE_SIZE];
 	/* the friends' activity */
@@ -344,6 +363,10 @@ static struct
 	short moderated_count;
 	/* the invite of the game joined */
 	char join_invite[SOCIAL_MENU_INVITE_SIZE];
+	/* ... or, a password's game, its listing's key */
+	char join_host_key[SOCIAL_MENU_HOST_KEY_SIZE];
+	/* (the friend whose game it is) */
+	char join_name[SOCIAL_MENU_NAME_SIZE];
 	char answer[COMMUNITY_NET_ANSWER_MAXIMUM];
 } social_menu;
 
@@ -626,6 +649,9 @@ static void presence_read(
 	json_text(document, token, "gametype", presence->gametype, sizeof(presence->gametype));
 	json_text(document, token, "game", presence->game, sizeof(presence->game));
 	json_text(document, token, "invite", presence->invite, sizeof(presence->invite));
+	json_text(document, token, "hostKey", presence->host_key, sizeof(presence->host_key));
+	presence->locked = json_boolean(document, token, "locked");
+	presence->private_game = json_boolean(document, token, "private");
 	json_text(document, token, "lastSeenAt", presence->last_seen, sizeof(presence->last_seen));
 	presence->players = json_number(document, token, "players", 0);
 	presence->maximum = json_number(document, token, "maximum", 0);
@@ -720,6 +746,20 @@ static void totals_read(
 	totals->medals = json_number(document, token, "medals", 0);
 }
 
+/* your code as shown: hidden with FRIEND INVITES at CODE ONLY, until YOUR
+CODE's A shows it */
+static boolean own_code_hidden(
+	void)
+{
+	return !config_boolean("social.friend_requests") && !social_menu.code_shown;
+}
+
+static char const *own_code(
+	void)
+{
+	return !social_account_code()[0] ? "..." : own_code_hidden() ? "HIDDEN" : social_account_code();
+}
+
 static boolean people_have(
 	struct social_menu_person const *people,
 	short count,
@@ -787,6 +827,25 @@ void social_menu_friends_key(
 	snprintf(social_menu.friends_key, sizeof(social_menu.friends_key), "%s", key);
 }
 
+/* the player shown, a friend: what they are doing as the friends say it
+(newer than their records', asked for once as their card opened) */
+static void friends_presence_to_player(
+	void)
+{
+	short index;
+
+	if (!social_menu.player.had || strcmp(social_menu.player.relation, "friends"))
+		return;
+	for (index = 0; index < social_menu.friend_count; index++)
+	{
+		if (!strcmp(social_menu.friends[index].code, social_menu.player.code))
+		{
+			social_menu.player.presence = social_menu.friends[index].presence;
+			break;
+		}
+	}
+}
+
 static void friends_take(
 	boolean answered)
 {
@@ -820,6 +879,7 @@ static void friends_take(
 		social_menu.outgoing_count = people_read(&document, server_json_member(&document, data, "outgoing"),
 			social_menu.outgoing, SOCIAL_MENU_REQUESTS);
 		social_menu.friends_had = TRUE;
+		friends_presence_to_player();
 		friends_notice(compare, were_incoming, were_incoming_count, were_outgoing, were_outgoing_count);
 		snprintf(social_menu.friends_account, sizeof(social_menu.friends_account), "%s", social_account_code());
 	}
@@ -1080,6 +1140,10 @@ static void action_take(
 
 	if (!answered)
 		message_set("The server did not answer: try again.");
+	else if (status == 404 && social_menu.action_kind == _row_new_code)
+		message_set("The community server cannot draw a new code yet: it needs updating.");
+	else if (status == 429 && social_menu.action_kind == _row_new_code)
+		message_set("A new code was drawn a moment ago: wait a minute.");
 	else if (status == 404 && strstr(answer, "\"not_found\""))
 		message_set("The community server has no friends yet: it needs updating.");
 	else if (status == 404)
@@ -1087,7 +1151,7 @@ static void action_take(
 	else if (status == 403 && strstr(answer, "not_accepting"))
 		message_set("%s takes friend requests by their code alone.", name);
 	else if (status == 403 && strstr(answer, "friends_off"))
-		message_set("Your friend list is off: Settings > Gameplay > Social > Friends.");
+		message_set("Your friend list is off: SETTINGS > FRIENDS on this screen.");
 	else if (status == 403 && strstr(answer, "\"blocked\""))
 		message_set("You blocked %s: unblock them first.", name);
 	else if (status == 403)
@@ -1121,6 +1185,14 @@ static void action_take(
 			break;
 		case _row_friend_remove:
 			message_set("%s is no longer your friend.", name);
+			break;
+		case _row_new_code:
+			if (!social_account_code_take(answer))
+				message_set("The server did not say the new code: try again.");
+			else if (own_code_hidden())
+				message_set("You have a new code (hidden: YOUR CODE shows it). The old one no longer works.");
+			else
+				message_set("Your new code is %s. The old one no longer works.", social_account_code());
 			break;
 		case _row_mute:
 			message_set("Muted %s: their lines are hidden.", name);
@@ -1171,11 +1243,14 @@ static void action_take(
 	}
 }
 
+static void social_menu_join_update(unsigned long now);
+
 void social_menu_update(
 	void)
 {
 	unsigned long now = system_milliseconds();
 
+	social_menu_join_update(now);
 	if (!social_menu_online())
 		return;
 	if (social_menu.fetch_ticket)
@@ -1277,6 +1352,15 @@ static void note_add(
 	row_add(_row_note, !social_menu_online() ? _note_offline : failed ? _note_failed : had ? _note_none : _note_loading);
 }
 
+/* a friend's game has a JOIN GAME: one that may be joined (its invite, or
+its listing's key), or a match said to be private (A says so) */
+static boolean presence_join_shown(
+	struct social_menu_presence const *presence)
+{
+	return presence->online && (presence->invite[0] || presence->host_key[0] ||
+		(presence->private_game && (!strcmp(presence->state, "multiplayer") || !strcmp(presence->state, "lobby"))));
+}
+
 static void rows_build(
 	void)
 {
@@ -1287,18 +1371,29 @@ static void rows_build(
 	switch (social_menu.list)
 	{
 	case _list_home:
-		row_add(_row_you, 0);
-		row_add(_row_friends, 0);
-		row_add(_row_requests, 0);
-		row_add(_row_activity, 0);
-		row_add(_row_recent, 0);
-		row_add(_row_add_friend, 0);
-		row_add(_row_moderation, 0);
+		/* (Social off, or Online: its settings alone, where it is turned on) */
+		if (social_enabled())
+		{
+			row_add(_row_you, 0);
+			row_add(_row_code, 0);
+			row_add(_row_new_code, 0);
+			row_add(_row_friends, 0);
+			row_add(_row_requests, 0);
+			row_add(_row_activity, 0);
+			row_add(_row_recent, 0);
+			row_add(_row_add_friend, 0);
+			row_add(_row_moderation, 0);
+		}
+		row_add(_row_settings, 0);
 		break;
 	case _list_friends:
 		row_add(_row_add_friend, 0);
 		for (index = 0; index < social_menu.friend_count; index++)
+		{
 			row_add(_row_friend, index);
+			if (presence_join_shown(&social_menu.friends[index].presence))
+				row_add(_row_friend_join, index);
+		}
 		if (!social_menu.friend_count)
 			note_add(social_menu.friends_had, social_menu.friends_failed);
 		break;
@@ -1330,7 +1425,7 @@ static void rows_build(
 		row_add(_row_matches, 0);
 		if (!player->had || !strcmp(player->relation, "self"))
 			break;
-		if (player->presence.invite[0])
+		if (presence_join_shown(&player->presence))
 			row_add(_row_join, 0);
 		if (config_boolean("social.chat") && config_boolean("social.private_chat") && !player->blocked)
 			row_add(_row_message, 0);
@@ -1510,12 +1605,37 @@ void social_menu_poll(
 		social_menu.confirming_kind = NONE;
 	/* (what the lists shown want: the friends again a while after, the
 	player asked for) */
-	if (social_menu.list == _list_home || social_menu.list == _list_friends || social_menu.list == _list_requests)
+	if (social_menu.list == _list_home || social_menu.list == _list_friends || social_menu.list == _list_requests ||
+		((social_menu.list == _list_card || social_menu.list == _list_player) &&
+			!strcmp(social_menu.player.relation, "friends")))
 	{
 		if (!social_menu.friends_at || now - social_menu.friends_at > SOCIAL_MENU_REFRESH_MILLISECONDS)
 			fetch(_fetch_friends);
 	}
-	rows_build();
+	/* (the row chosen kept as rows come and go in the same list: a friend's
+	JOIN GAME) */
+	{
+		static short built_serial = NONE;
+		struct social_menu_row const *was = built_serial == social_menu.list_serial ? row_get(social_menu.chosen) : NULL;
+		short kind = was ? was->kind : NONE;
+		short value = was ? was->value : NONE;
+		short index;
+
+		rows_build();
+		built_serial = social_menu.list_serial;
+		was = row_get(social_menu.chosen);
+		if (kind != NONE && (!was || was->kind != kind || was->value != value))
+		{
+			for (index = 0; index < social_menu.count; index++)
+			{
+				if (social_menu.rows[index].kind == kind && social_menu.rows[index].value == value)
+				{
+					social_menu.chosen = index;
+					break;
+				}
+			}
+		}
+	}
 	if (social_menu.chosen >= social_menu.count)
 		social_menu.chosen = (short)MAX(0, social_menu.count - 1);
 }
@@ -1546,22 +1666,40 @@ short *social_menu_chosen(
 
 /* ---------- what the rows say */
 
-/* a player's state in a row: ONLINE, IN GAME, OFFLINE... */
+/* a player's state in a row: IN MENUS, LOBBY 3/16, SLAYER 3/16, PRIVATE
+MATCH, SOLO, OFFLINE... (ONLINE when its activity is hidden) */
 static void presence_state(
 	struct social_menu_presence const *presence,
 	char *text,
 	long size)
 {
+	boolean match = !strcmp(presence->state, "multiplayer");
+	boolean lobby = !strcmp(presence->state, "lobby");
+
 	if (!presence->online)
 		snprintf(text, (size_t)size, "OFFLINE");
-	else if (presence->invite[0])
-		snprintf(text, (size_t)size, "JOINABLE");
-	else if (!strcmp(presence->state, "multiplayer"))
-		snprintf(text, (size_t)size, "IN GAME");
+	else if ((match || lobby) && presence->private_game && !presence->invite[0] && !presence->host_key[0])
+		snprintf(text, (size_t)size, "PRIVATE MATCH");
+	else if (match || lobby)
+	{
+		char kind[16];
+		long index;
+
+		/* (the gametype's name, short enough for the row, in capitals) */
+		snprintf(kind, sizeof(kind), "%.11s", lobby ? "LOBBY" : presence->gametype[0] ? presence->gametype : "PLAYING");
+		for (index = 0; kind[index]; index++)
+			kind[index] = (char)(kind[index] >= 'a' && kind[index] <= 'z' ? kind[index] - 'a' + 'A' : kind[index]);
+		if (presence->maximum > 0)
+			snprintf(text, (size_t)size, "%s %ld/%ld", kind, presence->players, presence->maximum);
+		else
+			snprintf(text, (size_t)size, "%s", kind);
+	}
 	else if (!strcmp(presence->state, "campaign"))
-		snprintf(text, (size_t)size, "CAMPAIGN");
+		snprintf(text, (size_t)size, presence->maximum > 0 ? "CO-OP" : "SOLO");
 	else if (!strcmp(presence->state, "theater"))
 		snprintf(text, (size_t)size, "THEATER");
+	else if (!strcmp(presence->state, "menus"))
+		snprintf(text, (size_t)size, "IN MENUS");
 	else
 		snprintf(text, (size_t)size, "ONLINE");
 }
@@ -1589,6 +1727,24 @@ static void presence_line(
 		text_add(text, size, presence->host ? ", hosting %s.\n" : ".\n", presence->game);
 		if (presence->invite[0])
 			text_add(text, size, "JOIN GAME joins it.\n");
+		else if (presence->host_key[0])
+			text_add(text, size, "A public match with a password.\n");
+		else if (presence->private_game)
+			text_add(text, size, "A private match.\n");
+	}
+	else if (!strcmp(presence->state, "lobby"))
+	{
+		text_add(text, size, presence->host ? "In the lobby of %s, hosting it" : "In the lobby of %s",
+			presence->game[0] ? presence->game : "a match");
+		if (presence->maximum > 0)
+			text_add(text, size, " (%ld/%ld)", presence->players, presence->maximum);
+		text_add(text, size, ".\n");
+		if (presence->invite[0])
+			text_add(text, size, "JOIN GAME joins it.\n");
+		else if (presence->host_key[0])
+			text_add(text, size, "A public match with a password.\n");
+		else if (presence->private_game)
+			text_add(text, size, "A private match.\n");
 	}
 	else if (!strcmp(presence->state, "campaign"))
 	{
@@ -1602,6 +1758,57 @@ static void presence_line(
 	{
 		text_add(text, size, presence->state[0] ? "Online, in the menus.\n" : "Online.\n");
 	}
+}
+
+/* a friend's JOIN GAME's state: the players, PASSWORD or PRIVATE */
+static void join_state(
+	struct social_menu_presence const *presence,
+	char *text,
+	long size)
+{
+	if (presence->invite[0] && presence->maximum > 0)
+		snprintf(text, (size_t)size, "%ld/%ld", presence->players, presence->maximum);
+	else if (!presence->invite[0] && presence->host_key[0])
+		snprintf(text, (size_t)size, "PASSWORD");
+	else if (!presence->invite[0])
+		snprintf(text, (size_t)size, "PRIVATE");
+}
+
+/* ... and its details' last lines: what A does */
+static void join_details(
+	struct social_menu_presence const *presence,
+	char *text,
+	long size)
+{
+	if (presence->invite[0])
+		text_add(text, size, "\nA: joins their game: it shows in\nDirect Link, where A joins it.");
+	else if (presence->host_key[0])
+		text_add(text, size, "\nA: finds their game in the server\nbrowser, which asks for its password.");
+	else
+		text_add(text, size, "\nTheir match is private: it is joined\nby its host's invite alone.");
+}
+
+/* A on a friend's JOIN GAME: its invite (Direct Link), its listing's key
+(the server browser), or the match said to be private */
+static short presence_join(
+	struct social_menu_presence const *presence,
+	char const *name)
+{
+	social_menu.join_invite[0] = social_menu.join_host_key[0] = 0;
+	snprintf(social_menu.join_name, sizeof(social_menu.join_name), "%s", name);
+	if (presence->invite[0])
+	{
+		snprintf(social_menu.join_invite, sizeof(social_menu.join_invite), "%s", presence->invite);
+		return _social_menu_join;
+	}
+	if (presence->host_key[0])
+	{
+		snprintf(social_menu.join_host_key, sizeof(social_menu.join_host_key), "%s", presence->host_key);
+		return _social_menu_join_listed;
+	}
+	if (presence->online && (!strcmp(presence->state, "multiplayer") || !strcmp(presence->state, "lobby")))
+		message_set("%s is in a private match: it cannot be joined.", name);
+	return _social_menu_stays;
 }
 
 /* a match in a row: its result and what it was */
@@ -1820,7 +2027,7 @@ static real card_layout(
 		card_color(&color, 0.95f, 0.95f, 0.95f);
 		campaign_score_panel_text(&fonts->title, player->name, NULL, left, right, y, 1.0f, _campaign_score_text_left,
 			&color);
-		snprintf(other, sizeof(other), "%s%s", self ? "CODE " : "", self ? player->code : "");
+		snprintf(other, sizeof(other), "%s%s", self ? "CODE " : "", self ? own_code() : "");
 		card_color(&color, 0.6f, 0.66f, 0.75f);
 		campaign_score_panel_text(panel, other, NULL, left, right, y + (fonts->title.line_height - line) / 2.0f, 1.0f,
 			_campaign_score_text_right, &color);
@@ -2082,6 +2289,23 @@ void social_menu_card_options(
 		list_open(_list_player);
 }
 
+boolean social_menu_card_has_join(
+	void)
+{
+	struct social_menu_presence const *presence = &social_menu.player.presence;
+
+	return social_menu_card_has_options() && social_menu.player.had && presence->online &&
+		(presence->invite[0] || presence->host_key[0]);
+}
+
+short social_menu_card_join(
+	void)
+{
+	if (!social_menu_card_has_join())
+		return _social_menu_stays;
+	return presence_join(&social_menu.player.presence, social_menu.player.name);
+}
+
 /* ---------- the main menu's social column
 
 drawn over its social_home text box (menu_functions.c, which keeps the
@@ -2177,7 +2401,7 @@ static pixel32 home_dot_color(
 {
 	if (!presence->online)
 		return 0xFF707070;
-	if (!presence->invite[0] && (!strcmp(presence->state, "multiplayer") || !strcmp(presence->state, "campaign") ||
+	if (!presence->invite[0] && !presence->host_key[0] && (!strcmp(presence->state, "multiplayer") || !strcmp(presence->state, "campaign") ||
 		!strcmp(presence->state, "theater")))
 	{
 		return 0xFFFFB030;
@@ -2275,7 +2499,7 @@ void social_menu_home_draw(
 			!config_boolean("social.friends") ? "YOUR FRIEND LIST IS OFF" :
 			!social_menu.friends_had ? (social_menu.friends_failed ? "THE SERVER DID NOT ANSWER" : "ASKING THE SERVER...") :
 			"NO FRIENDS YET";
-		char const *second = !social_enabled() ? "Settings > Gameplay > Community > Social" :
+		char const *second = !social_enabled() ? "Y: Social, then SETTINGS" :
 			social_menu.friends_had && config_boolean("social.friends") ?
 			"Y: Social, then ADD FRIEND BY CODE" : "";
 
@@ -2356,8 +2580,19 @@ void social_menu_row(
 
 			social_player_name(me, sizeof(me));
 			snprintf(name, (size_t)name_size, "YOU: %s", me[0] ? me : "?");
-			snprintf(state, (size_t)state_size, "%s", social_account_code()[0] ? social_account_code() : "...");
 		}
+		break;
+	case _row_code:
+		snprintf(name, (size_t)name_size, "YOUR CODE");
+		snprintf(state, (size_t)state_size, "%s", own_code());
+		break;
+	case _row_new_code:
+		snprintf(name, (size_t)name_size, "NEW CODE");
+		break;
+	case _row_settings:
+		snprintf(name, (size_t)name_size, "SETTINGS");
+		if (!social_enabled())
+			snprintf(state, (size_t)state_size, "SOCIAL OFF");
 		break;
 	case _row_friends:
 		snprintf(name, (size_t)name_size, "FRIENDS");
@@ -2389,6 +2624,14 @@ void social_menu_row(
 		snprintf(name, (size_t)name_size, "%s", social_menu.friends[entry->value].name);
 		presence_state(&social_menu.friends[entry->value].presence, state, state_size);
 		break;
+	case _row_friend_join:
+		{
+			struct social_menu_presence const *presence = &social_menu.friends[entry->value].presence;
+
+			snprintf(name, (size_t)name_size, "   JOIN GAME");
+			join_state(presence, state, state_size);
+		}
+		break;
 	case _row_incoming:
 		snprintf(name, (size_t)name_size, "%s", social_menu.incoming[entry->value].name);
 		snprintf(state, (size_t)state_size, "ASKED YOU");
@@ -2411,6 +2654,7 @@ void social_menu_row(
 		break;
 	case _row_join:
 		snprintf(name, (size_t)name_size, "JOIN GAME");
+		join_state(&player->presence, state, state_size);
 		break;
 	case _row_message:
 		snprintf(name, (size_t)name_size, "SEND MESSAGE");
@@ -2484,7 +2728,7 @@ static void player_head(
 	snprintf(title, (size_t)title_size, "%s", player->name);
 	/* (one's own code alone: another's is theirs to give) */
 	if (!strcmp(player->code, social_account_code()))
-		text_add(text, text_size, "Code: %s\n", player->code);
+		text_add(text, text_size, "Code: %s\n", own_code());
 	if (social_menu.player_failed && !player->had)
 	{
 		text_add(text, text_size, "The server did not answer.\n");
@@ -2529,8 +2773,9 @@ void social_menu_details(
 	if (!social_enabled())
 	{
 		snprintf(title, (size_t)title_size, "SOCIAL");
-		text_add(text, text_size, "Offline. Turn on Settings > Gameplay >\nCommunity's ONLINE and Social's\nSOCIAL to "
-			"see your friends.");
+		text_add(text, text_size, !community_net_enabled() ? "Offline. Turn on Settings > Gameplay >\nCommunity's "
+			"ONLINE, then SOCIAL\nin SETTINGS here, to see your\nfriends." : "Social is off. Turn on SOCIAL in\nSETTINGS "
+			"to see your friends and\nthe fork's chat.");
 		return;
 	}
 	if (!social_account_code()[0])
@@ -2560,13 +2805,30 @@ void social_menu_details(
 			social_player_name(me, sizeof(me));
 			snprintf(title, (size_t)title_size, "%s", me[0] ? me : "YOU");
 			text_add(text, text_size, "Your code: %s\n\nFriends add you by it. A shows\nyour records: totals, matches\nand "
-				"medals.", social_account_code());
+				"medals.", own_code());
 		}
+		break;
+	case _row_code:
+		snprintf(title, (size_t)title_size, "YOUR CODE");
+		text_add(text, text_size, "%s\n\nGive it to friends: they add you\nby it. ", own_code());
+		text_add(text, text_size, config_boolean("social.friend_requests") ? "Friend invites are open to\nanyone, so "
+			"it is shown." : own_code_hidden() ? "Hidden, as only those with it can\nask to be your friend: A shows "
+			"it." : "Only those with it can ask to be\nyour friend: A hides it.");
+		break;
+	case _row_new_code:
+		snprintf(title, (size_t)title_size, "NEW CODE");
+		text_add(text, text_size, "A new code in place of yours (A\ntwice): the old one no longer\nfinds you. Your friends "
+			"and\nrequests stay.");
+		break;
+	case _row_settings:
+		snprintf(title, (size_t)title_size, "SETTINGS");
+		text_add(text, text_size, "Social on or off, your records,\nthe fork's chat, and your friend\nlist: what others "
+			"see of you,\nand who you hear.");
 		break;
 	case _row_friends:
 		snprintf(title, (size_t)title_size, "FRIENDS");
 		if (!config_boolean("social.friends"))
-			text_add(text, text_size, "Your friend list is off: Settings >\nGameplay > Social > Friends.\n\n");
+			text_add(text, text_size, "Your friend list is off: SETTINGS >\nFRIENDS here.\n\n");
 		text_add(text, text_size, social_menu.friends_had ? "%d friends.\nWho is online, what they play,\nand joining "
 			"their games." : "Your friends: who is online, what\nthey play, and joining their games.",
 			(int)social_menu.friend_count);
@@ -2588,7 +2850,7 @@ void social_menu_details(
 	case _row_add_friend:
 		snprintf(title, (size_t)title_size, "ADD FRIEND");
 		text_add(text, text_size, "Type a player's code (XXXX-XXXX,\nthe dash can be left out): they\nbecome your "
-			"friend once they\naccept.\n\nYours is %s.", social_account_code());
+			"friend once they\naccept.\n\nYours is %s.", own_code());
 		break;
 	case _row_moderation:
 		snprintf(title, (size_t)title_size, "BLOCKED & MUTED");
@@ -2618,6 +2880,11 @@ void social_menu_details(
 			text_add(text, text_size, "\nA: their page.");
 		}
 		break;
+	case _row_friend_join:
+		snprintf(title, (size_t)title_size, "%s", social_menu.friends[entry->value].name);
+		presence_line(&social_menu.friends[entry->value].presence, text, text_size);
+		join_details(&social_menu.friends[entry->value].presence, text, text_size);
+		break;
 	case _row_activity_entry:
 		snprintf(title, (size_t)title_size, "%s", social_menu.activity[entry->value].player);
 		match_details(&social_menu.activity[entry->value], text, text_size);
@@ -2638,7 +2905,7 @@ void social_menu_details(
 		break;
 	case _row_join:
 		player_head(title, title_size, text, text_size);
-		text_add(text, text_size, "\nJoins their game: it shows in\nDirect Link, where A joins it.");
+		join_details(&player->presence, text, text_size);
 		break;
 	case _row_message:
 		player_head(title, title_size, text, text_size);
@@ -2727,6 +2994,20 @@ short social_menu_choose(
 	case _row_you:
 		player_open(social_account_code(), NULL);
 		break;
+	case _row_code:
+		if (config_boolean("social.friend_requests"))
+			message_set("Friend invites are open to anyone: your code is shown.");
+		else
+			social_menu.code_shown = !social_menu.code_shown;
+		break;
+	case _row_new_code:
+		if (!social_menu_online())
+			message_set("The community server is not reached.");
+		else if (confirmed(_row_new_code, "draw a new code"))
+			act(_row_new_code, "/account/code", "", NULL, NULL, NULL);
+		break;
+	case _row_settings:
+		return _social_menu_settings;
 	case _row_friends:
 		list_open(_list_friends);
 		break;
@@ -2777,10 +3058,9 @@ short social_menu_choose(
 		list_open(_list_matches);
 		break;
 	case _row_join:
-		snprintf(social_menu.join_invite, sizeof(social_menu.join_invite), "%s", player->presence.invite);
-		if (social_menu.join_invite[0])
-			return _social_menu_join;
-		break;
+		return presence_join(&player->presence, player->name);
+	case _row_friend_join:
+		return presence_join(&social_menu.friends[entry->value].presence, social_menu.friends[entry->value].name);
 	case _row_message:
 		{
 			wchar_t name[32];
@@ -2846,6 +3126,12 @@ boolean social_menu_back(
 	return TRUE;
 }
 
+char const *social_menu_join_host_key(
+	void)
+{
+	return social_menu.join_host_key;
+}
+
 char const *social_menu_join_invite(
 	void)
 {
@@ -2856,6 +3142,244 @@ void social_menu_join_failed(
 	void)
 {
 	message_set("That game could not be joined: internet play\n(network.online) is off, or the invite is old.");
+}
+
+/* ---------- a friend's game being joined
+
+A panel over every screen (social_menu_join_draw, from the chat's draw)
+while the join goes on behind it: Direct Link (its friend's game chosen
+and joined as soon as it shows: menu_functions.c's social_join_direct_link)
+or the server browser (which finds a game with a password and asks for it).
+It goes once the game's lobby is reached, the screen behind it is left (B),
+or the join failed (said for a while) */
+
+enum
+{
+	SOCIAL_JOIN_TIMEOUT = 30000,
+	/* (after the A press posted: the game's own join's) */
+	SOCIAL_JOIN_POSTED_TIMEOUT = 15000,
+	SOCIAL_JOIN_FAILURE_SHOWN = 4000,
+	SOCIAL_JOIN_PANEL_WIDTH = 360,
+};
+
+static struct
+{
+	boolean active;
+	short kind;
+	char name[SOCIAL_MENU_NAME_SIZE];
+	/* (Direct Link's: the host's key hash, hex, as the invite holds it) */
+	char host_key[2 * P2P_LISTING_KEY_HASH_SIZE + 1];
+	unsigned long began;
+	unsigned long posted_at;
+	boolean posted;
+	/* (why it failed, shown until failed_at + SOCIAL_JOIN_FAILURE_SHOWN) */
+	char failure[96];
+	unsigned long failed_at;
+} social_join;
+
+/* why a join failed (p2p_join_progress's word), as the panel says it */
+static char const *social_join_reason_text(
+	char const *reason)
+{
+	static struct
+	{
+		char const *reason;
+		char const *text;
+	} const reasons[] =
+	{
+		{ "no_answer", "The host did not answer." },
+		{ "no_route", "No connection to the host could be made." },
+		{ "full", "The game is full." },
+		{ "closed", "The game is closed to new players." },
+		{ "banned", "The host banned you from the game." },
+		{ "password", "The game asks for a password." },
+		{ "version", "The game is of another version." },
+		{ "token", "The invite is no longer valid." },
+	};
+	short index;
+
+	for (index = 0; index < NUMBEROF(reasons); index++)
+	{
+		if (!strcmp(reason, reasons[index].reason))
+			return reasons[index].text;
+	}
+	return "The game could not be joined.";
+}
+
+void social_menu_join_begin(
+	short kind)
+{
+	unsigned long now = system_milliseconds();
+
+	csmemset(&social_join, 0, sizeof(social_join));
+	social_join.active = TRUE;
+	social_join.kind = kind;
+	social_join.began = now ? now : 1;
+	snprintf(social_join.name, sizeof(social_join.name), "%s", social_menu.join_name[0] ? social_menu.join_name : "your friend");
+	/* (halo://join/<host's key hash><token>) */
+	if (kind == _social_menu_join && strlen(social_menu.join_invite) > 12 + 2 * P2P_LISTING_KEY_HASH_SIZE)
+	{
+		snprintf(social_join.host_key, sizeof(social_join.host_key), "%.*s", 2 * P2P_LISTING_KEY_HASH_SIZE,
+			social_menu.join_invite + 12);
+	}
+}
+
+void social_menu_join_end(
+	char const *failure)
+{
+	unsigned long now = system_milliseconds();
+
+	if (!social_join.active || social_join.failure[0])
+		return;
+	if (!failure)
+	{
+		social_join.active = FALSE;
+		return;
+	}
+	platform_log("social: joining %s's game failed: %s", social_join.name, failure);
+	snprintf(social_join.failure, sizeof(social_join.failure), "%s", failure);
+	social_join.failed_at = now ? now : 1;
+}
+
+boolean social_menu_join_active(
+	void)
+{
+	return social_join.active && !social_join.failure[0];
+}
+
+char const *social_menu_join_seeking(
+	void)
+{
+	return social_menu_join_active() && social_join.kind == _social_menu_join && !social_join.posted ?
+		social_join.host_key : NULL;
+}
+
+void social_menu_join_posted(
+	void)
+{
+	unsigned long now = system_milliseconds();
+
+	social_join.posted = TRUE;
+	social_join.posted_at = now ? now : 1;
+}
+
+/* (each frame) the lobby reached, the join's failure, its time up */
+static void social_menu_join_update(
+	unsigned long now)
+{
+	struct network_game_client *client = global_network_game_client_get();
+	char reason[16];
+	int stage = P2P_JOIN_NONE;
+
+	if (!social_join.active)
+		return;
+	if (social_join.failure[0])
+	{
+		if (now - social_join.failed_at > SOCIAL_JOIN_FAILURE_SHOWN)
+			social_join.active = FALSE;
+		return;
+	}
+	/* (the game's lobby: pregame, or a game under way joined) */
+	if (client && network_game_client_get_state(client, NULL) >= 2)
+	{
+		social_join.active = FALSE;
+		return;
+	}
+	reason[0] = 0;
+	if (social_join.kind == _social_menu_join)
+		p2p_join_progress(&stage, reason, sizeof(reason));
+	if (stage == P2P_JOIN_FAILED)
+		social_menu_join_end(social_join_reason_text(reason));
+	else if (social_join.posted && now - social_join.posted_at > SOCIAL_JOIN_POSTED_TIMEOUT)
+		social_join.active = FALSE;
+	else if (!social_join.posted && now - social_join.began > SOCIAL_JOIN_TIMEOUT)
+		social_menu_join_end("Their game did not show up in time.");
+}
+
+void social_menu_join_draw(
+	short screen_width,
+	short screen_height)
+{
+	struct campaign_score_panel text;
+	struct campaign_score_panel title;
+	real_argb_color white;
+	real_argb_color blue;
+	real_argb_color grey;
+	char line[128];
+	char status[96];
+	real scale;
+	real height;
+	real y;
+	int stage = P2P_JOIN_NONE;
+	short dots = (short)((system_milliseconds() / 400) % 4);
+
+	if (!social_join.active || screen_width <= 0 || screen_height <= 0 ||
+		!card_font("ui\\small_ui", &text) || !card_font("ui\\large_ui", &title))
+	{
+		return;
+	}
+	card_color(&white, 1.0f, 1.0f, 1.0f);
+	card_color(&blue, 0.55f, 0.72f, 1.0f);
+	card_color(&grey, 0.65f, 0.65f, 0.65f);
+	/* (the screen behind dimmed) */
+	text.scale = 1.0f;
+	text.left = text.top = 0.0f;
+	text.width = screen_width;
+	campaign_score_panel_quad(&text, 0.0f, 0.0f, screen_width, screen_height, 0xB0000000);
+	/* (the panel, in the middle, in the screen's 480 lines) */
+	scale = (real)screen_height / 480.0f;
+	height = 14.0f + title.line_height + 10.0f + 2.0f * text.line_height + 12.0f + text.line_height + 12.0f;
+	text.scale = title.scale = scale;
+	text.width = title.width = SOCIAL_JOIN_PANEL_WIDTH;
+	text.left = title.left = (screen_width - SOCIAL_JOIN_PANEL_WIDTH * scale) / 2.0f;
+	text.top = title.top = (screen_height - height * scale) / 2.0f;
+	campaign_score_panel_quad(&text, 0.0f, 0.0f, SOCIAL_JOIN_PANEL_WIDTH, height, CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(&text, 0.0f, 0.0f, SOCIAL_JOIN_PANEL_WIDTH, height, CAMPAIGN_SCORE_PANEL_EDGE);
+	y = 14.0f;
+	snprintf(line, sizeof(line), "JOINING %s", social_join.name);
+	campaign_score_panel_text(&title, line, NULL, 16.0f, SOCIAL_JOIN_PANEL_WIDTH - 16.0f, y, 1.0f,
+		_campaign_score_text_center, &white);
+	y += title.line_height + 10.0f;
+	if (social_join.failure[0])
+	{
+		campaign_score_panel_text(&text, "Their game could not be joined.", NULL, 16.0f, SOCIAL_JOIN_PANEL_WIDTH - 16.0f,
+			y, 1.0f, _campaign_score_text_center, &blue);
+		campaign_score_panel_text(&text, social_join.failure, NULL, 16.0f, SOCIAL_JOIN_PANEL_WIDTH - 16.0f,
+			y + text.line_height, 1.0f, _campaign_score_text_center, &white);
+		return;
+	}
+	if (social_join.kind == _social_menu_join_listed)
+		snprintf(status, sizeof(status), "Finding their game in the server browser");
+	else
+	{
+		char reason[16];
+
+		p2p_join_progress(&stage, reason, sizeof(reason));
+		if (social_join.posted)
+			snprintf(status, sizeof(status), "Joining their game");
+		else if (stage == P2P_JOIN_CONNECTED)
+			snprintf(status, sizeof(status), "Connected. Waiting for their game");
+		else if (stage == P2P_JOIN_ANSWERED)
+			snprintf(status, sizeof(status), "Connecting to the host");
+		else
+			snprintf(status, sizeof(status), "Asking for the host");
+	}
+	snprintf(line, sizeof(line), "%s%.*s", status, dots, "...");
+	campaign_score_panel_text(&text, line, NULL, 16.0f, SOCIAL_JOIN_PANEL_WIDTH - 16.0f, y, 1.0f,
+		_campaign_score_text_center, &blue);
+	/* (how far along: a bar of the steps) */
+	{
+		real done = social_join.posted ? 0.9f : social_join.kind == _social_menu_join_listed ? 0.5f :
+			stage == P2P_JOIN_CONNECTED ? 0.7f : stage == P2P_JOIN_ANSWERED ? 0.4f : 0.15f;
+		real bar_top = y + text.line_height + 6.0f;
+
+		campaign_score_panel_quad(&text, 40.0f, bar_top, SOCIAL_JOIN_PANEL_WIDTH - 40.0f, bar_top + 4.0f, 0x60FFFFFF);
+		campaign_score_panel_quad(&text, 40.0f, bar_top, 40.0f + (SOCIAL_JOIN_PANEL_WIDTH - 80.0f) * done,
+			bar_top + 4.0f, 0xFF2896FF);
+	}
+	y += 2.0f * text.line_height + 12.0f;
+	campaign_score_panel_text(&text, "B: CANCEL", NULL, 16.0f, SOCIAL_JOIN_PANEL_WIDTH - 16.0f, y, 1.0f,
+		_campaign_score_text_center, &grey);
 }
 
 /* ---------- the chat's (a player's name clicked: social_chat.c) */

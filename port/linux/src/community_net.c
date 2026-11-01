@@ -235,6 +235,29 @@ int community_net_send(const char *path, const char *body, const char *player)
 	return community_net_start(url, headers, body, COMMUNITY_NET_ANSWER_MAXIMUM);
 }
 
+#if defined(HALO_WEB)
+void web_js_close_beacon(const char *url, const char *body);
+#endif
+
+void community_net_close_beacon(const char *path)
+{
+#if defined(HALO_WEB)
+	char server[COMMUNITY_NET_URL_MAXIMUM];
+	char url[COMMUNITY_NET_URL_MAXIMUM];
+	char key[160];
+
+	if (!community_net_enabled() || !community_net_server(server, sizeof(server)) ||
+		!community_net_key(key, sizeof(key)))
+	{
+		return;
+	}
+	snprintf(url, sizeof(url), "%s%s", server, path);
+	web_js_close_beacon(url, key);
+#else
+	(void)path;
+#endif
+}
+
 int community_net_get(const char *url, const char *headers, int answer_maximum)
 {
 	return answer_maximum > 0 ? community_net_start(url, headers ? headers : "", NULL, answer_maximum) : 0;

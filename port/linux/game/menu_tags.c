@@ -443,7 +443,7 @@ static char const *const port_function_names[] =
 	"port maps init", "port maps close", "port maps choose", "port maps back", "port map manage",
 	/* (Social: the main menu's Y, and Chat's BLOCKED & MUTED: menu_functions.c, social_menu.c) */
 	"port social init", "port social close", "port social choose", "port social back", "port social open",
-	"port social moderation", "port social options", "port social profile", "port play init",
+	"port social moderation", "port social options", "port social join", "port social profile", "port play init",
 	/* (the server browser's buttons' shortcuts: menu_functions.c) */
 	"port browser refresh", "port browser filters", "port browser mode previous", "port browser mode next",
 	"port browser column previous", "port browser column next", "port browser sort decreasing",

@@ -35,11 +35,18 @@ players' matches and levels.
   social.show_activity, social.instant_join, social.private_chat) go with
   its POST /account, again whenever Settings changes one: the server keeps
   them, and others see this account as they say.
-- What the game is doing (the menus, the campaign, a multiplayer game, the
-  Theater: its map, gametype, game and players, and the invite of the
-  internet game it hosts with social.instant_join on) goes as POST /presence
+- What the game is doing (the menus, a network game's lobby, the campaign, a
+  multiplayer game, the Theater: its map, gametype, game and players) goes
+  as POST /presence
   every SOCIAL_PRESENCE_MILLISECONDS, and as soon as it changes; its answer
-  says how many friends are online and how many requests wait.
+  says how many friends are online and how many requests wait. With it, how
+  friends may join an internet game (social_presence_join): a public one
+  (listed in the server browser), hosted or joined, by its invite, or with
+  a password by its listing's key (the friend's server browser finds it and
+  asks for the password); a private one only by the invite of the game it
+  hosts with social.instant_join on, else it is said to be private.
+  The web build's tab says POST /presence/offline as it closes or reloads
+  (its Quit reloads it): offline at once, not when presence stops coming.
 
 The fork's chat is social_chat.c's, over the same account; the friend list,
 the players and their records social_menu.c's.
@@ -52,6 +59,7 @@ the players and their records social_menu.c's.
 #include "interface/player_ui.h"
 #include "interface/ui_widget.h"
 #include "memory/data.h"
+#include "networking/network_client_manager.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
@@ -61,6 +69,7 @@ the players and their records social_menu.c's.
 #include "campaign_medals.h"
 #include "campaign_score.h"
 #include "community.h"
+#include "network_privacy.h"
 #include "network_replay.h"
 #include "social.h"
 #include "social_chat.h"
@@ -81,6 +90,10 @@ int platform_remove_host(char const *path);
 unsigned long system_milliseconds(void);
 unsigned long config_changes(void);
 int p2p_invite_link(char *link, int size);
+int p2p_hosting_internet(void);
+int p2p_hosting_listed(void);
+int p2p_hosting_password(void);
+int p2p_joined_invite(char *link, int size, char *host_key, int key_size, int *listed, int *locked);
 
 /* ---------- constants */
 
@@ -221,6 +234,21 @@ char const *social_account_code(
 	void)
 {
 	return social.code;
+}
+
+static void social_answer_text(char const *answer, char const *path, char *text, int size);
+
+boolean social_account_code_take(
+	char const *answer)
+{
+	char code[SOCIAL_CODE_SIZE];
+
+	social_answer_text(answer, "account.code", code, sizeof(code));
+	if (!code[0])
+		return FALSE;
+	platform_log("social: the account's code is now %s", code);
+	csstrncpy(social.code, code, sizeof(social.code) - 1);
+	return TRUE;
 }
 
 int social_send(
@@ -433,6 +461,9 @@ static void social_hello_update(
 				if (strcmp(code, social.code))
 					platform_log("social: the account is %s", code);
 				csstrncpy(social.code, code, sizeof(social.code) - 1);
+				/* (the web's tab closing says the account went offline: the
+				Quit there only reloads the page) */
+				community_net_close_beacon("/presence/offline");
 				return;
 			}
 		}
@@ -1115,14 +1146,36 @@ void social_level_won(
 
 /* ---------- what the game is doing */
 
+/* the network game this machine is in, its lobby too (game_connection()
+says it only once its level loads): hosted, joined, else local (the
+client's state 2 is the lobby's, pregame: searching and joining before it,
+in game and postgame after) */
+static short social_network_connection(
+	void)
+{
+	short connection = game_connection();
+	struct network_game_client *client = global_network_game_client_get();
+
+	if (connection == _game_connection_network_client || connection == _game_connection_network_server)
+		return connection;
+	if (connection != _game_connection_local || network_replay_playing())
+		return _game_connection_local;
+	if (global_network_game_server_get())
+		return _game_connection_network_server;
+	if (client && network_game_client_get_state(client, NULL) >= 2)
+		return _game_connection_network_client;
+	return _game_connection_local;
+}
+
 /* the game's name, gametype and players (a network game's), as UTF-8 */
 static void social_presence_game(
-	struct server_json *json)
+	struct server_json *json,
+	short connection)
 {
 	struct network_game *game = network_game_get_game();
 	char text[96];
 
-	if (!game || game_connection() == _game_connection_local)
+	if (!game || connection == _game_connection_local)
 		return;
 	social_utf8_from_wide(game->name, NUMBEROF(game->name), text, sizeof(text));
 	server_json_string(json, "game", text);
@@ -1133,16 +1186,88 @@ static void social_presence_game(
 	server_json_integer(json, "maximum", game->maximum_players);
 }
 
-/* what the game is doing as POST /presence's body (the invite with
-social.instant_join and social.friends on, of an internet game hosted) */
+/* how friends may join the network game played (social.friends on): its
+invite, a password's game's listing key ("hostKey", hex: its host's key
+hash), or that it is private (a LAN game, an upstream host's, which never
+says, or one not listed: social.instant_join lets friends join one this
+machine hosts, past its password too) */
+static void social_presence_join(
+	struct server_json *json,
+	short connection)
+{
+	char invite[SOCIAL_INVITE_SIZE];
+	char host_key[48];
+	boolean listed = FALSE;
+	boolean locked = FALSE;
+
+	invite[0] = host_key[0] = 0;
+	if (connection == _game_connection_network_server)
+	{
+		if (!p2p_invite_link(invite, sizeof(invite)) || !invite[0])
+			invite[0] = 0;
+		listed = invite[0] && p2p_hosting_internet() && p2p_hosting_listed();
+		locked = listed && p2p_hosting_password();
+		/* (instant join: its invite, past the password, which the server
+		keeps only while it is on: as a private game's) */
+		if (config_boolean("social.instant_join"))
+		{
+			listed = listed && !locked;
+			locked = FALSE;
+		}
+		else if (!listed)
+			invite[0] = 0;
+		/* (a password's game: its host's key, as the invite holds it) */
+		if (locked && strlen(invite) > 12 + 32)
+			snprintf(host_key, sizeof(host_key), "%.32s", invite + 12);
+		if (locked)
+			invite[0] = 0;
+	}
+	else if (connection == _game_connection_network_client)
+	{
+		int joined_listed = 0;
+		int joined_locked = 0;
+
+		if (p2p_joined_invite(invite, sizeof(invite), host_key, sizeof(host_key), &joined_listed, &joined_locked))
+		{
+			listed = joined_listed != 0;
+			locked = joined_locked != 0;
+			if (!listed)
+				network_privacy_known(&listed, &locked);
+		}
+		/* (the invite joined with joins past the password: never said) */
+		if (!listed || locked)
+			invite[0] = 0;
+		if (!listed || !locked)
+			host_key[0] = 0;
+	}
+	else
+	{
+		return;
+	}
+	/* (a public game's whatever the server's join, social.instant_join, says;
+	a private one's invite only with it) */
+	if (listed && (invite[0] || host_key[0]))
+		server_json_boolean(json, "public", TRUE);
+	if (invite[0])
+		server_json_string(json, "invite", invite);
+	else if (host_key[0])
+	{
+		server_json_string(json, "hostKey", host_key);
+		server_json_boolean(json, "locked", TRUE);
+	}
+	else
+		server_json_boolean(json, "private", TRUE);
+}
+
+/* what the game is doing as POST /presence's body (how friends may join a
+network game: social_presence_join) */
 static void social_presence_text(
 	char *text,
 	long size)
 {
 	struct server_json json;
-	short connection = game_connection();
+	short connection = social_network_connection();
 	char map[64];
-	char invite[SOCIAL_INVITE_SIZE];
 	char name[SOCIAL_NAME_SIZE];
 	char const *state = "menus";
 	/* (the main menu is a scenario too, ui: not a game) */
@@ -1155,6 +1280,9 @@ static void social_presence_text(
 		state = "multiplayer";
 	else if (playing)
 		state = "campaign";
+	/* (a network game's lobby, before its level loads and between them) */
+	else if (connection != _game_connection_local && !playing)
+		state = "lobby";
 	server_json_begin(&json);
 	server_json_object_begin(&json, NULL);
 	server_json_string(&json, "state", state);
@@ -1166,13 +1294,10 @@ static void social_presence_text(
 		social_map_name(map, sizeof(map));
 		server_json_string(&json, "map", map);
 	}
-	social_presence_game(&json);
+	social_presence_game(&json, connection);
 	server_json_boolean(&json, "host", connection == _game_connection_network_server);
-	if (config_boolean("social.friends") && config_boolean("social.instant_join") &&
-		p2p_invite_link(invite, sizeof(invite)) && invite[0])
-	{
-		server_json_string(&json, "invite", invite);
-	}
+	if (config_boolean("social.friends"))
+		social_presence_join(&json, connection);
 	server_json_object_end(&json);
 	if (!json.failed)
 		snprintf(text, (size_t)size, "%s", server_json_text(&json));
@@ -1226,6 +1351,7 @@ static void social_presence_update(
 		}
 		else
 		{
+			platform_log("social: what the game is doing was not taken (%d)", status);
 			/* (said again a while after, as when it is unchanged) */
 			social.presence_at = now ? now : 1;
 		}

@@ -16,7 +16,8 @@ away), as the Map Manager's are (map_manager.h): menu_functions.c's "port
 social" functions show their rows and the row chosen's details.
 	HOME          YOU, FRIENDS, REQUESTS, ACTIVITY, RECENT PLAYERS,
 	              ADD FRIEND, BLOCKED & MUTED
-	FRIENDS       ADD FRIEND, then the friends, online first
+	FRIENDS       ADD FRIEND, then the friends, online first (a JOIN GAME
+	              under each whose game may be joined)
 	REQUESTS      those that asked to be friends, then those asked
 	ACTIVITY      the friends' latest matches and levels
 	RECENT        the players of the chat (this game's room, and those
@@ -49,6 +50,12 @@ enum
 	/* a friend's game joined: its invite (social_menu_join_invite), which
 	Direct Link shows */
 	_social_menu_join,
+	/* a friend's public game with a password: its listing's key
+	(social_menu_join_host_key), which the server browser finds it by and
+	asks for its password */
+	_social_menu_join_listed,
+	/* SETTINGS: the social settings opened (menu_functions.c) */
+	_social_menu_settings,
 };
 
 /* where the screen opens (social_menu_open_at) */
@@ -127,8 +134,13 @@ about them */
 boolean social_menu_card_shown(void);
 boolean social_menu_card_has_options(void);
 void social_menu_card_options(void);
+/* ... and the JOIN button (another's card, a game that may be joined: its
+invite or its listing's key), pressed: _social_menu_join, _join_listed or
+_stays, as a JOIN GAME row's */
+boolean social_menu_card_has_join(void);
+short social_menu_card_join(void);
 
-/* A on a row: _social_menu_stays, _typing or _join */
+/* A on a row: _social_menu_stays, _typing, _join, _join_listed or _settings */
 short social_menu_choose(short row);
 
 /* B: up a list; FALSE in the first (the screen leaves) */
@@ -136,9 +148,27 @@ boolean social_menu_back(void);
 
 /* the invite of the game _social_menu_join joins ("" for none) */
 char const *social_menu_join_invite(void);
+/* the listing key (hex) of the game _social_menu_join_listed joins ("" for
+none) */
+char const *social_menu_join_host_key(void);
 
 /* (menu_functions.c) the join could not be started: said on the screen */
 void social_menu_join_failed(void);
+
+/* (menu_functions.c) the join's panel over every screen while it goes on:
+begun as the join is (_social_menu_join or _join_listed), ended once the
+screen behind it is left or what it waited for came (NULL), or with why it
+failed (said for a few seconds); it ends by itself once the game's lobby
+is reached */
+void social_menu_join_begin(short kind);
+void social_menu_join_end(char const *failure);
+boolean social_menu_join_active(void);
+/* (Direct Link's) the host key hash (hex) of the friend's game to choose
+and join as soon as it shows, NULL for none; the A press posted on it */
+char const *social_menu_join_seeking(void);
+void social_menu_join_posted(void);
+/* (social_chat.c's draw, over everything) the panel, in the view's pixels */
+void social_menu_join_draw(short screen_width, short screen_height);
 
 /* ---------- the chat's: a player's name clicked (social_chat.c) */
 

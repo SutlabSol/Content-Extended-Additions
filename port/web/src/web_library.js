@@ -60,6 +60,14 @@ addToLibrary({
     else console.log(message);
   },
 
+  // community_net.h's community_net_close_beacon: what the page sends the
+  // community server as its tab closes or reloads (app.js's pagehide), kept
+  // in Module.haloCloseBeacon
+  web_js_close_beacon__proxy: 'sync',
+  web_js_close_beacon: (url, body) => {
+    Module.haloCloseBeacon = { url: UTF8ToString(url), body: UTF8ToString(body) };
+  },
+
   // a question for the player (port/linux/src/sdl_platform.c's
   // platform_ask): the page's dialog, its buttons' labels one to a line; the
   // button chosen goes in the word the game waits on (web_shared.h's

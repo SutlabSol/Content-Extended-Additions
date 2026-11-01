@@ -12762,7 +12762,37 @@ static struct
 	browser takes up again as it comes back */
 	struct p2p_listing password_game;
 	boolean password_joined;
+	/* a friend's game sought (social_menu.c's JOIN GAME of a public game
+	with a password): its listing's key (hex), since when, and whether the
+	browser found it though its filters hide it. Once shown, it is chosen
+	and an A press posted on it (its password screen opens) */
+	char seek_key[2 * P2P_LISTING_KEY_HASH_SIZE + 1];
+	unsigned long seek_time;
+	boolean seek_hidden;
 } lobby_browser;
+
+#define LOBBY_BROWSER_SEEK_TIMEOUT 20000
+
+/* the listing's key as hex, matched with a friend's (any case) */
+static boolean lobby_browser_seeks(struct p2p_listing const *game)
+{
+	static char const digits[] = "0123456789abcdef";
+	short index;
+
+	if (!lobby_browser.seek_key[0] || !game->locked)
+		return FALSE;
+	for (index = 0; index < P2P_LISTING_KEY_HASH_SIZE; index++)
+	{
+		char high = lobby_browser.seek_key[2 * index];
+		char low = high ? lobby_browser.seek_key[2 * index + 1] : 0;
+
+		high = (char)(high >= 'A' && high <= 'F' ? high + 'a' - 'A' : high);
+		low = (char)(low >= 'A' && low <= 'F' ? low + 'a' - 'A' : low);
+		if (high != digits[game->key_hash[index] >> 4] || low != digits[game->key_hash[index] & 15])
+			return FALSE;
+	}
+	return lobby_browser.seek_key[2 * P2P_LISTING_KEY_HASH_SIZE] == 0;
+}
 
 /* whether the game this machine joined last is a dedicated server's: its
 advertisement's flag, or its listing's (the lobby's line, lobby_update) */
@@ -12909,7 +12939,10 @@ static void lobby_browser_begin(void)
 /* "gamespy screen dispose" */
 static void lobby_browser_end(void)
 {
+	/* (the join screen left: a friend's game's join's panel goes too) */
+	social_menu_join_end(NULL);
 	lobby_browser.joining = lobby_browser.ready = FALSE;
+	lobby_browser.seek_key[0] = 0;
 	p2p_lobby_browse(FALSE);
 }
 
@@ -13467,6 +13500,13 @@ static void lobby_browser_update(struct widget_instance *list)
 
 	lobby_browser.found = lobby_browser_valid_games(lobby_browser.games,
 		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
+	/* (a friend's game sought: found, though the filters may hide it) */
+	{
+		short index;
+
+		for (index = 0; index < lobby_browser.found && lobby_browser.seek_key[0]; index++)
+			lobby_browser.seek_hidden = lobby_browser.seek_hidden || lobby_browser_seeks(&lobby_browser.games[index]);
+	}
 	lobby_browser_choices(&choices, lobby_browser_source(list));
 	lobby_browser.count = (short)p2p_lobby_filter(lobby_browser.games, lobby_browser.found, &choices,
 		lobby_browser_map_state);
@@ -13495,6 +13535,40 @@ static void lobby_browser_update(struct widget_instance *list)
 			lobby_browser_focus_row(list, 0);
 			focused = 0;
 			lobby_browser.chosen = lobby_browser.first;
+		}
+	}
+	/* (a friend's game sought: chosen once shown, and an A press posted on
+	it, which opens its password screen; the player told if it is not) */
+	if (lobby_browser.seek_key[0] && !lobby_browser.joining)
+	{
+		static wchar_t const hidden[] = L"Your friend's game is listed, but\r\nthe server browser's filters hide it.";
+		static wchar_t const missing[] = L"Your friend's game was not found\r\nin the server browser.";
+		short index;
+
+		for (index = 0; index < lobby_browser.count && !lobby_browser_seeks(&lobby_browser.games[index]); index++)
+			;
+		if (index < lobby_browser.count)
+		{
+			lobby_browser.seek_key[0] = 0;
+			lobby_browser.first = (short)MIN(index, MAX(0, lobby_browser.count - BROWSER_ROWS));
+			focused = (short)(index - lobby_browser.first);
+			lobby_browser.shown = TRUE;
+			lobby_browser.chosen = index;
+			lobby_browser_focus_row(list, focused);
+			ui_widget_port_post_button(0, BUTTON_A);
+			/* (its password screen next: the join's panel goes) */
+			social_menu_join_end(NULL);
+		}
+		else if (now - lobby_browser.seek_time > LOBBY_BROWSER_SEEK_TIMEOUT)
+		{
+			lobby_browser.seek_key[0] = 0;
+			if (social_menu_join_active())
+			{
+				social_menu_join_end(lobby_browser.seek_hidden ? "It is listed, but the browser's filters hide it." :
+					"It was not found in the server browser.");
+			}
+			else
+				display_error_text_deferred(lobby_browser.seek_hidden ? hidden : missing, NONE);
 		}
 	}
 	if (focused != NONE && !ui_widget_port_hover_focused())
@@ -13985,6 +14059,49 @@ static boolean password_screen_edit(struct widget_instance *row, boolean *widget
 	return TRUE;
 }
 
+/* (Direct Link's, a friend's game being joined: social_menu_join_seeking)
+the game whose host's key hash is the invite's chosen, its row focused and
+an A press posted on it, which joins it; TRUE when it was */
+static boolean social_join_direct_link(struct widget_instance *list)
+{
+	static char const digits[] = "0123456789abcdef";
+	char const *seeking = social_menu_join_seeking();
+	short index;
+
+	if (!seeking || !seeking[0])
+		return FALSE;
+	for (index = 0; index < multiplayer.game_count && index < BROWSER_ROWS; index++)
+	{
+		struct advertised_game *game = multiplayer.games[index];
+		unsigned char identifier[6];
+		unsigned char key_hash[P2P_LISTING_KEY_HASH_SIZE];
+		unsigned long address;
+		short byte;
+
+		if (!p2p_peer_address(game->xnaddr + 2, &address) || !p2p_peer_key_hash(address, identifier, key_hash))
+			continue;
+		for (byte = 0; byte < P2P_LISTING_KEY_HASH_SIZE; byte++)
+		{
+			char high = seeking[2 * byte];
+			char low = high ? seeking[2 * byte + 1] : 0;
+
+			high = (char)(high >= 'A' && high <= 'F' ? high + 'a' - 'A' : high);
+			low = (char)(low >= 'A' && low <= 'F' ? low + 'a' - 'A' : low);
+			if (high != digits[key_hash[byte] >> 4] || low != digits[key_hash[byte] & 15])
+				break;
+		}
+		if (byte < P2P_LISTING_KEY_HASH_SIZE)
+			continue;
+		multiplayer.game_chosen = index;
+		lobby_browser_focus_row(list, index);
+		ui_widget_port_post_button(0, BUTTON_A);
+		social_menu_join_posted();
+		platform_log("social: a friend's game shows in Direct Link: joining it");
+		return TRUE;
+	}
+	return FALSE;
+}
+
 /* "gamespy screen update": the games' rows (name, map, gametype, players),
 the one chosen's line, the counts over the titles (the PC version's: its
 players, page, servers) */
@@ -14007,6 +14124,10 @@ static void browser_update(struct widget_instance *list)
 	browser_games_read();
 	if (focused != NONE && focused < multiplayer.game_count && !ui_widget_port_hover_focused())
 		multiplayer.game_chosen = focused;
+	/* (a friend's game being joined from Social: chosen and joined as soon
+	as it shows, its host's key the invite's) */
+	if (multiplayer.mode == _multiplayer_mode_direct_link && social_join_direct_link(list))
+		focused = browser_row_index(list->focused_child);
 	for (row = list->child; row; row = row->next)
 	{
 		short index = browser_row_index(row);
@@ -14132,12 +14253,15 @@ static boolean direct_link_from_clipboard(void)
 	return TRUE;
 }
 
-/* ---------- the Social screen (social_menu.h): the main menu's Y, and
-Settings > Gameplay > Social > Chat's BLOCKED & MUTED; its lists shown as
+/* ---------- the Social screen (social_menu.h): the main menu's Y (its
+SETTINGS the social settings' screens, with Social off too); its lists shown as
 the Map Manager's are (the same rows, details and scrolling), its JOIN GAME
 a friend's invite joined as PASTE LINK joins one, Direct Link then shown */
 
 #define SOCIAL_SCREEN_NAME "pc\\main_menu\\social\\social_screen"
+/* (its SETTINGS: tools/port_settings.py's, under the profile settings' folder) */
+#define SOCIAL_SETTINGS_SCREEN_NAME \
+	"pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\gameplay\\community\\social\\social_settings_screen"
 #define JOIN_GAME_SCREEN_NAME "pc\\main_menu\\multiplayer_type_select\\join_game\\join_game_screen"
 #define SOCIAL_ROWS 11
 #define SOCIAL_DETAILS_LINES 16
@@ -14198,6 +14322,7 @@ static void social_screen_update(struct widget_instance *list)
 	struct widget_instance *details = list->parameters.list.extended_description;
 	struct widget_instance *bar = named(list, "button_bar", 0);
 	struct widget_instance *options = named(bar, "button_options", 0);
+	struct widget_instance *join = named(bar, "button_join", 0);
 	short *first;
 	short *chosen;
 	short count;
@@ -14215,10 +14340,20 @@ static void social_screen_update(struct widget_instance *list)
 	visible_set(details, !card);
 	visible_set(named(screen_of(list), "sel_list_desc_bkd", 0), !card);
 	visible_set(options, social_menu_card_has_options());
-	if (bar && options && bar->focused_child == options && !options->visible)
+	visible_set(join, social_menu_card_has_join());
+	if (bar && ((options && bar->focused_child == options && !options->visible) ||
+		(join && bar->focused_child == join && !join->visible)))
+	{
 		bar->focused_child = named(bar, "button_back", 0);
-	if (social_menu_list() != social_screen.list_shown && card && options && options->visible && bar)
-		bar->focused_child = options;
+	}
+	/* (the card opening: the focus on JOIN, else OPTIONS) */
+	if (social_menu_list() != social_screen.list_shown && card && bar)
+	{
+		if (join && join->visible)
+			bar->focused_child = join;
+		else if (options && options->visible)
+			bar->focused_child = options;
+	}
 	if (social_menu_list() != social_screen.list_shown)
 	{
 		social_screen.list_shown = social_menu_list();
@@ -14308,18 +14443,26 @@ static void social_screen_update(struct widget_instance *list)
 	}
 }
 
-/* "port social choose" (A on a row): JOIN GAME joins the friend's invite
-and shows Direct Link, whose B comes back here */
-static boolean social_screen_choose(struct widget_instance *widget, boolean *widget_deleted)
+/* a friend's game joined (social_menu_choose's _social_menu_join or
+_join_listed), the join's panel over the screen it goes on in
+(social_menu_join_begin): its invite in Direct Link, which chooses and joins
+the game as soon as it shows (browser_update), or a public game with a
+password found in the server browser, which asks for the password */
+static boolean social_screen_join(struct widget_instance *widget, short choice, boolean *widget_deleted)
 {
-	short place = social_row_place(social_row(widget));
 	char logged[96];
 
-	if (place == NONE)
-		place = *social_menu_chosen();
-	*social_menu_chosen() = place;
-	ui_play_audio_feedback_sound(SOUND_FORWARD);
-	if (social_menu_choose(place) != _social_menu_join)
+	if (choice == _social_menu_join_listed)
+	{
+		snprintf(lobby_browser.seek_key, sizeof(lobby_browser.seek_key), "%s", social_menu_join_host_key());
+		lobby_browser.seek_time = system_milliseconds();
+		lobby_browser.seek_hidden = FALSE;
+		platform_log("social: finding a friend's game in the server browser");
+		social_menu_join_begin(choice);
+		multiplayer.mode = _multiplayer_mode_server_browser;
+		return ui_widget_port_open(widget, JOIN_GAME_SCREEN_NAME, widget_deleted);
+	}
+	if (choice != _social_menu_join)
 		return TRUE;
 	if (!p2p_join_invite(social_menu_join_invite()))
 	{
@@ -14328,8 +14471,37 @@ static boolean social_screen_choose(struct widget_instance *widget, boolean *wid
 	}
 	platform_log("social: joining a friend's game (%s)", p2p_invite_log_text(social_menu_join_invite(), logged,
 		sizeof(logged)));
+	social_menu_join_begin(choice);
 	multiplayer.mode = _multiplayer_mode_direct_link;
 	return ui_widget_port_open(widget, JOIN_GAME_SCREEN_NAME, widget_deleted);
+}
+
+/* "port social choose" (A on a row): JOIN GAME joins the friend's invite
+and shows Direct Link, or, a public game with a password, shows the server
+browser, which finds it and asks for the password (B comes back here);
+SETTINGS opens the social settings, over it */
+static boolean social_screen_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short place = social_row_place(social_row(widget));
+	short choice;
+
+	if (place == NONE)
+		place = *social_menu_chosen();
+	*social_menu_chosen() = place;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	choice = social_menu_choose(place);
+	if (choice == _social_menu_settings)
+		return ui_widget_port_open(widget, SOCIAL_SETTINGS_SCREEN_NAME, widget_deleted);
+	return social_screen_join(widget, choice, widget_deleted);
+}
+
+/* "port social join" (a player's card's JOIN): as their JOIN GAME row */
+static boolean social_screen_card_join(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (!social_menu_card_has_join())
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return social_screen_join(widget, social_menu_card_join(), widget_deleted);
 }
 
 /* "port social options" (a player's card's OPTIONS): what can be done about
@@ -14358,11 +14530,10 @@ static boolean social_screen_back(struct widget_instance *widget, boolean *widge
 /* "port social open" (the main menu's Y), "port social moderation" (Chat's
 BLOCKED & MUTED) and "port social profile" (Social's MY PROFILE): the screen,
 over the one asking, at its first list, the players muted and blocked, or
-your own card */
+your own card; with Social off too, its SETTINGS alone, where it is turned
+on */
 static boolean social_screen_open(struct widget_instance *widget, short where, boolean *widget_deleted)
 {
-	if (!config_boolean("social.enabled"))
-		return FALSE;
 	social_menu_open_at(where);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return ui_widget_port_open(widget, SOCIAL_SCREEN_NAME, widget_deleted);
@@ -15084,10 +15255,9 @@ static void news_hint_update(struct widget_instance *list)
 
 	visible_set(named(screen, "news_hint", 0), shown);
 	visible_set(named(screen, "x_butn_news", 0), shown);
-	/* (and that Y opens Social, with social.enabled) */
-	shown = config_boolean("social.enabled") != 0;
-	visible_set(named(screen, "social_hint", 0), shown);
-	visible_set(named(screen, "y_butn_social", 0), shown);
+	/* (and that Y opens Social: always, its settings there) */
+	visible_set(named(screen, "social_hint", 0), TRUE);
+	visible_set(named(screen, "y_butn_social", 0), TRUE);
 }
 
 /* "port news init" */
@@ -17772,6 +17942,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port social init") || !strcmp(name, "port social close"))
 		{
 			return social_screen_reset(!strcmp(name, "port social init"));
+		}
+		else if (!strcmp(name, "port social join"))
+		{
+			return social_screen_card_join(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "port social choose"))
 		{
