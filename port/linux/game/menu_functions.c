@@ -14333,14 +14333,15 @@ static boolean social_screen_back(struct widget_instance *widget, boolean *widge
 	return TRUE;
 }
 
-/* "port social open" (the main menu's Y) and "port social moderation"
-(Chat's BLOCKED & MUTED): the screen, over the one asking, at its first list
-or the players muted and blocked */
-static boolean social_screen_open(struct widget_instance *widget, boolean moderation, boolean *widget_deleted)
+/* "port social open" (the main menu's Y), "port social moderation" (Chat's
+BLOCKED & MUTED) and "port social profile" (Social's MY PROFILE): the screen,
+over the one asking, at its first list, the players muted and blocked, or
+your own card */
+static boolean social_screen_open(struct widget_instance *widget, short where, boolean *widget_deleted)
 {
 	if (!config_boolean("social.enabled"))
 		return FALSE;
-	social_menu_open_at(moderation ? _social_menu_open_moderation : _social_menu_open_home);
+	social_menu_open_at(where);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return ui_widget_port_open(widget, SOCIAL_SCREEN_NAME, widget_deleted);
 }
@@ -17525,9 +17526,12 @@ boolean pc_menu_event_function_invoke(
 		{
 			return social_screen_back(widget, widget_deleted);
 		}
-		else if (!strcmp(name, "port social open") || !strcmp(name, "port social moderation"))
+		else if (!strcmp(name, "port social open") || !strcmp(name, "port social moderation") ||
+			!strcmp(name, "port social profile"))
 		{
-			return social_screen_open(widget, !strcmp(name, "port social moderation"), widget_deleted);
+			return social_screen_open(widget, !strcmp(name, "port social moderation") ? _social_menu_open_moderation :
+				!strcmp(name, "port social profile") ? _social_menu_open_profile : _social_menu_open_home,
+				widget_deleted);
 		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{

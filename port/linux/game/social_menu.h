@@ -56,6 +56,8 @@ enum
 {
 	_social_menu_open_home,
 	_social_menu_open_moderation,
+	/* (Settings > Gameplay > Community > Social's MY PROFILE: your card) */
+	_social_menu_open_profile,
 };
 
 /* ---------- prototypes/SOCIAL_MENU.C */
@@ -134,6 +136,11 @@ shared), and a few lines of them: 1 had, 0 still asked, -1 not answered
 (why in text) */
 void social_menu_profile_ask(char const *code, char const *name);
 short social_menu_profile_text(char const *code, char *text, long size);
+
+/* (social_chat.c's VIEW PROFILE) the player's card, as the Social screen
+draws it (asked for: social_menu_profile_ask), in the view's pixels from x0
+to x1 and from y0 down: its bottom (y0 for none drawn) */
+short social_menu_profile_card_draw(char const *code, short x0, short y0, short x1);
 /* whether the player is a friend, and muted, as the server last said */
 boolean social_menu_is_friend(char const *code);
 boolean social_menu_is_muted(char const *code);

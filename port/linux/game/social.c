@@ -268,33 +268,29 @@ void social_player_name(
 	long size)
 {
 	/* (as the main menu's current_profile_name: the active profile as the
-	menus hold it, else the one used last, read from its file at most once
-	a second) */
-	static struct player_profile profile;
-	static long read_index = NONE;
+	menus hold it, else the one used last, else the first there is, as the
+	PC menus' campaign has it: player_ui_reset_campaign_progress, read from
+	its file at most once a second) */
+	static wchar_t read_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH];
 	static unsigned long read_time;
 	static boolean read_good;
-	long profile_index = player_ui_get_active_player_profile_index(0);
+	struct player_profile profile;
 
 	name[0] = 0;
-	if (profile_index != NONE)
+	if (player_ui_get_active_player_profile_index(0) != NONE)
 	{
 		player_ui_get_active_player_profile(0, &profile);
-		read_index = NONE;
-		read_good = TRUE;
-	}
-	else if ((profile_index = player_ui_get_player1_last_used_profile_index()) == NONE)
-	{
+		social_utf8_from_wide(profile.player_name, NUMBEROF(profile.player_name), name, size);
+		read_time = 0;
 		return;
 	}
-	else if (profile_index != read_index || system_milliseconds() - read_time > 1000)
+	if (!read_time || system_milliseconds() - read_time > 1000)
 	{
-		read_index = profile_index;
-		read_good = player_profile_get(profile_index, &profile);
-		read_time = system_milliseconds();
+		read_good = player_ui_reset_campaign_progress(FALSE, read_name, NUMBEROF(read_name));
+		read_time = system_milliseconds() | 1;
 	}
 	if (read_good)
-		social_utf8_from_wide(profile.player_name, NUMBEROF(profile.player_name), name, size);
+		social_utf8_from_wide(read_name, NUMBEROF(read_name), name, size);
 }
 
 /* the social settings as the server keeps them (each "1" or "0", in

@@ -28,6 +28,7 @@ community server's answers.
 #include "math/real_math.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
+#include "interface/interface.h"
 #include "interface/ui_widget.h"
 #include "interface/virtual_keyboard.h"
 #include "tag_files/tag_groups.h"
@@ -1330,6 +1331,14 @@ void social_menu_open(
 		/* (B leaves the screen, back to Settings) */
 		social_menu.depth = 0;
 	}
+	else if (social_menu.opening == _social_menu_open_profile && social_account_code()[0])
+	{
+		char me[SOCIAL_MENU_NAME_SIZE];
+
+		social_player_name(me, sizeof(me));
+		player_open(social_account_code(), me);
+		social_menu.depth = 0;
+	}
 	social_menu.opening = _social_menu_open_home;
 }
 
@@ -1864,7 +1873,10 @@ static boolean card_font(
 {
 	struct font_header *font;
 
+	/* (a map without the menus' fonts: the terminal's, as the chat's) */
 	panel->font_index = tag_loaded('font', name);
+	if (panel->font_index == NONE)
+		panel->font_index = interface_get_tag_index(_interface_font_terminal);
 	if (panel->font_index == NONE)
 		return FALSE;
 	font = font_definition_get(panel->font_index);
@@ -1872,21 +1884,21 @@ static boolean card_font(
 	return panel->line_height > 0;
 }
 
-void social_menu_card_draw(
+/* the player's card in its room from x0 to x1, from y0 down: its bottom
+(y0 for none drawn) */
+static short card_draw(
 	short x0,
 	short y0,
-	short x1,
-	short y1)
+	short x1)
 {
 	struct social_card_fonts fonts;
 	real scale;
 	real height;
 
-	(void)y1;
-	if (!social_menu.open || social_menu.list != _list_card || x1 <= x0)
-		return;
+	if (x1 <= x0)
+		return y0;
 	if (!card_font("ui\\small_ui", &fonts.text) || !card_font("ui\\large_ui", &fonts.title))
-		return;
+		return y0;
 	/* (the widget's bounds are the card's room: SOCIAL_CARD_WIDTH by
 	SOCIAL_CARD_HEIGHT; a card taller than that is made smaller, and as
 	much wider in its units, so that it still fills the room's width) */
@@ -1907,6 +1919,29 @@ void social_menu_card_draw(
 	campaign_score_panel_quad(&fonts.text, 0.0f, 0.0f, fonts.text.width, height, CAMPAIGN_SCORE_CARD_FILL);
 	campaign_score_panel_frame(&fonts.text, 0.0f, 0.0f, fonts.text.width, height, CAMPAIGN_SCORE_PANEL_EDGE);
 	card_layout(&fonts, TRUE);
+	return (short)(y0 + height * scale);
+}
+
+void social_menu_card_draw(
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+	(void)y1;
+	if (social_menu.open && social_menu.list == _list_card)
+		card_draw(x0, y0, x1);
+}
+
+short social_menu_profile_card_draw(
+	char const *code,
+	short x0,
+	short y0,
+	short x1)
+{
+	if (strcmp(social_menu.player.code, code))
+		return y0;
+	return card_draw(x0, y0, x1);
 }
 
 boolean social_menu_card_shown(

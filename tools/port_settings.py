@@ -825,6 +825,12 @@ SCREENS["gameplay/community/social"] = {
         ("FRIENDS", "gameplay/community/social/friends",
          "Your friend list: requests, what friends see\nof you, and joining the games you host."),
     ],
+    # (the Social screen at your own card: menu_functions.c's
+    # social_screen_open)
+    "actions": [
+        ("MY PROFILE", "port social profile", "profile",
+         "Your card: your code, your multiplayer and\ncampaign totals, and every medal you won.", []),
+    ],
 }
 SCREENS["gameplay/community/social/chat"] = {
     "screen": "social_chat_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,

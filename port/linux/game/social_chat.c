@@ -40,8 +40,8 @@ the community server as the install's account (social.c; api-opence's
   others reported are (marked REPORTED: the server leaves them out else).
 - A player's name in the open box, clicked or tapped, opens its menu beside
   the box: SEND PRIVATE MESSAGE (social.private_chat), ADD FRIEND
-  (social.friends, not a friend yet), VIEW PROFILE (a few lines of its
-  records, there), MUTE or UNMUTE, REPORT (A twice); Up and Down, Enter,
+  (social.friends, not a friend yet), VIEW PROFILE (its card, as the
+  Social screen's, over the middle of the screen), MUTE or UNMUTE, REPORT (A twice); Up and Down, Enter,
   Escape on the keyboard. Only names the fork's chat knows the account of
   (its own lines' players, and the upstream chat's of this game's room by
   their names) open it (social_menu.c asks the server).
@@ -2319,6 +2319,34 @@ static void social_chat_player_draw(
 	short status = 0;
 
 	text[0] = 0;
+	/* (VIEW PROFILE: the player's card, the Social screen's, in the middle
+	of the screen, in its 480 lines; a click on it, B or Escape goes back) */
+	if (social_chat_player.profile)
+	{
+		real scale = (real)screen_height / 480.0f;
+		short card_left = (short)((screen_width - 600 * scale) / 2);
+		short card_top = (short)((screen_height - 335 * scale) / 2);
+		short bottom = social_menu_profile_card_draw(social_chat_player.code, card_left, card_top,
+			(short)(card_left + 600 * scale));
+
+		if (bottom > card_top)
+		{
+			social_chat_player.panel.x0 = card_left;
+			social_chat_player.panel.y0 = card_top;
+			social_chat_player.panel.x1 = (short)(card_left + 600 * scale);
+			social_chat_player.panel.y1 = bottom;
+			bounds.x0 = card_left;
+			bounds.x1 = social_chat_player.panel.x1;
+			bounds.y0 = (short)(bottom + 4);
+			bounds.y1 = (short)(bounds.y0 + line_height);
+			draw_string_set_draw_mode(font_index, NONE, 2 /* center */, 0, &grey);
+			social_chat_wide_from_ascii("CLICK, B OR ESCAPE: BACK", wide, NUMBEROF(wide));
+			rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, wide);
+			draw_string_set_draw_mode(font_index, NONE, 0 /* left */, 0, &white);
+			social_chat_player.drawn = TRUE;
+			return;
+		}
+	}
 	if (social_chat_player.profile)
 	{
 		status = social_menu_profile_text(social_chat_player.code, text, sizeof(text));
