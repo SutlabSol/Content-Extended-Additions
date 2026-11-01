@@ -14174,15 +14174,29 @@ static void social_screen_update(struct widget_instance *list)
 	struct widget_instance *row;
 	struct widget_instance *focused;
 	struct widget_instance *details = list->parameters.list.extended_description;
+	struct widget_instance *bar = named(list, "button_bar", 0);
+	struct widget_instance *options = named(bar, "button_options", 0);
 	short *first;
 	short *chosen;
 	short count;
 	short focused_index;
+	boolean card;
 
 	social_menu_poll();
 	first = social_menu_first();
 	chosen = social_menu_chosen();
 	count = social_menu_count();
+	/* (a player's card, drawn where the rows and the details are: the
+	details and their frame hidden, and OPTIONS shown for another's, the
+	focus on it as the card opens; else on BACK) */
+	card = social_menu_card_shown();
+	visible_set(details, !card);
+	visible_set(named(screen_of(list), "sel_list_desc_bkd", 0), !card);
+	visible_set(options, social_menu_card_has_options());
+	if (bar && options && bar->focused_child == options && !options->visible)
+		bar->focused_child = named(bar, "button_back", 0);
+	if (social_menu_list() != social_screen.list_shown && card && options && options->visible && bar)
+		bar->focused_child = options;
 	if (social_menu_list() != social_screen.list_shown)
 	{
 		social_screen.list_shown = social_menu_list();
@@ -14245,7 +14259,7 @@ static void social_screen_update(struct widget_instance *list)
 			snprintf(social_screen.row_shown[row_index], sizeof(social_screen.row_shown[0]), "%s", shown);
 		}
 	}
-	if (details)
+	if (details && !card)
 	{
 		char title[MOD_DETAILS_LENGTH];
 		char text[MOD_DETAILS_LENGTH];
@@ -14294,6 +14308,18 @@ static boolean social_screen_choose(struct widget_instance *widget, boolean *wid
 		sizeof(logged)));
 	multiplayer.mode = _multiplayer_mode_direct_link;
 	return ui_widget_port_open(widget, JOIN_GAME_SCREEN_NAME, widget_deleted);
+}
+
+/* "port social options" (a player's card's OPTIONS): what can be done about
+them */
+static boolean social_screen_options(struct widget_instance *widget)
+{
+	(void)widget;
+	if (!social_menu_card_has_options())
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	social_menu_card_options();
+	return TRUE;
 }
 
 /* "port social back" (B, and BACK): up a list, else away */
@@ -15200,6 +15226,12 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 			(short)(bounds->y0 - (392 - (258 + 388) / 2) * scale), (short)(126 * scale));
 	}
 #endif
+	/* (the Social screen's player card, over its rows: social_menu.c) */
+	if (widget->name && !strcmp(widget->name, "social_card"))
+	{
+		social_menu_card_draw(bounds->x0, bounds->y0, bounds->x1, bounds->y1);
+		return;
+	}
 	/* (the news's rows: the font and width its notes are wrapped to; and
 	its title's, which a release's name is measured in) */
 	if (widget->name && !strcmp(widget->name, "news_line"))
@@ -17484,6 +17516,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port social choose"))
 		{
 			return social_screen_choose(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social options"))
+		{
+			return social_screen_options(widget);
 		}
 		else if (!strcmp(name, "port social back"))
 		{

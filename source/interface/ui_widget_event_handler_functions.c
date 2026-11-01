@@ -933,6 +933,7 @@ symbols in this file:
 #include "text/unicode.h"
 #include "halo_menus.h" /* port: PC_MENU_FUNCTION_BASE */
 #include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
+#include "social.h" /* port: port/linux/game/social.c */
 
 /* ---------- constants */
 
@@ -2436,6 +2437,8 @@ static boolean network_game_remove_local_player(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 4073,
 		event && event->controller_index >= 0 && event->controller_index < 4,
 		"valid controller index required to remove player from network game");
+	/* port: a match left before its end recorded as a quit (port/linux/game/social.c) */
+	social_match_quit();
 	/* port: a multiplayer map played alone (its pause screen: ui_widget.c's
 	ui_check_for_pause_game) has no network game to leave: the main menu,
 	the map not saved (as the campaign's pause screen quits it) */

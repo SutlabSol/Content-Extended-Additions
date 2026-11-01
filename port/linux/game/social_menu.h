@@ -21,11 +21,14 @@ social" functions show their rows and the row chosen's details.
 	ACTIVITY      the friends' latest matches and levels
 	RECENT        the players of the chat (this game's room, and those
 	              written to)
-	PLAYER        one player: MULTIPLAYER, CAMPAIGN, MATCHES, MEDALS, then
-	              what can be done (JOIN GAME, SEND MESSAGE, the friend
-	              request's, MUTE, BLOCK, REPORT)
+	CARD          one player's card, drawn where the rows are (as the
+	              level's summary is: social_menu_card_draw): what they are
+	              doing, their multiplayer and campaign totals, every
+	              medal's count; its OPTIONS button (another's only) shows
+	              what can be done
+	PLAYER        LATEST MATCHES, then what can be done (JOIN GAME, SEND
+	              MESSAGE, the friend request's, MUTE, BLOCK, REPORT)
 	MATCHES       its latest matches and levels
-	MEDALS        each medal's count
 	MODERATION    the players muted and blocked
 	REPORT        why it is reported (A twice reports it)
 */
@@ -87,6 +90,17 @@ void social_menu_row(short row, char *name, long name_size, char *state, long st
 /* the row chosen's details: its title and its text, the last thing done
 first */
 void social_menu_details(short row, char *title, long title_size, char *text, long text_size);
+
+/* (menu_functions.c, as the screen's social_card text box is drawn: its
+bounds, in the view's pixels) the player's card, while it is shown */
+void social_menu_card_draw(short x0, short y0, short x1, short y1);
+
+/* a player's card is shown (the list's details and frame hidden); it has
+the OPTIONS button (another player's); the button pressed: what can be done
+about them */
+boolean social_menu_card_shown(void);
+boolean social_menu_card_has_options(void);
+void social_menu_card_options(void);
 
 /* A on a row: _social_menu_stays, _typing or _join */
 short social_menu_choose(short row);

@@ -7,8 +7,11 @@
 		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
 		<child widget="main_menu/social/social_list"/>
 		<child widget="main_menu/social/header_social"/>
+		<child widget="main_menu/social/social_card"/>
 	</widget>
 	<widget name="main_menu/social/header_social" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/social/header_social">
+	</widget>
+	<widget name="main_menu/social/social_card" type="text" controller="1" left="20" top="73" width="600" height="335" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/social/social_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/social/social_details">
 		<data input="port social update"/>
@@ -117,7 +120,13 @@
 	<widget name="main_menu/social/social_details_text" type="text" controller="1" left="412" top="130" width="200" height="272" font="ui\small_ui" color="#FF2896FF">
 	</widget>
 	<widget name="main_menu/social/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
+		<child widget="main_menu/social/button_options" x="380" y="1"/>
 		<child widget="main_menu/social/button_back" x="510" y="1"/>
+	</widget>
+	<widget name="main_menu/social/button_options" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="OPTIONS" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
+		<on event="a" run="port social options"/>
+		<on event="start" run="port social options"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/social/button_back" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="BACK" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port social back"/>

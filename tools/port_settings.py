@@ -5087,9 +5087,10 @@ def _theater() -> list:
 # as the Map Manager is: on the left two thirds the rows of the list shown
 # (YOU, FRIENDS, FRIEND REQUESTS, ACTIVITY, RECENT PLAYERS, ADD FRIEND BY
 # CODE, BLOCKED & MUTED; a list of friends, a player's page and what can be
-# done about them, their matches and medals), a row each with its name and
-# state; on the right third, in the lobby's frame, the row chosen's details
-# (menu_functions.c's "port social" functions)
+# done about them, their matches), a row each with its name and state; on the
+# right third, in the lobby's frame, the row chosen's details
+# (menu_functions.c's "port social" functions); over both, last, the player's
+# card (social_card, drawn by social_menu.c while it is shown)
 
 
 def _social() -> list:
@@ -5099,8 +5100,12 @@ def _social() -> list:
                                               ("flags", "pass_unhandled_to_focused_child pause_game"),
                                               ("bitmap", "bitmaps/gradient")],
                     [*back, '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
-                     f'<child widget="{base}/social_list"/>', f'<child widget="{base}/header_social"/>'])
+                     f'<child widget="{base}/social_list"/>', f'<child widget="{base}/header_social"/>',
+                     f'<child widget="{base}/social_card"/>'])
     lines += _header(f"{base}/header_social", f"{base}/header_social")
+    lines += _widget(f"{base}/social_card", [("type", "text"), ("controller", 1), ("left", 20), ("top", 73),
+                                             ("width", 600), ("height", 335), ("font", "ui\\small_ui"),
+                                             ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")], [])
     rows = [f'<child widget="{base}/op_soc_{index + 1}" x="20" y="{73 + 30 * index}"/>' for index in range(SOCIAL_ROWS)]
     lines += _widget(f"{base}/social_list", [("type", "column_list"), ("width", 640), ("height", 480),
                                              ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
@@ -5137,7 +5142,11 @@ def _social() -> list:
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child widget="{base}/button_back" x="510" y="1"/>'])
+                     [f'<child widget="{base}/button_options" x="380" y="1"/>',
+                      f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    # (OPTIONS: a player's card's, another's only, "port social update")
+    lines += _text_button(f"{base}/button_options", "OPTIONS", ['<on event="a" run="port social options"/>',
+                                                               '<on event="start" run="port social options"/>'])
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port social back"/>',
                                                          '<on event="start" run="port social back"/>'])
     # (the main menu's hint that Y opens it, over the news' hint: a tap or a

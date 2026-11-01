@@ -19,6 +19,16 @@ players' matches and levels.
   as POST /account/matches with a random matchId, so one sent twice (its
   answer lost) is counted once; one that could not be sent is tried again a
   while after, as long as the game runs.
+- A multiplayer game left before its scores (quit, its host gone, the
+  network lost) is recorded too, as not completed (completed false, no
+  result) with why it ended (endReason quit, ended or disconnected), from
+  what its players had the last second they played: the server counts its
+  kills and medals, a quit as a quit, and never a win or a loss. One left
+  before SOCIAL_MATCH_COUNTED_SECONDS with no kill or death is not. While
+  it is played, what it would be recorded as is kept every
+  SOCIAL_MATCH_SAVE_MILLISECONDS in SOCIAL_MATCH_FILE (the data folder's),
+  as disconnected: a game that stopped with it (a crash, the system's)
+  sends it as it next starts.
 - social.enabled (with community.enabled) turns it all on; social.record_matches
   the records.
 - The account's social settings (social.friends, social.friend_requests,
@@ -39,8 +49,9 @@ the players and their records social_menu.c's.
 #include "game/game.h"
 #include "game/game_engine.h"
 #include "game/players.h"
-#include "memory/data.h"
 #include "interface/player_ui.h"
+#include "interface/ui_widget.h"
+#include "memory/data.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "saved games/player_profile.h"
@@ -63,6 +74,10 @@ the players and their records social_menu.c's.
 #include <string.h>
 
 void platform_log(char const *format, ...);
+const char *platform_data_root(void);
+/* (a host path, under the data folder: network_replay.c's) */
+FILE *platform_fopen_host(char const *path, char const *mode);
+int platform_remove_host(char const *path);
 unsigned long system_milliseconds(void);
 unsigned long config_changes(void);
 int p2p_invite_link(char *link, int size);
@@ -89,6 +104,25 @@ enum
 	SOCIAL_PRESENCE_CHANGE_MILLISECONDS = 3000,
 	SOCIAL_PRESENCE_SIZE = 512,
 	SOCIAL_INVITE_SIZE = 160,
+	/* a match left before its end: what its players had, taken this often
+	while it is played, kept in its file this often; one left this soon,
+	with no kill or death, is not recorded */
+	SOCIAL_MATCH_TAKE_MILLISECONDS = 1000,
+	SOCIAL_MATCH_SAVE_MILLISECONDS = 30000,
+	SOCIAL_MATCH_COUNTED_SECONDS = 60,
+};
+
+/* (the data folder's) a match being played, as it would be recorded if the
+game stopped with it */
+#define SOCIAL_MATCH_FILE "social_match.txt"
+
+/* why a match left before its end ended (endReason): a player of this
+machine quit (counted as a quit), the host ended it, the network was lost */
+enum
+{
+	_social_match_end_ended,
+	_social_match_end_disconnected,
+	_social_match_end_quit,
 };
 
 /* ---------- structures */
@@ -102,6 +136,27 @@ struct social_record
 	short attempts;
 	unsigned long retry_at;
 	char body[SOCIAL_RECORD_SIZE];
+};
+
+/* a player of this machine in the match being played, as it was last taken
+(social_match_take): its record's id (the same in the file and at its end),
+its name and gametype, and its figures and medals */
+struct social_match_player
+{
+	boolean used;
+	short local_player_index;
+	char match_id[32];
+	char name[SOCIAL_NAME_SIZE];
+	char gametype[96];
+	char const *result;
+	long score;
+	long place;
+	long kills;
+	long deaths;
+	long assists;
+	long suicides;
+	long betrayals;
+	long medals[NUMBER_OF_CAMPAIGN_MEDALS];
 };
 
 /* ---------- globals */
@@ -131,6 +186,20 @@ static struct
 	boolean match_running;
 	boolean match_recorded;
 	unsigned long match_started;
+	/* ... why it would end if left now (a quit latched, as one of this
+	machine's players quit it: social_match_quit), when its players were
+	last taken and kept in its file, what it is (taken with them), and its
+	players; whether the file of a game that stopped was looked for */
+	boolean match_quit;
+	short match_end;
+	unsigned long match_taken_at;
+	unsigned long match_saved_at;
+	boolean match_teams;
+	long match_player_count;
+	char match_map[64];
+	char match_network[8];
+	struct social_match_player match_players[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+	boolean match_file_looked;
 	struct social_record records[SOCIAL_PENDING_RECORDS];
 	char answer[SOCIAL_ANSWER_SIZE];
 } social = { 0, TRUE, 0, "", "", "", (unsigned long)-1 };
@@ -495,41 +564,66 @@ static void social_map_name(
 	snprintf(text, (size_t)size, "%s", last ? last + 1 : name);
 }
 
-/* the medals' counts, as an object of their keys (those won alone) */
+/* the medals' counts (campaign_score.c's, NUMBER_OF_CAMPAIGN_MEDALS of
+them), as an object of their keys (those won alone) */
 static void social_medals_write(
 	struct server_json *json,
-	short player_index)
+	long const *counts)
 {
 	short medal;
 
 	server_json_object_begin(json, "medals");
 	for (medal = 0; medal < NUMBER_OF_CAMPAIGN_MEDALS; medal++)
 	{
-		long count = campaign_score_medal_count(player_index, medal);
-
-		if (count > 0)
-			server_json_integer(json, campaign_medal_descriptions[medal].key, count);
+		if (counts[medal] > 0)
+			server_json_integer(json, campaign_medal_descriptions[medal].key, counts[medal]);
 	}
 	server_json_object_end(json);
 }
 
+static void social_medal_counts(
+	short player_index,
+	long *counts)
+{
+	short medal;
+
+	for (medal = 0; medal < NUMBER_OF_CAMPAIGN_MEDALS; medal++)
+		counts[medal] = campaign_score_medal_count(player_index, medal);
+}
+
+/* the game's network side as a record says it */
+static char const *social_network_name(
+	void)
+{
+	short connection = game_connection();
+
+	return connection == _game_connection_network_server ? "host" :
+		connection == _game_connection_network_client ? "client" : "local";
+}
+
+/* a record begun: its id (match_id, a new one for NULL) and the network
+side it was played on (network, the game's now for NULL) */
 static void social_record_begin(
 	struct server_json *json,
 	char const *kind,
-	char const *name)
+	char const *name,
+	char const *match_id,
+	char const *network)
 {
-	char match_id[32];
-	short connection = game_connection();
+	char new_id[32];
 
-	social_match_id(match_id, sizeof(match_id));
+	if (!match_id)
+	{
+		social_match_id(new_id, sizeof(new_id));
+		match_id = new_id;
+	}
 	server_json_begin(json);
 	server_json_object_begin(json, NULL);
 	server_json_string(json, "matchId", match_id);
 	server_json_string(json, "kind", kind);
 	if (name && name[0])
 		server_json_string(json, "name", name);
-	server_json_string(json, "network", connection == _game_connection_network_server ? "host" :
-		connection == _game_connection_network_client ? "client" : "local");
+	server_json_string(json, "network", network ? network : social_network_name());
 	server_json_string(json, "platform", community_net_platform());
 	server_json_integer(json, "build", community_build_number());
 }
@@ -580,82 +674,319 @@ static long social_player_count(
 	return MAX(count, 1);
 }
 
-/* (a multiplayer game over) each of this machine's players' match */
-static void social_match_record(
+/* a match left before its end recorded only once it was played a while,
+or someone was killed in it */
+static boolean social_match_counts(
+	struct social_match_player const *player,
+	long seconds)
+{
+	return seconds >= SOCIAL_MATCH_COUNTED_SECONDS || player->kills || player->deaths;
+}
+
+static char const *social_match_end_name(
+	short end)
+{
+	return end == _social_match_end_quit ? "quit" :
+		end == _social_match_end_disconnected ? "disconnected" : "ended";
+}
+
+/* a player's match as its record's body (completed, or left before its end
+as end says); FALSE if it does not fit */
+static boolean social_match_body(
+	struct social_match_player const *player,
+	long seconds,
+	boolean completed,
+	short end,
+	char *body,
+	long size)
+{
+	struct server_json json;
+	boolean written;
+
+	social_record_begin(&json, "multiplayer", player->name, player->match_id, social.match_network);
+	if (completed && player->result)
+		server_json_string(&json, "result", player->result);
+	server_json_boolean(&json, "completed", completed);
+	if (!completed)
+		server_json_string(&json, "endReason", social_match_end_name(end));
+	server_json_integer(&json, "score", player->score);
+	server_json_integer(&json, "place", player->place);
+	server_json_integer(&json, "kills", player->kills);
+	server_json_integer(&json, "deaths", player->deaths);
+	server_json_integer(&json, "assists", player->assists);
+	server_json_integer(&json, "suicides", player->suicides);
+	server_json_integer(&json, "betrayals", player->betrayals);
+	server_json_integer(&json, "seconds", seconds);
+	server_json_integer(&json, "players", social.match_player_count);
+	server_json_boolean(&json, "teams", social.match_teams);
+	server_json_string(&json, "map", social.match_map);
+	server_json_string(&json, "gametype", player->gametype);
+	social_medals_write(&json, player->medals);
+	server_json_object_end(&json);
+	written = !json.failed && csstrlen(server_json_text(&json)) < size;
+	if (written)
+		csstrncpy(body, server_json_text(&json), size - 1);
+	server_json_free(&json);
+	return written;
+}
+
+/* a player's match left before its end, recorded */
+static void social_match_send(
+	struct social_match_player const *player,
+	long seconds,
+	short end)
+{
+	char body[SOCIAL_RECORD_SIZE];
+
+	csmemset(body, 0, sizeof(body));
+	if (!social_match_body(player, seconds, FALSE, end, body, sizeof(body)))
+		return;
+	social_record_add(body);
+	platform_log("social: a match of %s recorded, left before its end (%s)", player->name,
+		social_match_end_name(end));
+}
+
+/* ---------- the file of the match being played */
+
+static void social_match_file_path(
+	char *path,
+	long size)
+{
+	snprintf(path, (size_t)size, "%s/%s", platform_data_root(), SOCIAL_MATCH_FILE);
+}
+
+/* what the match would be recorded as if the game stopped now (as
+disconnected), kept: one record's body a line */
+static void social_match_save(
 	void)
 {
 	long seconds = (long)((system_milliseconds() - social.match_started) / 1000);
-	boolean teams = game_engine_has_teams();
-	long players = social_player_count();
-	char map[64];
-	short local_player_index;
+	char path[512];
+	char body[SOCIAL_RECORD_SIZE];
+	FILE *file = NULL;
+	short slot;
 
-	social_map_name(map, sizeof(map));
+	social_match_file_path(path, sizeof(path));
+	for (slot = 0; slot < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; slot++)
+	{
+		struct social_match_player const *player = &social.match_players[slot];
+
+		csmemset(body, 0, sizeof(body));
+		if (!player->used || !social_match_counts(player, seconds) ||
+			!social_match_body(player, seconds, FALSE, _social_match_end_disconnected, body, sizeof(body)))
+		{
+			continue;
+		}
+		if (!file && !(file = platform_fopen_host(path, "wb")))
+			return;
+		fprintf(file, "%s\n", body);
+	}
+	if (file)
+		fclose(file);
+}
+
+static void social_match_forget(
+	void)
+{
+	char path[512];
+
+	social_match_file_path(path, sizeof(path));
+	platform_remove_host(path);
+}
+
+/* (as the game starts) the match of a game that stopped as it was played:
+its records sent (its server takes each once, by its id), its file gone */
+static void social_match_file_look(
+	void)
+{
+	char path[512];
+	char line[SOCIAL_RECORD_SIZE];
+	FILE *file;
+
+	social.match_file_looked = TRUE;
+	social_match_file_path(path, sizeof(path));
+	if (!(file = platform_fopen_host(path, "rb")))
+		return;
+	while (fgets(line, sizeof(line), file))
+	{
+		long length = csstrlen(line);
+
+		while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r'))
+			line[--length] = 0;
+		if (length > 0 && line[0] == '{' && social_recording())
+		{
+			social_record_add(line);
+			platform_log("social: a match left as the game stopped recorded");
+		}
+	}
+	fclose(file);
+	platform_remove_host(path);
+}
+
+/* ---------- the match being played */
+
+/* each of this machine's players in the match: what it has now. A player
+gone from it, as one of this machine's players quit (a split screen
+player's, the others staying), is recorded at once, as a quit */
+static void social_match_take(
+	void)
+{
+	unsigned long seconds = (system_milliseconds() - social.match_started) / 1000;
+	short local_player_index;
+	short slot;
+	boolean taken[MAXIMUM_NUMBER_OF_LOCAL_PLAYERS];
+
+	csmemset(taken, 0, sizeof(taken));
+	social.match_teams = game_engine_has_teams();
+	social.match_player_count = social_player_count();
+	social_map_name(social.match_map, sizeof(social.match_map));
+	snprintf(social.match_network, sizeof(social.match_network), "%s", social_network_name());
 	for (local_player_index = local_player_get_next(NONE); local_player_index != NONE;
 		local_player_index = local_player_get_next(local_player_index))
 	{
 		long player_index = local_player_get_player_index(local_player_index);
 		struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+		struct social_match_player *taking = NULL;
 		struct game_engine_hud_score hud_score;
-		struct server_json json;
-		char name[SOCIAL_NAME_SIZE];
-		char gametype[96];
-		char const *result = NULL;
 
 		if (!player)
 			continue;
 		csmemset(&hud_score, 0, sizeof(hud_score));
 		if (!game_engine_hud_score_get(player_index, &hud_score))
 			continue;
-		if (teams)
+		for (slot = 0; slot < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS && !taking; slot++)
 		{
-			result = hud_score.team_standing == _game_engine_hud_winning ? "win" :
+			if (social.match_players[slot].used && social.match_players[slot].local_player_index == local_player_index)
+				taking = &social.match_players[slot];
+		}
+		for (slot = 0; slot < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS && !taking; slot++)
+		{
+			if (!social.match_players[slot].used)
+			{
+				taking = &social.match_players[slot];
+				csmemset(taking, 0, sizeof(*taking));
+				taking->used = TRUE;
+				taking->local_player_index = local_player_index;
+				social_match_id(taking->match_id, sizeof(taking->match_id));
+			}
+		}
+		if (!taking)
+			continue;
+		taken[taking - social.match_players] = TRUE;
+		taking->result = NULL;
+		if (social.match_teams)
+		{
+			taking->result = hud_score.team_standing == _game_engine_hud_winning ? "win" :
 				hud_score.team_standing == _game_engine_hud_losing ? "loss" :
 				hud_score.team_standing == _game_engine_hud_tied ? "tie" : NULL;
 		}
 		else if (hud_score.place > 0)
 		{
-			result = hud_score.place == 1 ? (hud_score.place_tied ? "tie" : "win") : "loss";
+			taking->result = hud_score.place == 1 ? (hud_score.place_tied ? "tie" : "win") : "loss";
 		}
-		social_utf8_from_wide(player->name, NUMBEROF(player->name), name, sizeof(name));
-		social_utf8_from_wide(hud_score.kind, NUMBEROF(hud_score.kind), gametype, sizeof(gametype));
-		social_record_begin(&json, "multiplayer", name);
-		if (result)
-			server_json_string(&json, "result", result);
-		server_json_integer(&json, "score", social_score_number(hud_score.score));
-		server_json_integer(&json, "place", MAX(hud_score.place, 0));
-		server_json_integer(&json, "kills", player->statistics.kills[0]);
-		server_json_integer(&json, "deaths", player->statistics.deaths);
-		server_json_integer(&json, "assists", player->statistics.assists[0]);
-		server_json_integer(&json, "suicides", player->statistics.suicides);
-		server_json_integer(&json, "betrayals", player->statistics.friendly_fire_kills);
-		server_json_integer(&json, "seconds", seconds);
-		server_json_integer(&json, "players", players);
-		server_json_boolean(&json, "teams", teams);
-		server_json_string(&json, "map", map);
-		server_json_string(&json, "gametype", gametype);
-		social_medals_write(&json, (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index));
-		social_record_end(&json);
-		platform_log("social: a match of %s recorded (%s)", name, result ? result : "no result");
+		social_utf8_from_wide(player->name, NUMBEROF(player->name), taking->name, sizeof(taking->name));
+		social_utf8_from_wide(hud_score.kind, NUMBEROF(hud_score.kind), taking->gametype, sizeof(taking->gametype));
+		taking->score = social_score_number(hud_score.score);
+		taking->place = MAX(hud_score.place, 0);
+		taking->kills = player->statistics.kills[0];
+		taking->deaths = player->statistics.deaths;
+		taking->assists = player->statistics.assists[0];
+		taking->suicides = player->statistics.suicides;
+		taking->betrayals = player->statistics.friendly_fire_kills;
+		social_medal_counts((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(player_index), taking->medals);
+	}
+	if (!social.match_quit)
+		return;
+	for (slot = 0; slot < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; slot++)
+	{
+		struct social_match_player *gone = &social.match_players[slot];
+
+		if (!gone->used || taken[slot])
+			continue;
+		if (social_recording() && social_match_counts(gone, (long)seconds))
+			social_match_send(gone, (long)seconds, _social_match_end_quit);
+		gone->used = FALSE;
 	}
 }
 
-/* a multiplayer game: begun, over (recorded once), or a new round of it */
+static void social_match_begin(
+	void)
+{
+	social.match_recorded = FALSE;
+	social.match_started = system_milliseconds();
+	social.match_quit = FALSE;
+	social.match_end = _social_match_end_ended;
+	social.match_taken_at = 0;
+	social.match_saved_at = social.match_started;
+	csmemset(social.match_players, 0, sizeof(social.match_players));
+}
+
+/* (its scores shown) each of this machine's players' match, as it ends */
+static void social_match_record(
+	void)
+{
+	long seconds = (long)((system_milliseconds() - social.match_started) / 1000);
+	char body[SOCIAL_RECORD_SIZE];
+	short slot;
+
+	social_match_take();
+	for (slot = 0; slot < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; slot++)
+	{
+		struct social_match_player const *player = &social.match_players[slot];
+
+		csmemset(body, 0, sizeof(body));
+		if (!player->used || !social_match_body(player, seconds, TRUE, _social_match_end_ended, body, sizeof(body)))
+			continue;
+		social_record_add(body);
+		platform_log("social: a match of %s recorded (%s)", player->name, player->result ? player->result : "no result");
+	}
+}
+
+/* (the game gone before its scores) each of this machine's players' match,
+as it was last taken: left as a quit, or as why it ended */
+static void social_match_left(
+	void)
+{
+	long seconds = (long)((social.match_taken_at ? social.match_taken_at : system_milliseconds()) -
+		social.match_started) / 1000;
+	short end = social.match_quit ? _social_match_end_quit : social.match_end;
+	short slot;
+
+	for (slot = 0; slot < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS; slot++)
+	{
+		struct social_match_player const *player = &social.match_players[slot];
+
+		if (player->used && social_match_counts(player, seconds))
+			social_match_send(player, seconds, end);
+	}
+	csmemset(social.match_players, 0, sizeof(social.match_players));
+}
+
+/* a multiplayer game: begun, over (recorded once), left before its end
+(recorded as it was), or a new round of it */
 static void social_match_update(
 	void)
 {
 	boolean playing = game_in_progress() && game_engine_running() && !network_replay_playing();
+	unsigned long now = system_milliseconds();
 
+	if (!social.match_file_looked && social_enabled())
+		social_match_file_look();
 	if (!playing)
 	{
+		if (social.match_running && !social.match_recorded)
+		{
+			if (social_recording())
+				social_match_left();
+			social_match_forget();
+		}
 		social.match_running = FALSE;
 		return;
 	}
 	if (!social.match_running)
 	{
 		social.match_running = TRUE;
-		social.match_recorded = FALSE;
-		social.match_started = system_milliseconds();
+		social_match_begin();
 		return;
 	}
 	if (!social.match_recorded && game_engine_showing_postgame())
@@ -663,13 +994,44 @@ static void social_match_update(
 		social.match_recorded = TRUE;
 		if (social_recording())
 			social_match_record();
+		social_match_forget();
 	}
 	else if (social.match_recorded && game_engine_in_play())
 	{
 		/* (the next game of the same map: game_engine_reset) */
-		social.match_recorded = FALSE;
-		social.match_started = system_milliseconds();
+		social_match_begin();
 	}
+	else if (!social.match_recorded && social_recording())
+	{
+		if (!social.match_taken_at || now - social.match_taken_at >= SOCIAL_MATCH_TAKE_MILLISECONDS)
+		{
+			social_match_take();
+			social.match_taken_at = now ? now : 1;
+		}
+		if (now - social.match_saved_at >= SOCIAL_MATCH_SAVE_MILLISECONDS)
+		{
+			social_match_save();
+			social.match_saved_at = now;
+		}
+	}
+}
+
+void social_match_quit(
+	void)
+{
+	if (social.match_running && !social.match_recorded)
+		social.match_quit = TRUE;
+}
+
+void social_match_error(
+	short error_code)
+{
+	if (!social.match_running || social.match_recorded)
+		return;
+	if (error_code == _error_network_connection_lost)
+		social.match_end = _social_match_end_disconnected;
+	else if (error_code == _error_network_server_shut_down)
+		social.match_end = _social_match_end_ended;
 }
 
 void social_level_won(
@@ -681,13 +1043,14 @@ void social_level_won(
 	struct server_json json;
 	char text[SOCIAL_NAME_SIZE];
 	char map[64];
+	long medals[NUMBER_OF_CAMPAIGN_MEDALS];
 	char const *last = level_name ? strrchr(level_name, '\\') : NULL;
 
 	if (!social_recording() || !run)
 		return;
 	social_utf8_from_wide(name, 32, text, sizeof(text));
 	snprintf(map, sizeof(map), "%s", last ? last + 1 : level_name ? level_name : "");
-	social_record_begin(&json, "campaign", text);
+	social_record_begin(&json, "campaign", text, NULL, NULL);
 	server_json_string(&json, "result", "win");
 	server_json_integer(&json, "score", run->score);
 	server_json_integer(&json, "kills", run->kills);
@@ -696,7 +1059,8 @@ void social_level_won(
 	server_json_integer(&json, "difficulty", run->difficulty);
 	server_json_integer(&json, "players", MAX(run->players, 1));
 	server_json_string(&json, "map", map);
-	social_medals_write(&json, player_index);
+	social_medal_counts(player_index, medals);
+	social_medals_write(&json, medals);
 	social_record_end(&json);
 }
 
@@ -732,13 +1096,15 @@ static void social_presence_text(
 	char invite[SOCIAL_INVITE_SIZE];
 	char name[SOCIAL_NAME_SIZE];
 	char const *state = "menus";
+	/* (the main menu is a scenario too, ui: not a game) */
+	boolean playing = game_in_progress() && !main_menu_is_active();
 
 	text[0] = 0;
 	if (network_replay_playing())
 		state = "theater";
-	else if (game_in_progress() && (connection != _game_connection_local || game_engine_running()))
+	else if (playing && (connection != _game_connection_local || game_engine_running()))
 		state = "multiplayer";
-	else if (game_in_progress())
+	else if (playing)
 		state = "campaign";
 	server_json_begin(&json);
 	server_json_object_begin(&json, NULL);
@@ -746,7 +1112,7 @@ static void social_presence_text(
 	social_player_name(name, sizeof(name));
 	if (name[0])
 		server_json_string(&json, "name", name);
-	if (game_in_progress())
+	if (playing)
 	{
 		social_map_name(map, sizeof(map));
 		server_json_string(&json, "map", map);

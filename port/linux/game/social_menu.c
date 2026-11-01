@@ -26,10 +26,17 @@ community server's answers.
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "math/real_math.h"
+#include "bitmaps/bitmap_group.h"
+#include "bitmaps/bitmap_group_lookup.h"
+#include "interface/ui_widget.h"
 #include "interface/virtual_keyboard.h"
+#include "tag_files/tag_groups.h"
+#include "text/draw_string.h"
+#include "text/font_group.h"
 #include "text/unicode.h"
 
 #include "campaign_medals.h"
+#include "campaign_score.h"
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
@@ -82,9 +89,9 @@ enum
 	_list_requests,
 	_list_activity,
 	_list_recent,
+	_list_card,
 	_list_player,
 	_list_matches,
-	_list_medals,
 	_list_moderation,
 	_list_report,
 	NUMBER_OF_LISTS
@@ -106,10 +113,7 @@ enum
 	_row_outgoing,
 	_row_activity_entry,
 	_row_recent_player,
-	_row_multiplayer,
-	_row_campaign,
 	_row_matches,
-	_row_medals,
 	_row_join,
 	_row_message,
 	_row_friend_add,
@@ -123,7 +127,6 @@ enum
 	_row_unblock,
 	_row_report,
 	_row_match,
-	_row_medal,
 	_row_moderated,
 	_row_reason,
 };
@@ -189,6 +192,8 @@ struct social_menu_match
 	char player[SOCIAL_MENU_NAME_SIZE];
 	char kind[16];
 	char result[8];
+	/* (a match left before its end: why, quit, ended or disconnected) */
+	char end_reason[16];
 	char map[SOCIAL_MENU_LABEL_SIZE];
 	char gametype[SOCIAL_MENU_LABEL_SIZE];
 	char network[8];
@@ -213,6 +218,7 @@ struct social_menu_totals
 	long wins;
 	long losses;
 	long ties;
+	long quits;
 	long score;
 	long kills;
 	long deaths;
@@ -606,6 +612,12 @@ static void presence_read(
 	json_text(document, token, "lastSeenAt", presence->last_seen, sizeof(presence->last_seen));
 	presence->players = json_number(document, token, "players", 0);
 	presence->maximum = json_number(document, token, "maximum", 0);
+	/* (an older game's main menu, its scenario ui, said as a campaign) */
+	if (!strcmp(presence->state, "campaign") && !strcmp(presence->map, "ui"))
+	{
+		snprintf(presence->state, sizeof(presence->state), "menus");
+		presence->map[0] = 0;
+	}
 }
 
 static short people_read(
@@ -650,6 +662,7 @@ static void match_read(
 	json_text(document, token, "player", match->player, sizeof(match->player));
 	json_text(document, token, "kind", match->kind, sizeof(match->kind));
 	json_text(document, token, "result", match->result, sizeof(match->result));
+	json_text(document, token, "endReason", match->end_reason, sizeof(match->end_reason));
 	json_text(document, token, "map", match->map, sizeof(match->map));
 	json_text(document, token, "gametype", match->gametype, sizeof(match->gametype));
 	json_text(document, token, "network", match->network, sizeof(match->network));
@@ -679,6 +692,7 @@ static void totals_read(
 	totals->wins = json_number(document, token, "wins", 0);
 	totals->losses = json_number(document, token, "losses", 0);
 	totals->ties = json_number(document, token, "ties", 0);
+	totals->quits = json_number(document, token, "quits", 0);
 	totals->score = json_number(document, token, "score", 0);
 	totals->kills = json_number(document, token, "kills", 0);
 	totals->deaths = json_number(document, token, "deaths", 0);
@@ -1040,7 +1054,7 @@ static void action_take(
 	social_menu.friends_at = 0;
 	social_menu.friends_had = social_menu.friends_had && answered;
 	social_menu.moderation_due = TRUE;
-	if (social_menu.list == _list_player || social_menu.depth)
+	if (social_menu.list == _list_card || social_menu.list == _list_player || social_menu.depth)
 		social_menu.player_wanted = TRUE;
 	if (social_menu.list == _list_report && answered && status == 200)
 	{
@@ -1194,11 +1208,12 @@ static void rows_build(
 		if (!social_menu.recent_count)
 			row_add(_row_note, _note_none);
 		break;
+	case _list_card:
+		/* (the card is drawn where the rows are: none; its OPTIONS button,
+		social_menu_card_options, opens what can be done) */
+		break;
 	case _list_player:
-		row_add(_row_multiplayer, 0);
-		row_add(_row_campaign, 0);
 		row_add(_row_matches, 0);
-		row_add(_row_medals, 0);
 		if (!player->had || !strcmp(player->relation, "self"))
 			break;
 		if (player->presence.invite[0])
@@ -1225,35 +1240,6 @@ static void rows_build(
 			row_add(_row_match, index);
 		if (!player->match_count)
 			note_add(player->had, social_menu.player_failed);
-		break;
-	case _list_medals:
-		/* (those won first, the most first; then the rest, in their order) */
-		for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS; index++)
-		{
-			if (player->medal_counts[index] > 0)
-				row_add(_row_medal, index);
-		}
-		{
-			short sorted;
-			short other;
-
-			for (sorted = 1; sorted < social_menu.count; sorted++)
-			{
-				for (other = sorted; other > 0 && player->medal_counts[social_menu.rows[other].value] >
-					player->medal_counts[social_menu.rows[other - 1].value]; other--)
-				{
-					struct social_menu_row swap = social_menu.rows[other];
-
-					social_menu.rows[other] = social_menu.rows[other - 1];
-					social_menu.rows[other - 1] = swap;
-				}
-			}
-		}
-		for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS; index++)
-		{
-			if (player->medal_counts[index] <= 0)
-				row_add(_row_medal, index);
-		}
 		break;
 	case _list_moderation:
 		for (index = 0; index < social_menu.moderated_count; index++)
@@ -1315,7 +1301,7 @@ static void player_open(
 		snprintf(player->name, sizeof(player->name), "%s", name && name[0] ? name : code);
 	}
 	social_menu.player_failed = FALSE;
-	list_open(_list_player);
+	list_open(_list_card);
 	social_menu.player_wanted = TRUE;
 }
 
@@ -1500,7 +1486,8 @@ static void match_name(
 {
 	char result[16];
 
-	snprintf(result, sizeof(result), "%s", match->result);
+	/* (one left before its end: QUIT, ENDED or DISCONNECTED) */
+	snprintf(result, sizeof(result), "%s", match->end_reason[0] ? match->end_reason : match->result);
 	upper_text(result);
 	text[0] = 0;
 	if (with_player)
@@ -1534,7 +1521,13 @@ static void match_details(
 	{
 		text_add(text, size, "%s on %s%s, %ld players.\n", match->gametype[0] ? match->gametype : "A match",
 			match->map[0] ? match->map : "?", match->teams ? " (teams)" : "", match->players);
-		if (match->result[0])
+		if (!strcmp(match->end_reason, "quit"))
+			text_add(text, size, "Quit before its end.\n");
+		else if (!strcmp(match->end_reason, "disconnected"))
+			text_add(text, size, "Left before its end: the connection was lost.\n");
+		else if (match->end_reason[0])
+			text_add(text, size, "Ended by its host before its end.\n");
+		else if (match->result[0])
 			text_add(text, size, "Result: %s.\n", match->result);
 		if (match->place > 0)
 			text_add(text, size, "Place: %ld.\n", match->place);
@@ -1558,32 +1551,381 @@ static void match_details(
 		text_add(text, size, "Played %s.\n", line);
 }
 
-static void totals_details(
-	struct social_menu_totals const *totals,
-	boolean campaign,
-	char *text,
-	long size)
-{
-	char line[32];
+/* ---------- the player's card
 
-	if (!totals->matches)
-	{
-		text_add(text, size, campaign ? "No levels won yet.\n" : "No matches yet.\n");
+drawn over the screen's rows while a player's card is shown (_list_card), as
+the level's summary is drawn (campaign_score.c's panels), in units of the
+screen's 480 lines from the card's top left: the player's name, code and
+what they are doing; their multiplayer and campaign totals side by side;
+and every medal's icon, those won with how many times, the others dimmed */
+
+enum
+{
+	/* (the least it is: wider, as its room is when it is made smaller) */
+	SOCIAL_CARD_WIDTH = 600,
+	SOCIAL_CARD_HEIGHT = 335,
+	SOCIAL_CARD_PADDING = 14,
+	SOCIAL_CARD_GAP = 8,
+	/* (between the two halves, and a half's two columns) */
+	SOCIAL_CARD_HALF_GAP = 24,
+	SOCIAL_CARD_COLUMN_GAP = 16,
+	SOCIAL_CARD_MEDAL_SIZE = 22,
+	/* (the least a medal and its count take: the row's room shared out
+	among as many as fit) */
+	SOCIAL_CARD_MEDAL_SPACE = 56,
+	SOCIAL_CARD_TOTALS_ROWS = 6,
+};
+
+/* the card's fonts: its text, and the name's */
+struct social_card_fonts
+{
+	struct campaign_score_panel text;
+	struct campaign_score_panel title;
+};
+
+static void card_color(
+	real_argb_color *color,
+	real red,
+	real green,
+	real blue)
+{
+	color->alpha = 1.0f;
+	color->red = red;
+	color->green = green;
+	color->blue = blue;
+}
+
+/* a label at the left of a column and its value at its right */
+static void card_pair(
+	struct campaign_score_panel const *panel,
+	boolean draw,
+	real x0,
+	real x1,
+	real y,
+	char const *label,
+	char const *value,
+	boolean highlight)
+{
+	real_argb_color label_color;
+	real_argb_color value_color;
+
+	if (!draw || !label[0])
 		return;
-	}
-	if (campaign)
-		text_add(text, size, "Levels won: %ld.\n", totals->matches);
+	card_color(&label_color, 0.55f, 0.72f, 1.0f);
+	if (highlight)
+		card_color(&value_color, 1.0f, 0.84f, 0.35f);
 	else
-		text_add(text, size, "Matches: %ld. Won %ld, lost %ld, tied %ld.\n", totals->matches, totals->wins,
-			totals->losses, totals->ties);
-	kda_text(totals->kills, totals->deaths, totals->assists, line, sizeof(line));
-	text_add(text, size, "Kills %ld, deaths %ld, assists %ld.\nKDA %s.\n", totals->kills, totals->deaths,
-		totals->assists, line);
-	if (!campaign)
-		text_add(text, size, "Suicides %ld, betrayals %ld.\n", totals->suicides, totals->betrayals);
-	text_add(text, size, "Score: %ld. Medals: %ld.\n", totals->score, totals->medals);
-	duration_text(totals->seconds, line, sizeof(line));
-	text_add(text, size, "Time played: %s.\n", line);
+		card_color(&value_color, 0.95f, 0.95f, 0.95f);
+	campaign_score_panel_text(panel, label, NULL, x0, x1, y, 1.0f, _campaign_score_text_left, &label_color);
+	campaign_score_panel_text(panel, value, NULL, x0, x1, y, 1.0f, _campaign_score_text_right, &value_color);
+}
+
+/* a half's totals: two columns of label and value, rows of
+pairs[row][column][label, value] (the first highlighted's value gold) */
+static void card_totals(
+	struct campaign_score_panel const *panel,
+	boolean draw,
+	real x0,
+	real x1,
+	real y,
+	real row_height,
+	char const *title,
+	char pairs[SOCIAL_CARD_TOTALS_ROWS][2][2][24],
+	short highlight_row,
+	short highlight_column)
+{
+	real const middle = (x0 + x1) / 2.0f;
+	real_argb_color color;
+	short row;
+
+	if (!draw)
+		return;
+	card_color(&color, 0.95f, 0.95f, 0.95f);
+	campaign_score_panel_text(panel, title, NULL, x0, x1, y, 1.0f, _campaign_score_text_center, &color);
+	y += row_height + 2.0f;
+	for (row = 0; row < SOCIAL_CARD_TOTALS_ROWS; row++)
+	{
+		card_pair(panel, draw, x0, middle - SOCIAL_CARD_COLUMN_GAP / 2.0f, y, pairs[row][0][0], pairs[row][0][1],
+			row == highlight_row && highlight_column == 0);
+		card_pair(panel, draw, middle + SOCIAL_CARD_COLUMN_GAP / 2.0f, x1, y, pairs[row][1][0], pairs[row][1][1],
+			row == highlight_row && highlight_column == 1);
+		y += row_height;
+	}
+}
+
+static void card_pair_set(
+	char pair[2][24],
+	char const *label,
+	char const *format,
+	...)
+{
+	va_list arguments;
+
+	snprintf(pair[0], 24, "%s", label);
+	va_start(arguments, format);
+	vsnprintf(pair[1], 24, format, arguments);
+	va_end(arguments);
+}
+
+/* the card, from its top: its height, drawn or not */
+static real card_layout(
+	struct social_card_fonts const *fonts,
+	boolean draw)
+{
+	struct social_menu_player const *player = &social_menu.player;
+	struct campaign_score_panel const *panel = &fonts->text;
+	real const left = SOCIAL_CARD_PADDING;
+	real const right = panel->width - SOCIAL_CARD_PADDING;
+	real const middle = panel->width / 2.0f;
+	real const line = panel->line_height;
+	real const row = line + 4.0f;
+	real_argb_color color;
+	char text[160];
+	char other[64];
+	real y = SOCIAL_CARD_PADDING;
+	boolean self = player->had && !strcmp(player->relation, "self");
+	short index;
+
+	/* the name, and the code */
+	if (draw)
+	{
+		card_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(&fonts->title, player->name, NULL, left, right, y, 1.0f, _campaign_score_text_left,
+			&color);
+		snprintf(other, sizeof(other), "CODE %s", player->code);
+		card_color(&color, 0.6f, 0.66f, 0.75f);
+		campaign_score_panel_text(panel, other, NULL, left, right, y + (fonts->title.line_height - line) / 2.0f, 1.0f,
+			_campaign_score_text_right, &color);
+	}
+	y += fonts->title.line_height + 2.0f;
+	/* whose friend */
+	text[0] = 0;
+	if (self)
+		snprintf(text, sizeof(text), "THIS IS YOU");
+	else if (player->had)
+	{
+		snprintf(text, sizeof(text), "%s", !strcmp(player->relation, "friends") ? "YOUR FRIEND" :
+			!strcmp(player->relation, "incoming") ? "WANTS TO BE YOUR FRIEND" :
+			!strcmp(player->relation, "outgoing") ? "FRIEND REQUEST SENT" : "PLAYER");
+		presence_state(&player->presence, other, sizeof(other));
+		text_add(text, sizeof(text), " - %s%s%s", other, player->muted ? " - MUTED" : "",
+			player->blocked ? " - BLOCKED" : "");
+	}
+	if (draw)
+	{
+		card_color(&color, 1.0f, 0.84f, 0.35f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+	}
+	y += row;
+	/* (what they are doing, its first line) */
+	if (player->had && !self)
+	{
+		char *end;
+
+		text[0] = 0;
+		presence_line(&player->presence, text, sizeof(text));
+		if ((end = strchr(text, '\n')) != NULL)
+			*end = 0;
+		if (draw)
+		{
+			card_color(&color, 0.6f, 0.66f, 0.75f);
+			campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+		}
+		y += row;
+	}
+	y += SOCIAL_CARD_GAP - 4.0f;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += SOCIAL_CARD_GAP;
+	if (!player->had)
+	{
+		/* (asked for, or why not: what the server said, on a line) */
+		snprintf(text, sizeof(text), "%s", !social_menu.player_failed ? "ASKING THE SERVER..." :
+			social_menu.message[0] ? social_menu.message : "THE SERVER DID NOT ANSWER");
+		for (index = 0; text[index]; index++)
+		{
+			if (text[index] == '\n')
+				text[index] = ' ';
+		}
+		upper_text(text);
+		if (draw)
+		{
+			card_color(&color, 0.6f, 0.66f, 0.75f);
+			campaign_score_panel_text(panel, text, NULL, left, right, y + row, 1.0f, _campaign_score_text_center,
+				&color);
+		}
+		return y + row * 3.0f + SOCIAL_CARD_PADDING;
+	}
+
+	/* the totals: multiplayer's on the left, the campaign's on the right */
+	{
+		struct social_menu_totals const *multiplayer = &player->multiplayer;
+		struct social_menu_totals const *campaign = &player->campaign;
+		char pairs[SOCIAL_CARD_TOTALS_ROWS][2][2][24];
+		char duration[24];
+
+		csmemset(pairs, 0, sizeof(pairs));
+		card_pair_set(pairs[0][0], "MATCHES", "%ld", multiplayer->matches);
+		card_pair_set(pairs[0][1], "WON", "%ld", multiplayer->wins);
+		card_pair_set(pairs[1][0], "LOST", "%ld", multiplayer->losses);
+		card_pair_set(pairs[1][1], "TIED", "%ld", multiplayer->ties);
+		card_pair_set(pairs[2][0], "QUIT", "%ld", multiplayer->quits);
+		kda_text(multiplayer->kills, multiplayer->deaths, multiplayer->assists, other, sizeof(other));
+		card_pair_set(pairs[2][1], "KDA", "%s", other);
+		card_pair_set(pairs[3][0], "KILLS", "%ld", multiplayer->kills);
+		card_pair_set(pairs[3][1], "DEATHS", "%ld", multiplayer->deaths);
+		card_pair_set(pairs[4][0], "ASSISTS", "%ld", multiplayer->assists);
+		card_pair_set(pairs[4][1], "SUICIDES", "%ld", multiplayer->suicides);
+		card_pair_set(pairs[5][0], "BETRAYALS", "%ld", multiplayer->betrayals);
+		duration_text(multiplayer->seconds, duration, sizeof(duration));
+		card_pair_set(pairs[5][1], "TIME", "%s", duration);
+		card_totals(panel, draw, left, middle - SOCIAL_CARD_HALF_GAP / 2.0f, y, row, "MULTIPLAYER", pairs, 2, 1);
+
+		csmemset(pairs, 0, sizeof(pairs));
+		card_pair_set(pairs[0][0], "LEVELS WON", "%ld", campaign->matches);
+		card_pair_set(pairs[0][1], "SCORE", "%ld", campaign->score);
+		card_pair_set(pairs[1][0], "KILLS", "%ld", campaign->kills);
+		card_pair_set(pairs[1][1], "DEATHS", "%ld", campaign->deaths);
+		kda_text(campaign->kills, campaign->deaths, campaign->assists, other, sizeof(other));
+		card_pair_set(pairs[2][0], "KDA", "%s", other);
+		duration_text(campaign->seconds, duration, sizeof(duration));
+		card_pair_set(pairs[2][1], "TIME", "%s", duration);
+		/* (and the medals, and how long they have played here) */
+		card_pair_set(pairs[4][0], "MEDALS", "%ld", multiplayer->medals + campaign->medals);
+		ago_text(player->created_at, duration, sizeof(duration));
+		card_pair_set(pairs[4][1], "JOINED", "%s", duration[0] ? duration : "-");
+		card_totals(panel, draw, middle + SOCIAL_CARD_HALF_GAP / 2.0f, right, y, row, "CAMPAIGN", pairs, 0, 1);
+		if (draw)
+		{
+			campaign_score_panel_quad(panel, middle, y, middle + 1.0f, y + row * (SOCIAL_CARD_TOTALS_ROWS + 1),
+				CAMPAIGN_SCORE_CARD_RULE);
+		}
+		y += row * (SOCIAL_CARD_TOTALS_ROWS + 1) + 2.0f;
+	}
+	y += SOCIAL_CARD_GAP - 4.0f;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += SOCIAL_CARD_GAP;
+
+	/* every medal: those won with how many, the others dimmed */
+	{
+		long bitmap_index = campaign_medals_bitmap();
+		short per_row = (short)MAX((right - left) / SOCIAL_CARD_MEDAL_SPACE, 1);
+		real space = (right - left) / per_row;
+		short kinds = 0;
+
+		for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS; index++)
+			kinds += player->medal_counts[index] > 0;
+		if (draw)
+		{
+			card_color(&color, 0.95f, 0.95f, 0.95f);
+			campaign_score_panel_text(panel, "MEDALS", NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+			snprintf(text, sizeof(text), "%d OF %d", (int)kinds, (int)NUMBER_OF_CAMPAIGN_MEDALS);
+			card_color(&color, 0.6f, 0.66f, 0.75f);
+			campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_right, &color);
+		}
+		y += row + 2.0f;
+		for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS; index++)
+		{
+			real x = left + (index % per_row) * space;
+			real top = y + (index / per_row) * (SOCIAL_CARD_MEDAL_SIZE + 4.0f);
+			boolean won = player->medal_counts[index] > 0;
+			struct bitmap_data *bitmap;
+
+			if (!draw)
+				continue;
+			bitmap = bitmap_index != NONE ? bitmap_group_try_and_get_bitmap(bitmap_index, index) : NULL;
+			if (bitmap)
+			{
+				rectangle2d bounds;
+
+				bounds.x0 = (short)(panel->left + x * panel->scale);
+				bounds.y0 = (short)(panel->top + top * panel->scale);
+				bounds.x1 = (short)(panel->left + (x + SOCIAL_CARD_MEDAL_SIZE) * panel->scale);
+				bounds.y1 = (short)(panel->top + (top + SOCIAL_CARD_MEDAL_SIZE) * panel->scale);
+				draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, won ? 0xFFFFFFFF : 0x38FFFFFF, NULL, TRUE);
+			}
+			if (won)
+			{
+				snprintf(text, sizeof(text), "x%ld", player->medal_counts[index]);
+				card_color(&color, 0.95f, 0.95f, 0.95f);
+				campaign_score_panel_text(panel, text, NULL, x + SOCIAL_CARD_MEDAL_SIZE + 3.0f, x + space,
+					top + (SOCIAL_CARD_MEDAL_SIZE - line) / 2.0f, 1.0f, _campaign_score_text_left, &color);
+			}
+		}
+		y += ((NUMBER_OF_CAMPAIGN_MEDALS + per_row - 1) / per_row) * (SOCIAL_CARD_MEDAL_SIZE + 4.0f);
+	}
+	return y + SOCIAL_CARD_PADDING - 4.0f;
+}
+
+static boolean card_font(
+	char const *name,
+	struct campaign_score_panel *panel)
+{
+	struct font_header *font;
+
+	panel->font_index = tag_loaded('font', name);
+	if (panel->font_index == NONE)
+		return FALSE;
+	font = font_definition_get(panel->font_index);
+	panel->line_height = (short)(font->ascending_height + font->descending_height);
+	return panel->line_height > 0;
+}
+
+void social_menu_card_draw(
+	short x0,
+	short y0,
+	short x1,
+	short y1)
+{
+	struct social_card_fonts fonts;
+	real scale;
+	real height;
+
+	(void)y1;
+	if (!social_menu.open || social_menu.list != _list_card || x1 <= x0)
+		return;
+	if (!card_font("ui\\small_ui", &fonts.text) || !card_font("ui\\large_ui", &fonts.title))
+		return;
+	/* (the widget's bounds are the card's room: SOCIAL_CARD_WIDTH by
+	SOCIAL_CARD_HEIGHT; a card taller than that is made smaller, and as
+	much wider in its units, so that it still fills the room's width) */
+	scale = (real)(x1 - x0) / SOCIAL_CARD_WIDTH;
+	fonts.text.scale = scale;
+	fonts.text.width = SOCIAL_CARD_WIDTH;
+	height = card_layout(&fonts, FALSE);
+	if (height > SOCIAL_CARD_HEIGHT)
+	{
+		scale *= SOCIAL_CARD_HEIGHT / height;
+		fonts.text.width = (x1 - x0) / scale;
+		height = card_layout(&fonts, FALSE);
+	}
+	fonts.text.scale = fonts.title.scale = scale;
+	fonts.text.left = fonts.title.left = x0;
+	fonts.text.top = fonts.title.top = y0;
+	fonts.title.width = fonts.text.width;
+	campaign_score_panel_quad(&fonts.text, 0.0f, 0.0f, fonts.text.width, height, CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(&fonts.text, 0.0f, 0.0f, fonts.text.width, height, CAMPAIGN_SCORE_PANEL_EDGE);
+	card_layout(&fonts, TRUE);
+}
+
+boolean social_menu_card_shown(
+	void)
+{
+	return social_menu.open && social_menu.list == _list_card;
+}
+
+boolean social_menu_card_has_options(
+	void)
+{
+	return social_menu_card_shown() && strcmp(social_menu.player.code, social_account_code());
+}
+
+void social_menu_card_options(
+	void)
+{
+	if (social_menu_card_has_options())
+		list_open(_list_player);
 }
 
 void social_menu_row(
@@ -1672,25 +2014,10 @@ void social_menu_row(
 		utf8_from_wide(social_menu.recent_names[entry->value], name, name_size);
 		snprintf(state, (size_t)state_size, "%s", social_menu.recent_codes[entry->value]);
 		break;
-	case _row_multiplayer:
-		snprintf(name, (size_t)name_size, "MULTIPLAYER");
-		if (player->had)
-			snprintf(state, (size_t)state_size, "%ld MATCHES", player->multiplayer.matches);
-		break;
-	case _row_campaign:
-		snprintf(name, (size_t)name_size, "CAMPAIGN");
-		if (player->had)
-			snprintf(state, (size_t)state_size, "%ld LEVELS", player->campaign.matches);
-		break;
 	case _row_matches:
 		snprintf(name, (size_t)name_size, "LATEST MATCHES");
 		if (player->had)
 			snprintf(state, (size_t)state_size, "%d", (int)player->match_count);
-		break;
-	case _row_medals:
-		snprintf(name, (size_t)name_size, "MEDALS");
-		if (player->had)
-			snprintf(state, (size_t)state_size, "%ld", player->multiplayer.medals + player->campaign.medals);
 		break;
 	case _row_join:
 		snprintf(name, (size_t)name_size, "JOIN GAME");
@@ -1739,11 +2066,6 @@ void social_menu_row(
 		else
 			snprintf(state, (size_t)state_size, "%ld-%ld", player->matches[entry->value].kills,
 				player->matches[entry->value].deaths);
-		break;
-	case _row_medal:
-		snprintf(name, (size_t)name_size, "%s", campaign_medal_descriptions[entry->value].label);
-		upper_text(name);
-		snprintf(state, (size_t)state_size, "%ld", player->medal_counts[entry->value]);
 		break;
 	case _row_moderated:
 		snprintf(name, (size_t)name_size, "%s", social_menu.moderated[entry->value].name);
@@ -1914,26 +2236,9 @@ void social_menu_details(
 		utf8_from_wide(social_menu.recent_names[entry->value], title, title_size);
 		text_add(text, text_size, "Code: %s\n\nA: their page.", social_menu.recent_codes[entry->value]);
 		break;
-	case _row_multiplayer:
-		player_head(title, title_size, text, text_size);
-		if (player->had)
-		{
-			text_add(text, text_size, "\nMULTIPLAYER\n");
-			totals_details(&player->multiplayer, FALSE, text, text_size);
-		}
-		break;
-	case _row_campaign:
-		player_head(title, title_size, text, text_size);
-		if (player->had)
-		{
-			text_add(text, text_size, "\nCAMPAIGN\n");
-			totals_details(&player->campaign, TRUE, text, text_size);
-		}
-		break;
 	case _row_matches:
-	case _row_medals:
 		player_head(title, title_size, text, text_size);
-		if (player->had && entry->kind == _row_matches && !player->match_count &&
+		if (player->had && !player->match_count &&
 			strcmp(player->relation, "self"))
 		{
 			text_add(text, text_size, "\nTheir matches are not shown\n(their activity is hidden), or they\nhave "
@@ -1979,11 +2284,6 @@ void social_menu_details(
 	case _row_match:
 		snprintf(title, (size_t)title_size, "%s", player->name);
 		match_details(&player->matches[entry->value], text, text_size);
-		break;
-	case _row_medal:
-		snprintf(title, (size_t)title_size, "%s", campaign_medal_descriptions[entry->value].label);
-		text_add(text, text_size, "%s: won %ld times, in multiplayer\nand the campaign.", player->name,
-			player->medal_counts[entry->value]);
 		break;
 	case _row_reason:
 		snprintf(title, (size_t)title_size, "REPORT %s", player->name);
@@ -2082,16 +2382,8 @@ short social_menu_choose(
 			player_open(social_menu.recent_codes[entry->value], name);
 		}
 		break;
-	case _row_multiplayer:
-	case _row_campaign:
-		/* (fresh records) */
-		social_menu.player_wanted = TRUE;
-		break;
 	case _row_matches:
 		list_open(_list_matches);
-		break;
-	case _row_medals:
-		list_open(_list_medals);
 		break;
 	case _row_join:
 		snprintf(social_menu.join_invite, sizeof(social_menu.join_invite), "%s", player->presence.invite);

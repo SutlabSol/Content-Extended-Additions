@@ -35,6 +35,16 @@ profile's): a GET, or with body (JSON text) a POST. A ticket for
 community_net_poll, 0 when it cannot be asked */
 int social_send(char const *path, char const *body);
 
+/* (ui_widget_event_handler_functions.c's network_game_remove_local_player)
+a player of this machine quit the multiplayer game being played: if it is
+left before its end, it is recorded as a quit */
+void social_match_quit(void);
+
+/* (ui_widget.c's display_error_when_main_menu_loaded) why the game being
+left ends (_error_network_connection_lost: the network lost;
+_error_network_server_shut_down: its host ended it) */
+void social_match_error(short error_code);
+
 /* (campaign_score.c) a campaign level won by a player of this machine (its
 absolute index, NONE for none), the run as the leaderboards have it, the
 level's tag name (levels\a10\a10), and its profile's name */

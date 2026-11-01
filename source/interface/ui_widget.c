@@ -667,6 +667,7 @@ struct widget_instance;
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "touch_postgame.h" /* port: port/linux/game/touch_postgame.c */
+#include "social.h" /* port: port/linux/game/social.c */
 #include "rasterizer/rasterizer.h"
 #include "saved games/player_profile.h"
 #include "saved games/playlist_profile.h"
@@ -1982,6 +1983,8 @@ boolean filesystem_check_thread_is_active(
 void display_error_when_main_menu_loaded(
 	short error_code)
 {
+	/* port: a match left before its end recorded as why (port/linux/game/social.c) */
+	social_match_error(error_code);
 	if (widget_globals.main_menu_deferred_error_code == NONE)
 	{
 		widget_globals.main_menu_deferred_error_code = error_code;
