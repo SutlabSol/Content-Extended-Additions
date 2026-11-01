@@ -1393,6 +1393,29 @@ static const struct config_setting config_settings[] =
 		"social.enabled: each multiplayer match played (kills, deaths, assists,\n"
 		"medals with game.multiplayer_medals, won or lost) and each campaign\n"
 		"level won is added to the account's records." },
+	{ "social.private_chat", _config_boolean, "true", "HALO_SOCIAL_PRIVATE_CHAT", _environment_value,
+		_platform_all,
+		"social.chat: private lines reach you (and the box's PRIVATE channel is\n"
+		"there); false: no one's private line reaches you, nor do you send any." },
+	{ "social.show_reported", _config_boolean, "false", "HALO_SOCIAL_SHOW_REPORTED", _environment_value,
+		_platform_all,
+		"social.chat: the lines of players many others reported are shown\n"
+		"(marked REPORTED); false hides them. Muted and blocked players' never show." },
+	{ "social.friends", _config_boolean, "true", "HALO_SOCIAL_FRIENDS", _environment_value, _platform_all,
+		"social.enabled: the friend list (main menu's Y: SOCIAL). false: your\n"
+		"friends see you offline and no one can ask to be your friend." },
+	{ "social.friend_requests", _config_boolean, "true", "HALO_SOCIAL_FRIEND_REQUESTS", _environment_value,
+		_platform_all,
+		"social.friends: other players can ask to be your friend (by your code);\n"
+		"false: only those you ask can be." },
+	{ "social.show_activity", _config_boolean, "true", "HALO_SOCIAL_SHOW_ACTIVITY", _environment_value,
+		_platform_all,
+		"social.friends: your friends see what you are playing, your latest\n"
+		"matches and levels; false: only that you are online." },
+	{ "social.instant_join", _config_boolean, "true", "HALO_SOCIAL_INSTANT_JOIN", _environment_value,
+		_platform_all,
+		"social.friends: your friends can join the internet game you host from\n"
+		"their friend list (its invite is theirs); false: only by your invite." },
 
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"

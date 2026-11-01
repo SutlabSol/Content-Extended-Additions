@@ -22,6 +22,10 @@ boolean social_enabled(void);
 /* the account's code ("XXXX-XXXX"), "" until the server says it */
 char const *social_account_code(void);
 
+/* the server's last answer to what the game is doing: the friends online,
+and the friend requests waiting */
+void social_presence_counts(long *friends_online, long *requests_waiting);
+
 /* the name the account goes by: player 1's profile's (ASCII, '?' for what it
 has not), "" for none */
 void social_player_name(char *name, long size);

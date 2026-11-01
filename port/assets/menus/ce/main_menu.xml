@@ -19,6 +19,8 @@
 		<on event="b" open="main_menu/quit_select/quit_screen" platform="desktop android web"/>
 		<child widget="main_menu/halo_logo" y="28"/>
 		<child widget="main_menu/main_menu_select_list"/>
+		<child widget="main_menu/social/y_butn_social" x="450" y="360"/>
+		<child widget="main_menu/social/social_hint" x="450" y="360"/>
 		<child widget="main_menu/news/x_butn_news" x="450" y="380"/>
 		<child widget="main_menu/news/news_hint" x="450" y="380"/>
 		<child widget="main_menu/build_number" x="450" y="400"/>
@@ -60,6 +62,7 @@
 		<data input="port news hint update"/>
 		<on event="down"/>
 		<on event="x" run="port news open"/>
+		<on event="y" run="port social open"/>
 		<child widget="main_menu/main_menu_item_load_camp" x="194" y="247"/>
 		<child widget="main_menu/main_menu_item_multiplayer" x="192" y="279"/>
 		<child widget="main_menu/main_menu_item_theater" x="192" y="311"/>

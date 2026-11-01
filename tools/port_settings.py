@@ -54,6 +54,11 @@ MAP_MANAGE_BUTTON = f"{MAPS}/map_manage_button"
 MAP_MANAGE_BUTTON_X = 154
 # (the map lists' X and Y open it, as MANAGE MAP does)
 MAP_MANAGE_HANDLERS = ['<on event="x" run="port map manage"/>', '<on event="y" run="port map manage"/>']
+# the Social screen (_social): the main menu's Y opens it, as its hint says
+# (over the news' hint), and Settings' Chat's BLOCKED & MUTED
+SOCIAL = "main_menu/social"
+SOCIAL_ROWS = 11
+SOCIAL_HINT_PLACE = (450, 360)
 # the daily challenge's screens, and Campaign's DAILY CHALLENGE (_daily),
 # above Back, which goes a row down (wider than the other items, about the
 # same middle; menu_functions.c's campaign_menu_initialize takes it away,
@@ -787,12 +792,79 @@ SCREENS["gameplay/community"] = {
          "Default: the OpenCE server. Custom: another\ncommunity server, at the address below.",
          None),
     ],
+    # (SOCIAL, under SERVER ADDRESS: shown with ONLINE on, as the rows
+    # above it are)
+    "categories": [
+        ("SOCIAL", "gameplay/community/social",
+         "Your account, friends and the fork's chat:\nwhat others see of you, and who you hear."),
+    ],
+    "categories_after_fields": True,
     "fields": [
         ("SERVER ADDRESS:", "port daily server edit", "server_address",
          "The custom server's address, https://... A types\nit, Enter keeps it; OK writes it."),
     ],
     "inputs": ["port daily settings update"],
     "handlers": ['<on event="created" run="port daily settings init"/>'],
+}
+# (the social side, port/linux/game/social.c: the account, its records, and
+# its Chat and Friends screens; the Social screen itself is the main menu's
+# Y, _social)
+SCREENS["gameplay/community/social"] = {
+    "screen": "social_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
+        ("SOCIAL:", "social.enabled", ON_OFF,
+         "Your account on the community server, with no\nsign-up: friends, the fork's chat, your records.",
+         None),
+        ("RECORD MATCHES:", "social.record_matches", ON_OFF,
+         "Your matches and campaign levels won go to your\nrecords: totals, medals, and your latest games.",
+         None),
+    ],
+    "categories": [
+        ("CHAT", "gameplay/community/social/chat",
+         "The fork's chat: world and private lines, the\nreported players, the muted and blocked."),
+        ("FRIENDS", "gameplay/community/social/friends",
+         "Your friend list: requests, what friends see\nof you, and joining the games you host."),
+    ],
+}
+SCREENS["gameplay/community/social/chat"] = {
+    "screen": "social_chat_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
+        ("FORK CHAT:", "social.chat", ON_OFF,
+         "The fork's chat box, in games and the menus\n(T, Y; L + R + D-pad Up). Off: the game's own.",
+         None),
+        ("WORLD CHAT:", "social.global_chat", ON_OFF,
+         "Hear the GLOBAL channel: every player of the\nfork who is online.",
+         None),
+        ("PRIVATE CHATS:", "social.private_chat", ON_OFF,
+         "Private lines reach you, and you can send them.\nOff: no one's private line reaches you.",
+         None),
+        ("REPORTED PLAYERS:", "social.show_reported", [("HIDE", "false"), ("SHOW", "true")],
+         "The lines of players many others reported:\nhidden, or shown marked REPORTED.",
+         None),
+    ],
+    # (the Social screen at its list of the muted and blocked:
+    # menu_functions.c's social_screen_open)
+    "actions": [
+        ("BLOCKED & MUTED", "port social moderation", "moderation",
+         "The players you muted or blocked: A opens the\nlist, where each one's page unmutes or unblocks.", []),
+    ],
+}
+SCREENS["gameplay/community/social/friends"] = {
+    "screen": "social_friends_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
+    "rows": [
+        ("FRIEND LIST:", "social.friends", ON_OFF,
+         "Your friend list. Off: your friends see you\noffline, and no one can ask to be your friend.",
+         None),
+        ("FRIEND INVITES:", "social.friend_requests", [("ALLOW", "true"), ("OFF", "false")],
+         "Other players can ask to be your friend by your\ncode. Off: only those you ask can be.",
+         None),
+        ("ACTIVITY:", "social.show_activity", [("SHOW", "true"), ("HIDE", "false")],
+         "Your friends see what you play and your latest\nmatches. Hide: only that you are online.",
+         None),
+        ("INSTANT JOIN:", "social.instant_join", [("ALLOW", "true"), ("BLOCK", "false")],
+         "Your friends can join the internet game you\nhost from their friend list, with no invite.",
+         None),
+    ],
 }
 SCREENS["gameplay/randomizer"] = {
     "screen": "randomizer_settings_screen", "header": _GAMEPLAY_HEADER, "spacing": 30,
@@ -1203,6 +1275,9 @@ def _setting_screen(folder: str, spec: dict) -> list:
                          (['<on event="deleted" run="port setting save"/>'] if spec.get("save_on_leave") else []))
     # (each category's row: its label, the screen it opens, its help, and the
     # platforms it is for, as a row's: every one's when it names none)
+    # (categories_after_fields: their rows below the actions' and fields',
+    # not above)
+    after = len(spec.get("actions", ())) + len(spec.get("fields", ())) if spec.get("categories_after_fields") else 0
     for index, (label, category_folder, _, *category_platform) in enumerate(spec.get("categories", ())):
         key = category_folder.rsplit("/", 1)[-1]
         row = f"{base}/op_{key}"
@@ -1214,7 +1289,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
                 places[name] += 1
             rows += _placed(row, platform, members, places)
         else:
-            rows.append((row, platform, place + 1 + index))
+            rows.append((row, platform, place + 1 + after + index))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<on event="a" open="{target}"/>', f'<on event="start" open="{target}"/>',
@@ -1227,9 +1302,12 @@ def _setting_screen(folder: str, spec: dict) -> list:
     # (each action's row: its label, the function A runs, and its help, then
     # the helps that function shows)
     categories = len(spec.get("categories", ()))
+    # (the places above the actions' and fields': none when the categories
+    # are below them)
+    above = 0 if spec.get("categories_after_fields") else categories
     for index, (label, function, key, _, _) in enumerate(spec.get("actions", ())):
         row = f"{base}/op_{key}"
-        rows.append((row, None, place + 1 + categories + index))
+        rows.append((row, None, place + 1 + above + index))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                          [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
@@ -1248,7 +1326,7 @@ def _setting_screen(folder: str, spec: dict) -> list:
     for index, (label, function, key, _, *field_platform) in enumerate(spec.get("fields", ())):
         row = f"{base}/op_{key}"
         platform = field_platform[0] if field_platform else None
-        rows.append((row, platform, place + 1 + categories + actions + index))
+        rows.append((row, platform, place + 1 + above + actions + index))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF"), ("platform", platform)],
                          [f'<on event="a" run="{function}"/>', f'<on event="start" run="{function}"/>',
@@ -1284,6 +1362,9 @@ def _setting_screen(folder: str, spec: dict) -> list:
                       [text.replace("\n", "\\n") for *_, help_text, more in spec.get("actions", ())
                        for text in [help_text, *more]] +
                       [help_text.replace("\n", "\\n") for _, _, _, help_text, *_ in spec.get("fields", ())])
+    # (the rows in the order of their places, which up and down follow)
+    if spec.get("categories_after_fields"):
+        rows.sort(key=lambda row: row[2])
     # (a note's place None: the one after its platform's last row)
     if spec.get("notes"):
         spec = dict(spec, notes=[(text, platform, places[platform] + 1 if place is None else place)
@@ -2600,11 +2681,15 @@ WIDGET_PATCHES = {
         # (the main menu's X - the west face button: Y on a Switch, Square on
         # a PS5 - opens the news, the releases' notes: _news_screen; on the
         # main menu alone, once they came, and its hint shown only then)
+        # (and its Y - the north face button - opens Social: _social)
         "inputs": ["port news hint update"],
-        "handlers": ['<on event="down"/>', '<on event="x" run="port news open"/>']},
+        "handlers": ['<on event="down"/>', '<on event="x" run="port news open"/>',
+                     '<on event="y" run="port social open"/>']},
     # (and the hint that X opens it, over the build number: a tap or a click
     # on it presses X, its picture a key's icon to the pointer, x_butn_news)
     "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
+        f'<child widget="{SOCIAL}/y_butn_social" x="{SOCIAL_HINT_PLACE[0]}" y="{SOCIAL_HINT_PLACE[1]}"/>',
+        f'<child widget="{SOCIAL}/social_hint" x="{SOCIAL_HINT_PLACE[0]}" y="{SOCIAL_HINT_PLACE[1]}"/>',
         f'<child widget="{NEWS}/x_butn_news" x="450" y="380"/>',
         f'<child widget="{NEWS}/news_hint" x="450" y="380"/>']}},
     # (Campaign's DAILY CHALLENGE, before Back: _daily)
@@ -2827,6 +2912,7 @@ WIDGET_PATCHES = {
 TITLES = {
     "main_menu/mods/header_mods": "MODS",
     "main_menu/map_manager/header_maps": "MAPS",
+    "main_menu/social/header_social": "SOCIAL",
     "main_menu/theater/header_theater": "THEATER",
     f"{MT}/join_game/header_server_browser": "SERVER BROWSER",
     f"{MT}/join_game/header_direct_link": "DIRECT LINK",
@@ -4594,6 +4680,8 @@ def multiplayer_files() -> dict:
         ["</menus>", ""],
         THEATER.replace("/", ".") + ".xml": [head[0], "<!-- The port's Theater screen, in the PC version's style "
                                              "(tools/port_settings.py) -->", head[2]] + _theater() + ["</menus>", ""],
+        SOCIAL.replace("/", ".") + ".xml": [head[0], "<!-- The port's Social screen, in the PC version's style "
+                                            "(tools/port_settings.py) -->", head[2]] + _social() + ["</menus>", ""],
     }
 
 
@@ -4991,4 +5079,72 @@ def _theater() -> list:
                                                              '<on event="start" run="port theater export"/>'])
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" back="true"/>',
                                                          '<on event="start" back="true"/>'])
+    return lines
+
+
+# ---------- Social (port/linux/game/social_menu.c): the main menu's Y, and
+# Settings > Gameplay > Community > Social > Chat's BLOCKED & MUTED, laid out
+# as the Map Manager is: on the left two thirds the rows of the list shown
+# (YOU, FRIENDS, FRIEND REQUESTS, ACTIVITY, RECENT PLAYERS, ADD FRIEND BY
+# CODE, BLOCKED & MUTED; a list of friends, a player's page and what can be
+# done about them, their matches and medals), a row each with its name and
+# state; on the right third, in the lobby's frame, the row chosen's details
+# (menu_functions.c's "port social" functions)
+
+
+def _social() -> list:
+    base = SOCIAL
+    back = ['<on event="b" run="port social back"/>', '<on event="back" run="port social back"/>']
+    lines = _widget(f"{base}/social_screen", [("width", 640), ("height", 480),
+                                              ("flags", "pass_unhandled_to_focused_child pause_game"),
+                                              ("bitmap", "bitmaps/gradient")],
+                    [*back, '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
+                     f'<child widget="{base}/social_list"/>', f'<child widget="{base}/header_social"/>'])
+    lines += _header(f"{base}/header_social", f"{base}/header_social")
+    rows = [f'<child widget="{base}/op_soc_{index + 1}" x="20" y="{73 + 30 * index}"/>' for index in range(SOCIAL_ROWS)]
+    lines += _widget(f"{base}/social_list", [("type", "column_list"), ("width", 640), ("height", 480),
+                                             ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                                             ("description", f"{base}/social_details")],
+                     ['<data input="port social update"/>', '<on event="created" run="port social init"/>',
+                      '<on event="deleted" run="port social close"/>', *rows,
+                      f'<child widget="{base}/button_bar" y="414"/>'])
+    for index in range(SOCIAL_ROWS):
+        lines += _widget(f"{base}/op_soc_{index + 1}",
+                         [("width", 390), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                          ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
+                          ("color", "#FF2896FF")],
+                         ['<on event="a" run="port social choose"/>', '<on event="start" run="port social choose"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/social_name" x="12"/>',
+                          f'<child widget="{base}/social_state" x="250"/>'])
+    lines += _widget(f"{base}/social_name",
+                     [("type", "text"), ("controller", 1), ("width", 238), ("height", 22), ("font", "ui\\large_ui"),
+                      ("color", "#FF2896FF"), ("text_y", 4)], [])
+    lines += _widget(f"{base}/social_state",
+                     [("type", "text"), ("controller", 1), ("width", 134), ("height", 22), ("font", "ui\\small_ui"),
+                      ("color", "#FF2896FF"), ("align", "center"), ("text_y", 6), ("text_flags", "no_focus_test")],
+                     [])
+    # (in the lobby's frame, sel_list_desc_bkd's: the row chosen's title and
+    # the rest)
+    lines += _widget(f"{base}/social_details", [("width", 640), ("height", 480)],
+                     [f'<child widget="{base}/social_details_name"/>', f'<child widget="{base}/social_details_text"/>'])
+    lines += _widget(f"{base}/social_details_name",
+                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
+                      ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    lines += _widget(f"{base}/social_details_text",
+                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 130), ("width", 200),
+                      ("height", 272), ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/button_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child widget="{base}/button_back" x="510" y="1"/>'])
+    lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port social back"/>',
+                                                         '<on event="start" run="port social back"/>'])
+    # (the main menu's hint that Y opens it, over the news' hint: a tap or a
+    # click on it presses Y, as the news' does X (ui_widget.c's
+    # ui_mouse_key_button); shown with social.enabled, "port news hint update")
+    lines += _widget(f"{base}/y_butn_social", [("width", 16), ("height", 20)], [])
+    lines += _widget(f"{base}/social_hint", [("type", "text"), ("controller", 1), ("width", 150), ("height", 20),
+                                            ("text", "%y-button SOCIAL"), ("font", "ui\\small_ui"),
+                                            ("color", "#FFCCCCCC"), ("text_flags", "no_focus_test")], [])
     return lines

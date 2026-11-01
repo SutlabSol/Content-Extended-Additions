@@ -135,6 +135,8 @@ their handlers open opens.
 #include "tag_injector.h"
 #include "tag_pack.h"
 #include "map_manager.h"
+#include "social.h"
+#include "social_menu.h"
 #include "map_pictures.h"
 #include "randomizer.h"
 #include "firing_range.h"
@@ -11775,6 +11777,7 @@ static void daily_settings_update(struct widget_instance *list)
 
 	visible_set(named(list, "op_upload_scores", 0), online);
 	visible_set(named(list, "op_server_mode", 0), online);
+	visible_set(named(list, "op_social", 0), online);
 	if (!row)
 		return;
 	if (!custom && text_field_editing(row))
@@ -14107,6 +14110,215 @@ static boolean direct_link_from_clipboard(void)
 	return TRUE;
 }
 
+/* ---------- the Social screen (social_menu.h): the main menu's Y, and
+Settings > Gameplay > Social > Chat's BLOCKED & MUTED; its lists shown as
+the Map Manager's are (the same rows, details and scrolling), its JOIN GAME
+a friend's invite joined as PASTE LINK joins one, Direct Link then shown */
+
+#define SOCIAL_SCREEN_NAME "pc\\main_menu\\social\\social_screen"
+#define JOIN_GAME_SCREEN_NAME "pc\\main_menu\\multiplayer_type_select\\join_game\\join_game_screen"
+#define SOCIAL_ROWS 11
+#define SOCIAL_DETAILS_LINES 16
+
+static struct
+{
+	short list_shown;
+	char shown[MOD_DETAILS_LENGTH];
+	char row_shown[SOCIAL_ROWS][2 * ROW_TEXT_LENGTH + 16];
+} social_screen;
+
+/* the row (op_soc_<n>) a widget is or is in, else NULL */
+static struct widget_instance *social_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_soc_", 7))
+			return widget;
+	}
+	return NULL;
+}
+
+static short social_row_place(struct widget_instance *row)
+{
+	short place = row ? (short)(*social_menu_first() + atoi(row->name + 7) - 1) : NONE;
+
+	return place >= 0 && place < social_menu_count() ? place : NONE;
+}
+
+/* "port social init" (the list's created) and "port social close" (its
+deleted) */
+static boolean social_screen_reset(boolean opening)
+{
+	short index;
+
+	if (opening)
+		social_menu_open();
+	else
+		social_menu_close();
+	social_screen.list_shown = NONE;
+	social_screen.shown[0] = 0;
+	csmemset(social_screen.row_shown, 0, sizeof(social_screen.row_shown));
+	for (index = 0; index < NUMBER_OF_MOD_TEXT_BOXES; index++)
+	{
+		mods_screen.fonts[index] = NONE;
+		mods_screen.widths[index] = 0;
+	}
+	return TRUE;
+}
+
+/* "port social update": the server's answers and what was typed taken, the
+rows (scrolling at the list's ends), each one's name and state, and the
+details of the one chosen (as maps_update) */
+static void social_screen_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *focused;
+	struct widget_instance *details = list->parameters.list.extended_description;
+	short *first;
+	short *chosen;
+	short count;
+	short focused_index;
+
+	social_menu_poll();
+	first = social_menu_first();
+	chosen = social_menu_chosen();
+	count = social_menu_count();
+	if (social_menu_list() != social_screen.list_shown)
+	{
+		social_screen.list_shown = social_menu_list();
+		if (*chosen < *first || *chosen >= *first + SOCIAL_ROWS)
+			*first = (short)PIN(*chosen - SOCIAL_ROWS / 2, 0, MAX(count - SOCIAL_ROWS, 0));
+		focus_row(list, count ? (short)(*chosen - *first) : NONE);
+		csmemset(social_screen.row_shown, 0, sizeof(social_screen.row_shown));
+	}
+	focused = social_row(list->focused_child);
+	focused_index = focused ? (short)(atoi(focused->name + 7) - 1) : NONE;
+	if (focused_index == SOCIAL_ROWS - 1 && *first + SOCIAL_ROWS < count && list_scrolls_at_end())
+	{
+		(*first)++;
+		focus_row(list, --focused_index);
+	}
+	else if (focused_index == 0 && *first > 0 && list_scrolls_at_end())
+	{
+		(*first)--;
+		focus_row(list, ++focused_index);
+	}
+	if (*first > 0 && *first + SOCIAL_ROWS > count)
+		*first = (short)MAX(0, count - SOCIAL_ROWS);
+	if (focused_index != NONE && *first + focused_index < count)
+		*chosen = (short)(*first + focused_index);
+	for (row = list->child; row; row = row->next)
+	{
+		short place;
+		short row_index;
+		char name[ROW_TEXT_LENGTH];
+		char state[ROW_TEXT_LENGTH];
+		char shown[sizeof(social_screen.row_shown[0])];
+
+		if (strncmp(row->name, "op_soc_", 7))
+			continue;
+		row->animation.current_frame_index = row == focused ? 1 : 0;
+		place = social_row_place(row);
+		row->visible = place != NONE;
+		if (place == NONE)
+		{
+			if (row == focused)
+				focus_row(list, count ? (short)(count - 1 - *first) : NONE);
+			continue;
+		}
+		row_index = (short)PIN(atoi(row->name + 7) - 1, 0, SOCIAL_ROWS - 1);
+		social_menu_row(place, name, sizeof(name), state, sizeof(state));
+		snprintf(shown, sizeof(shown), "%s|%s|%ld", name, state, mods_screen.fonts[_mod_row_name]);
+		if (strcmp(shown, social_screen.row_shown[row_index]))
+		{
+			char shortened[MOD_DETAILS_LENGTH];
+			wchar_t wide[ROW_TEXT_LENGTH];
+
+			if (mods_text_fits(_mod_row_name, name, strlen(name)))
+				snprintf(shortened, sizeof(shortened), "%s", name);
+			else
+				mods_text_shorten(_mod_row_name, name, strlen(name), shortened, sizeof(shortened));
+			mods_wide_text(shortened, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "social_name", 0), wide);
+			mods_wide_text(state, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "social_state", 0), wide);
+			snprintf(social_screen.row_shown[row_index], sizeof(social_screen.row_shown[0]), "%s", shown);
+		}
+	}
+	if (details)
+	{
+		char title[MOD_DETAILS_LENGTH];
+		char text[MOD_DETAILS_LENGTH];
+		char wrapped[MOD_DETAILS_LENGTH];
+		char shown[sizeof(social_screen.shown)];
+		wchar_t wide[MOD_DETAILS_LENGTH];
+
+		social_menu_details(count ? *chosen : NONE, title, sizeof(title), text, sizeof(text));
+		snprintf(shown, sizeof(shown), "%ld %d %ld %d|%s|%s", mods_screen.fonts[_mod_details_name],
+			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],
+			mods_screen.widths[_mod_details_text], title, text);
+		if (strcmp(shown, social_screen.shown))
+		{
+			snprintf(social_screen.shown, sizeof(social_screen.shown), "%s", shown);
+			wrapped[0] = 0;
+			mods_wrap(title, wrapped, sizeof(wrapped), _mod_details_name, 2, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "social_details_name", 0), wide, NUMBEROF(wide));
+			wrapped[0] = 0;
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, SOCIAL_DETAILS_LINES, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "social_details_text", 0), wide, NUMBEROF(wide));
+		}
+	}
+}
+
+/* "port social choose" (A on a row): JOIN GAME joins the friend's invite
+and shows Direct Link, whose B comes back here */
+static boolean social_screen_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short place = social_row_place(social_row(widget));
+	char logged[96];
+
+	if (place == NONE)
+		place = *social_menu_chosen();
+	*social_menu_chosen() = place;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	if (social_menu_choose(place) != _social_menu_join)
+		return TRUE;
+	if (!p2p_join_invite(social_menu_join_invite()))
+	{
+		social_menu_join_failed();
+		return campaign_fail();
+	}
+	platform_log("social: joining a friend's game (%s)", p2p_invite_log_text(social_menu_join_invite(), logged,
+		sizeof(logged)));
+	multiplayer.mode = _multiplayer_mode_direct_link;
+	return ui_widget_port_open(widget, JOIN_GAME_SCREEN_NAME, widget_deleted);
+}
+
+/* "port social back" (B, and BACK): up a list, else away */
+static boolean social_screen_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	if (social_menu_back())
+		return TRUE;
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port social open" (the main menu's Y) and "port social moderation"
+(Chat's BLOCKED & MUTED): the screen, over the one asking, at its first list
+or the players muted and blocked */
+static boolean social_screen_open(struct widget_instance *widget, boolean moderation, boolean *widget_deleted)
+{
+	if (!config_boolean("social.enabled"))
+		return FALSE;
+	social_menu_open_at(moderation ? _social_menu_open_moderation : _social_menu_open_home);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return ui_widget_port_open(widget, SOCIAL_SCREEN_NAME, widget_deleted);
+}
+
 /* joining the game chosen: player 1 in, then the lobby */
 static boolean browser_join(struct widget_instance *widget, short controller, boolean *widget_deleted)
 {
@@ -14823,6 +15035,10 @@ static void news_hint_update(struct widget_instance *list)
 
 	visible_set(named(screen, "news_hint", 0), shown);
 	visible_set(named(screen, "x_butn_news", 0), shown);
+	/* (and that Y opens Social, with social.enabled) */
+	shown = config_boolean("social.enabled") != 0;
+	visible_set(named(screen, "social_hint", 0), shown);
+	visible_set(named(screen, "y_butn_social", 0), shown);
 }
 
 /* "port news init" */
@@ -17261,6 +17477,22 @@ boolean pc_menu_event_function_invoke(
 		{
 			return map_manage_open(widget, widget_deleted);
 		}
+		else if (!strcmp(name, "port social init") || !strcmp(name, "port social close"))
+		{
+			return social_screen_reset(!strcmp(name, "port social init"));
+		}
+		else if (!strcmp(name, "port social choose"))
+		{
+			return social_screen_choose(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social back"))
+		{
+			return social_screen_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social open") || !strcmp(name, "port social moderation"))
+		{
+			return social_screen_open(widget, !strcmp(name, "port social moderation"), widget_deleted);
+		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
 			return controls_load(!strcmp(name, "controls screen defaults"));
@@ -17654,6 +17886,8 @@ void pc_menu_game_data_function_invoke(
 		theater_update(widget);
 	else if (!strcmp(name, "port maps update"))
 		maps_update(widget);
+	else if (!strcmp(name, "port social update"))
+		social_screen_update(widget);
 	else if (!strcmp(name, "color picker update"))
 		color_list_update(widget);
 	else if (!strcmp(name, "3wide player profile list update"))

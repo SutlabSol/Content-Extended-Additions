@@ -37,6 +37,17 @@ boolean social_chat_replaces_upstream(void);
 to a channel (_social_chat_*), by a controller's port (NONE: the keyboard,
 which types) */
 void social_chat_open(short channel, short port);
+/* (social_menu.c's SEND MESSAGE) the box opened to PRIVATE, to the account
+of this code (its name as shown), typed on the keyboard or the on-screen
+one as the player last used */
+void social_chat_open_private(char const *code, wchar_t const *name);
+/* (social_menu.c's RECENT PLAYERS) the accounts a private line may go to
+(this game's room's, those that wrote or were written to), the newest first:
+how many, at most maximum */
+short social_chat_recent_players(char (*codes)[16], wchar_t (*names)[32], short maximum);
+/* (social_menu.c) the names of the players muted or blocked: their
+upstream lines hidden (the server leaves out their fork lines) */
+void social_chat_unheard_set(wchar_t const (*names)[32], short count);
 /* (overlay_menu.c) L, R and the d-pad's up pressed together on a
 controller's port: the box opened, in the game or the menus, or closed */
 void social_chat_toggle_request(short port);
