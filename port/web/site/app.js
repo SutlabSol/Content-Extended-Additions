@@ -68,14 +68,14 @@ async function readStorageText(name) {
 }
 
 async function downloadLog() {
-  let text = `OpenCE web ${JSON.stringify(stamp)}\n${navigator.userAgent}\n\n` + log.join('\n') + '\n';
+  let text = `Halo Content Evolved web ${JSON.stringify(stamp)}\n${navigator.userAgent}\n\n` + log.join('\n') + '\n';
   // (debug.txt, which the game writes, when it is not open: before or after
   // a game)
   if (!gameStarted || gameStopped) {
     const debug = await readStorageText('debug.txt');
     if (debug) text += '\n---------- debug.txt\n' + debug.slice(-2000000);
   }
-  download('opence-web-log.txt', new Blob([text], { type: 'text/plain' }));
+  download('halo-content-evolved-web-log.txt', new Blob([text], { type: 'text/plain' }));
 }
 
 // ---------- errors: the game's own, not a browser extension's
@@ -872,7 +872,7 @@ function showRoom(status) {
 async function joinRoom(secret) {
   const brokers = (params.get('brokers') || '').split(',').filter((url) => /^wss?:\/\//.test(url));
   showRoom(await window.HaloNet.join(secret, brokers));
-  history.replaceState(null, '', `?${new URLSearchParams({ ...Object.fromEntries(params), room: secret })}`);
+  history.replaceState(null, '', `?${new URLSearchParams({ ...Object.fromEntries(params), room: secret })}${location.hash}`);
 }
 
 window.HaloNet.onChange(showRoom);
@@ -892,7 +892,7 @@ $('room-copy').addEventListener('click', async () => {
 $('room-leave').addEventListener('click', () => {
   window.HaloNet.leave();
   params.delete('room');
-  history.replaceState(null, '', params.toString() ? `?${params}` : location.pathname);
+  history.replaceState(null, '', `${location.pathname}${params.toString() ? `?${params}` : ''}${location.hash}`);
 });
 
 function gameArguments() {
@@ -973,7 +973,7 @@ function joinServer(code) {
     play();
     return;
   }
-  location.hash = '#play-panel';
+  location.hash = '#home';
   updatePlay();
   $('play-note').textContent += ' Play then joins the server you chose.';
 }

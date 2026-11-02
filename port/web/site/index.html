@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>OpenCE</title>
-<meta name="description" content="Halo: Combat Evolved in your browser, from your own Xbox disc image. OpenCE, the decompilation's port.">
-<meta name="theme-color" content="#072852">
+<title>Halo Content Evolved</title>
+<meta name="description" content="Halo Content Evolved is a community project built on OpenCE, bringing new ways to play Halo: Combat Evolved and its Custom Edition content.">
+<meta name="theme-color" content="#030603">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icons/icon-32.png" sizes="32x32">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
@@ -19,33 +19,54 @@
 <main id="launcher">
   <header class="masthead">
     <div class="masthead-inner">
-      <img src="icons/icon-192.png" alt="" width="68" height="68">
-      <div>
-        <h1>OpenCE</h1>
-        <p class="tagline">Halo: Combat Evolved in your browser, from your own Xbox disc.</p>
-      </div>
+      <a class="brand" href="#home" aria-label="Halo Content Evolved home">
+        <span class="brand-mark" aria-hidden="true">CE</span>
+        <span class="brand-copy">
+          <h1>Halo Content Evolved</h1>
+          <span class="tagline">A community project built on OpenCE</span>
+        </span>
+      </a>
+      <button class="nav-toggle" id="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false"
+        aria-controls="main-nav">
+        <span class="hamburger" aria-hidden="true"><i></i><i></i><i></i></span>
+      </button>
+      <a class="community-link" href="https://discord.com/invite/OpenCE" rel="noopener">Community <span aria-hidden="true">↗</span></a>
     </div>
   </header>
 
+  <button class="nav-backdrop" id="nav-backdrop" type="button" aria-label="Close navigation" hidden></button>
   <div class="stage">
-    <div class="layout">
-      <nav class="menu" aria-label="Launcher">
-        <a href="#play-panel" class="menu-current">Play</a>
-        <a href="#data-panel">Game data</a>
-        <a href="#mods-panel">Mods</a>
-        <a href="#profiles-panel">Tag profiles</a>
-        <a href="#room-panel">Play together</a>
-        <a href="#servers-panel">Servers</a>
-        <a href="#checks-panel">This browser</a>
-        <a href="#settings-panel">Settings and data</a>
-        <a href="#about-panel">About</a>
-        <p class="menu-note">Keyboard: as on the desktop, but crouch is C (Ctrl would close the tab).</p>
-        <p class="menu-note"><a href="https://discord.com/invite/OpenCE" rel="noopener">Join us on Discord</a></p>
+    <div class="app-shell">
+      <nav class="menu" id="main-nav" aria-label="Main navigation">
+        <p class="nav-label">Workspace</p>
+        <a href="#home" data-page-link="home">Home</a>
+        <a href="#game-data" data-page-link="game-data">Game data</a>
+        <a href="#servers" data-page-link="servers">Server browser</a>
+        <p class="nav-label nav-label-secondary">Manage</p>
+        <a href="#settings" data-page-link="settings">Settings and data</a>
+        <a href="#about" data-page-link="about">About</a>
+        <p class="menu-note">Controls follow the desktop build. Crouch is C.</p>
       </nav>
-
       <div class="screens">
-        <section class="screen" id="play-panel" aria-labelledby="play-title">
-          <h2 id="play-title">Ready to play</h2>
+        <section class="screen" id="play-panel" data-page-view="home" aria-labelledby="play-title">
+          <div class="launch-hero">
+            <div class="launch-copy">
+              <p class="eyebrow">The browser edition <span> / </span> Halo CE</p>
+              <h2 id="play-title">Halo Content Evolved</h2>
+              <p class="launch-description">A feature-rich Halo CE project, playable here with your own Xbox disc image.</p>
+              <div class="button-bar launch-actions">
+                <button id="play" class="primary play" disabled>Play</button>
+                <a class="data-link" href="#data-panel">Set up game data <span aria-hidden="true">→</span></a>
+              </div>
+              <p id="play-note" class="help note"></p>
+            </div>
+            <img class="game-art" src="icons/icon-512.png" alt="Armored soldier from Halo: Combat Evolved" width="192" height="192">
+          </div>
+          <div class="launch-status">
+            <div class="launch-status-heading">
+              <h3>Launch status</h3>
+              <span class="eyebrow">This browser</span>
+            </div>
           <div class="rows">
             <div class="row" id="summary-browser"><span class="row-label">This browser</span>
               <span class="row-value" id="summary-browser-value">Looking…</span></div>
@@ -54,14 +75,28 @@
             <div class="row" id="summary-mods"><span class="row-label">Mods</span>
               <span class="row-value" id="summary-mods-value">None yet</span></div>
           </div>
-          <p class="help">The game starts in this tab. Its own menus, saved games and settings stay in this browser.</p>
-          <p id="play-note" class="help note"></p>
-          <div class="button-bar">
-            <button id="play" class="primary play" disabled>Play</button>
+            <p class="help">The game starts in this tab. Saved games and settings stay in this browser.</p>
           </div>
         </section>
 
-        <section class="screen" id="data-panel" aria-labelledby="data-title">
+        <section class="screen project-story" id="project-panel" data-page-view="home" aria-labelledby="project-title">
+          <div class="story-heading">
+            <div>
+              <p class="eyebrow">A project in motion</p>
+              <h2 id="project-title">From fixes to a bigger Halo.</h2>
+            </div>
+            <p class="story-intro">This began with a few Switch quality-of-life fixes. It grew into a broader goal: make Halo CE richer to play, and make two decades of Custom Edition content easier to reach.</p>
+          </div>
+          <ol class="timeline">
+            <li><span class="timeline-mark">01</span><div><h3>Switch port fixes</h3><p>Started from <a href="https://github.com/thelinkin3000/halo-ce-universal">Thelinkin3000's OpenCE fork</a> to smooth out Switch-specific nitpicks.</p></div></li>
+            <li><span class="timeline-mark">02</span><div><h3>Campaign randomizer</h3><p>The first big addition: remixing encounters and weapons for another way through the campaign.</p></div></li>
+            <li><span class="timeline-mark">03</span><div><h3>Skulls and scoring</h3><p>More ways to shape a run, chase a score, and earn medals.</p></div></li>
+            <li><span class="timeline-mark">04</span><div><h3>Tag Injector</h3><p>Expanded access to the weapons, enemies, and other content made for Halo Custom Edition.</p></div></li>
+            <li><span class="timeline-mark">05</span><div><h3>Halo Content Evolved</h3><p>The vision: Theater, Forge, Firefight, social features, and easier access to 20 years of Custom Edition content.</p></div></li>
+          </ol>
+        </section>
+
+        <section class="screen" id="data-panel" data-page-view="game-data" aria-labelledby="data-title">
           <h2 id="data-title">Game data</h2>
           <div class="rows">
             <div class="row selected"><span class="row-label">Maps</span>
@@ -101,7 +136,7 @@
           </div>
         </section>
 
-        <section class="screen" id="mods-panel" aria-labelledby="mods-title">
+        <section class="screen" id="mods-panel" data-page-view="game-data" aria-labelledby="mods-title">
           <h2 id="mods-title">Mods</h2>
           <div class="rows">
             <p id="mods-status" class="row status">No mods yet.</p>
@@ -117,7 +152,7 @@
           </div>
         </section>
 
-        <section class="screen" id="profiles-panel" aria-labelledby="profiles-title">
+        <section class="screen" id="profiles-panel" data-page-view="game-data" aria-labelledby="profiles-title">
           <h2 id="profiles-title">Tag profiles</h2>
           <div class="rows">
             <p id="profiles-status" class="row status">No tag profiles yet.</p>
@@ -138,7 +173,7 @@
           </div>
         </section>
 
-        <section class="screen" id="room-panel" aria-labelledby="room-title">
+        <section class="screen" id="room-panel" data-page-view="servers" aria-labelledby="room-title">
           <h2 id="room-title">Play together</h2>
           <p id="room-status" class="help">Play system link with friends in their browsers: create a room and send
             them its link. Each of you then finds the others' games under Multiplayer.</p>
@@ -152,7 +187,7 @@
           </div>
         </section>
 
-        <section class="screen" id="servers-panel" aria-labelledby="servers-title">
+        <section class="screen" id="servers-panel" data-page-view="servers" aria-labelledby="servers-title">
           <h2 id="servers-title">Servers</h2>
           <p id="servers-status" class="help">Looking…</p>
           <div class="rows">
@@ -166,7 +201,7 @@
           </div>
         </section>
 
-        <section class="screen no-bar" id="checks-panel" aria-labelledby="checks-title">
+        <section class="screen no-bar" id="checks-panel" data-page-view="game-data" aria-labelledby="checks-title">
           <h2 id="checks-title">This browser</h2>
           <div class="rows">
             <ul id="checks" class="checks"></ul>
@@ -174,7 +209,7 @@
           <p id="checks-note" class="help note" hidden></p>
         </section>
 
-        <section class="screen" id="settings-panel" aria-labelledby="settings-title">
+        <section class="screen" id="settings-panel" data-page-view="settings" aria-labelledby="settings-title">
           <h2 id="settings-title">Settings and data</h2>
           <div class="rows">
             <div class="row"><span class="row-label">This site</span>
@@ -194,10 +229,10 @@
           </div>
         </section>
 
-        <section class="screen" id="about-panel" aria-labelledby="about-title">
+        <section class="screen" id="about-panel" data-page-view="about" aria-labelledby="about-title">
           <h2 id="about-title">About</h2>
-          <p class="help">OpenCE is the Halo: Combat Evolved decompilation (Xbox build 01.01.14.2342), ported to
-            Linux, Windows, Android and the web. It is not affiliated with Microsoft or Bungie.</p>
+          <p class="help">Halo Content Evolved is an independent project built on <a href="https://github.com/OpenCommunityEdition/OpenCE">OpenCE</a>, an open-source port based on the Halo: Combat Evolved Xbox decompilation. It began in <a href="https://github.com/thelinkin3000/halo-ce-universal">Thelinkin3000's Switch-focused fork</a> and continues as <a href="https://github.com/Watanoge/halo-content-evolved">Halo Content Evolved</a>.</p>
+          <p class="help">The aim is a feature-rich Halo CE: theater, forge, firefight, social features, scoring, skulls, a campaign randomizer, and easy access to the Custom Edition content community has made over the last 20 years.</p>
           <dl class="rows facts">
             <div class="row"><dt class="row-label">Build</dt><dd class="row-value" id="about-build">–</dd></div>
             <div class="row"><dt class="row-label">Commit</dt><dd class="row-value" id="about-commit">–</dd></div>
@@ -206,9 +241,9 @@
           </dl>
           <div class="button-bar links">
             <a href="https://discord.com/invite/OpenCE" rel="noopener">Discord</a>
-            <a href="https://github.com/OpenCommunityEdition/OpenCE">Source</a>
-            <a href="https://github.com/OpenCommunityEdition/OpenCE/releases/latest">Linux, Windows and Android
-              builds</a>
+            <a href="https://github.com/Watanoge/halo-content-evolved">Project source</a>
+            <a href="https://github.com/OpenCommunityEdition/OpenCE">OpenCE upstream</a>
+            <a href="https://github.com/thelinkin3000/halo-ce-universal">Switch fork</a>
             <a href="licenses.txt">Licences</a>
           </div>
         </section>
@@ -217,7 +252,7 @@
   </div>
 
   <footer class="site-footer">
-    <p>OpenCE is an unofficial fan project. It is not endorsed by or affiliated with Microsoft, Xbox Game Studios,
+    <p>Halo Content Evolved is an unofficial community project built on OpenCE. It is not endorsed by or affiliated with Microsoft, Xbox Game Studios,
       Halo Studios or Bungie. Halo and Halo: Combat Evolved are trademarks of Microsoft Corporation;
       Halo © Microsoft Corporation. No game data is included: you need your own copy of the game.</p>
   </footer>
@@ -274,6 +309,7 @@
 <script src="net.js"></script>
 <script src="p2p.js"></script>
 <script src="servers.js"></script>
+<script src="navigation.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
