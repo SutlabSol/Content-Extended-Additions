@@ -84,10 +84,12 @@ controller's port: the box opened, in the game or the menus, or closed */
 void social_chat_toggle_request(short port);
 
 /* (network_chat.c's typing state, which the platform's input reads) a line
-is typed in the box; with the on-screen keyboard; and its controller's port
-(NONE for none) */
+is typed in the box; with the on-screen keyboard; with the system's keyboard
+in its place (halo_system_keyboard); and its controller's port (NONE for
+none) */
 boolean social_chat_typing(void);
 boolean social_chat_keyboard_open(void);
+boolean social_chat_system_keyboard(void);
 short social_chat_controller(void);
 
 /* (network_chat.c) a line the upstream chat shows: its player's name, its

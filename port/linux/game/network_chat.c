@@ -8,7 +8,10 @@ or the vehicle in turn; Enter sends it, Escape lets it go. A controller's
 D-pad Up (the touch controls' too) opens an on-screen keyboard instead,
 whose keys the stick moves through and A types, a tap types (the
 touchscreen), and the controller then drives nothing else (xinput_sdl.c's
-halo_chat_pad_buttons, halo_chat_taps). The lines are
+halo_chat_pad_buttons, halo_chat_taps). On Android, its touch controls'
+D-pad Up brings up Android's keyboard in its place, as a player profile's
+name does (halo_system_keyboard): it types keys, a tap brings it up again,
+and the back closes the line. The lines are
 drawn above the motion sensor, at half the HUD font's size, each with its
 player's name in their team's colour, wrapped to a column a little over half
 the view wide, and fade after a while; where the motion sensor is not drawn
@@ -330,6 +333,11 @@ touchscreen (its keys tapped) */
 static struct
 {
 	boolean open;
+	/* port: open with the system's keyboard in its place, not drawn
+	(halo_system_keyboard: Android's, which types keys): the controller's
+	buttons still close it and send the line, a tap brings that keyboard up
+	again */
+	boolean system;
 	unsigned long opening_buttons;
 	/* the key picked */
 	short row;
@@ -1832,6 +1840,7 @@ static void chat_input_end(
 {
 	chat_input.active = FALSE;
 	chat_keyboard.open = FALSE;
+	chat_keyboard.system = FALSE;
 	chat_keyboard.opening_buttons = 0;
 	chat_keyboard.drawn = FALSE;
 	chat_scroll = 0;
@@ -1913,6 +1922,14 @@ static void chat_keyboard_update(
 		chat_input.channel = (short)((chat_input.channel + NUMBER_OF_CHAT_CHANNELS - 1) % NUMBER_OF_CHAT_CHANNELS);
 	if (TEST_FLAG(pressed, HALO_CHAT_PAD_DOWN))
 		chat_input.channel = (short)((chat_input.channel + 1) % NUMBER_OF_CHAT_CHANNELS);
+	/* (the system's keyboard types in its place: no key to pick, and a tap
+	brings it up again, closed by hand) */
+	if (chat_keyboard.system)
+	{
+		if (halo_chat_taps(&x, &y))
+			halo_system_keyboard_again();
+		return;
+	}
 	/* (a direction pressed moves the key at once, held, again after a while
 	and then quickly) */
 	if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_UP))
@@ -1959,6 +1976,13 @@ unsigned char network_chat_keyboard_open(
 {
 	/* port: or the fork's chat box's (social_chat.c) */
 	return (chat_input.active && chat_keyboard.open) || social_chat_keyboard_open();
+}
+
+unsigned char network_chat_system_keyboard(
+	void)
+{
+	/* port: or the fork's chat box's (social_chat.c) */
+	return (chat_input.active && chat_keyboard.open && chat_keyboard.system) || social_chat_system_keyboard();
 }
 
 /* whether the chat is out of sight: a menu up (the pause menu, however it
@@ -2126,7 +2150,11 @@ void network_chat_update(
 					halo_chat_pad_buttons_for_port(chat_input.controller) : halo_chat_pad_buttons();
 				chat_keyboard.held = 0;
 				chat_keyboard.open = TRUE;
-				error(_error_log, "chat: the on-screen keyboard opened");
+				/* (a touchscreen's, on Android: its own keyboard, as a
+				player profile's name has; not a controller's) */
+				chat_keyboard.system = !chat_input.physical && halo_system_keyboard();
+				error(_error_log, chat_keyboard.system ? "chat: the system's keyboard opened" :
+					"chat: the on-screen keyboard opened");
 				chat_keyboard.row = 1;
 				chat_keyboard.column = 0;
 				chat_keyboard.shift = FALSE;
@@ -2798,7 +2826,7 @@ void network_chat_draw(
 		text_filter_resume();
 		edge = (short)(edge + (touch ? line_height : -line_height));
 		rows--;
-		if (chat_keyboard.open)
+		if (chat_keyboard.open && !chat_keyboard.system)
 		{
 			/* (the on-screen keyboard at its own size) */
 			rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);

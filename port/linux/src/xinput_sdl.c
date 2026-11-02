@@ -71,6 +71,8 @@ extern unsigned char network_chat_typing(void);
 /* ... and its on-screen keyboard is up, which takes the first controller
 and the touch controls' stick and look */
 extern unsigned char network_chat_keyboard_open(void);
+/* ... with the system's keyboard in its place (halo_system_keyboard) */
+extern unsigned char network_chat_system_keyboard(void);
 /* port/linux/game/network_votekick.c: the D-pad's left and right vote now */
 extern unsigned char network_vote_pad_open(void);
 /* port/linux/game/menu_functions.c: two or more players on this machine
@@ -283,6 +285,42 @@ int halo_chat_touch_layout(void)
 	return FALSE;
 #endif
 }
+
+int halo_system_keyboard(void)
+{
+#ifdef HALO_ANDROID
+	return touch_input_screen_buttons();
+#else
+	return FALSE;
+#endif
+}
+
+/* (each one asked for; those the last frame brought up: system_keyboard_update) */
+static int system_keyboard_requests;
+
+void halo_system_keyboard_again(void)
+{
+	system_keyboard_requests++;
+}
+
+#ifdef HALO_ANDROID
+/* Android's keyboard up while a chat line is typed without the game's
+on-screen keyboard (network_chat_system_keyboard), or a Tag Editor's name
+(overlay_menu_typing), and gone as it ends; asked for only as either starts
+or ends, or again, so that a player profile's name (platform_text_typing)
+keeps its own (once a frame, on the game's thread: XInputGetState) */
+static void system_keyboard_update(void)
+{
+	static BOOL shown;
+	static int requests_handled;
+	BOOL wanted = network_chat_system_keyboard() || (overlay_menu_typing() && halo_system_keyboard());
+
+	if (wanted != shown || (wanted && requests_handled != system_keyboard_requests))
+		platform_screen_keyboard(wanted, FALSE);
+	shown = wanted;
+	requests_handled = system_keyboard_requests;
+}
+#endif
 
 /* the first controller's buttons held as the on-screen keyboard closed (the
 B that closed it, the Start or the A that sent the line), which the game
@@ -2331,6 +2369,17 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 	}
 	/* Record the owner's navigation before suppressing their gameplay input. */
 	chat_pad_record((short)port, &state->Gamepad);
+#ifdef HALO_ANDROID
+	/* (a chat line typed with Android's keyboard: the system's back, once
+	that keyboard is down, closes the chat as B does; no key of the keyboard
+	reaches the controller meanwhile) */
+	if (port == 0)
+	{
+		if (network_chat_system_keyboard() && input.keys[SDL_SCANCODE_AC_BACK])
+			chat_pad[0] |= 1UL << HALO_CHAT_PAD_B;
+		system_keyboard_update();
+	}
+#endif
 	chat_pad_hold_over((short)port, &state->Gamepad);
 	/* (and a vote running takes the first controller's D-pad left and
 	right: network_votekick.c) */

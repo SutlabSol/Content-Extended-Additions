@@ -30,8 +30,10 @@ the community server as the install's account (social.c; api-opence's
   goes to, Page Up and Page Down (or the wheel) back through the lines,
   Enter (or Start) sends, Escape (or B) closes. A controller types on the
   on-screen keyboard as the upstream chat's (the stick and the D-pad move,
-  A presses, X deletes), the touchscreen taps its keys. No hint of the keys
-  is shown. The platform's input takes it
+  A presses, X deletes), the touchscreen taps its keys; on Android, the
+  touchscreen types with Android's keyboard instead, as a player profile's
+  name does (halo_system_keyboard: a tap brings it up again, the back
+  closes the box). No hint of the keys is shown. The platform's input takes it
   as the upstream chat's typing (network_chat_typing and the rest ask here).
 - Docked (social_chat_dock: the main menu's social column asks each frame
   it is drawn), the box is in that place, its lines shown closed too and not
@@ -355,6 +357,11 @@ static struct
 static struct
 {
 	boolean open;
+	/* open with the system's keyboard in its place, not drawn
+	(halo_system_keyboard: Android's, which types keys): the controller's
+	buttons still close the box and send the line, a tap brings that
+	keyboard up again */
+	boolean system;
 	short row;
 	short column;
 	boolean shift;
@@ -1302,6 +1309,12 @@ boolean social_chat_keyboard_open(
 	return social_chat.open && social_chat_keyboard.open;
 }
 
+boolean social_chat_system_keyboard(
+	void)
+{
+	return social_chat.open && social_chat_keyboard.open && social_chat_keyboard.system && !social_chat.menu_only;
+}
+
 short social_chat_controller(
 	void)
 {
@@ -1343,6 +1356,9 @@ void social_chat_open(
 	if (port != NONE)
 	{
 		social_chat_keyboard.open = TRUE;
+		/* (the touchscreen's, on Android: its own keyboard, as a player
+		profile's name has) */
+		social_chat_keyboard.system = port == 0 && halo_system_keyboard();
 		social_chat_keyboard.row = 1;
 		/* (the buttons that opened it held over: none of them a key) */
 		social_chat_keyboard.opening = halo_chat_pad_buttons_for_port(port);
@@ -1400,6 +1416,7 @@ static void social_chat_close(
 		social_chat.closed_at = system_milliseconds() | 1;
 	social_chat.open = FALSE;
 	social_chat_keyboard.open = FALSE;
+	social_chat_keyboard.system = FALSE;
 	social_chat_keyboard.drawn = FALSE;
 	social_chat.scroll = 0;
 	social_chat_player_close();
@@ -1675,6 +1692,19 @@ static void social_chat_keyboard_update(
 		social_chat_channel_step(-1);
 	if (TEST_FLAG(pressed, HALO_CHAT_PAD_RIGHT_SHOULDER))
 		social_chat_channel_step(1);
+	/* (the system's keyboard types in its place: no key to pick, the D-pad
+	who a private line goes to, and a tap brings it up again, closed by
+	hand) */
+	if (social_chat_keyboard.system)
+	{
+		if (TEST_FLAG(pressed, HALO_CHAT_PAD_UP))
+			social_chat_peer_next(-1);
+		if (TEST_FLAG(pressed, HALO_CHAT_PAD_DOWN))
+			social_chat_peer_next(1);
+		if (halo_chat_taps(&x, &y))
+			halo_system_keyboard_again();
+		return;
+	}
 	if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_UP) || TEST_FLAG(held, HALO_CHAT_PAD_UP))
 		rows_down = -1;
 	else if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_DOWN) || TEST_FLAG(held, HALO_CHAT_PAD_DOWN))
@@ -1983,6 +2013,10 @@ void social_chat_pointer(
 			return;
 		}
 	}
+	/* (elsewhere, with the system's keyboard: that keyboard up again,
+	closed by hand) */
+	if (social_chat_system_keyboard())
+		halo_system_keyboard_again();
 }
 
 int social_chat_wants_pointer(
@@ -2969,7 +3003,7 @@ static void social_chat_draw_in(
 				social_chat_player_draw(font_index, line_height, screen_width, screen_height, player_left,
 					social_chat_player.top);
 			}
-			if (social_chat_keyboard.open && !social_chat.menu_only)
+			if (social_chat_keyboard.open && !social_chat_keyboard.system && !social_chat.menu_only)
 			{
 				short keyboard_width = (short)(screen_width * SOCIAL_CHAT_KEYBOARD_PERCENT / 100);
 				short keyboard_left = touch ? (short)((screen_width - keyboard_width) / 2) :

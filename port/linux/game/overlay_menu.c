@@ -1627,12 +1627,17 @@ void overlay_menu_pointer(
 	short y;
 
 	/* (a name typed: a click or a tap on the on-screen keyboard presses a
-	key, a right click leaves the name as it was) */
+	key, a right click leaves the name as it was; with the system's keyboard
+	in its place, a tap brings it up again, closed by hand) */
 	if (overlay.open && tag_editor_menu_typing())
 	{
 		short ignored;
 
-		if (pointer->left_clicks && overlay.keys_drawn)
+		if (pointer->left_clicks && halo_system_keyboard())
+		{
+			halo_system_keyboard_again();
+		}
+		else if (pointer->left_clicks && overlay.keys_drawn)
 		{
 			short click_x = (short)(pointer->click_x + (halo_screen_width() - 640) / 2);
 			short click_y = pointer->click_y;
@@ -1949,8 +1954,10 @@ void overlay_menu_draw(
 		draw_string_set_draw_mode(small_font_index, NONE, _overlay_text_left, 0, &blue);
 		draw_string_and_hack_in_icons(&bounds, NULL, NULL, 0, wide, FALSE);
 		/* (the on-screen keyboard for a controller or the touchscreen: none
-		once the keyboard types, until they are used again) */
-		if (tag_editor_menu_typing() && !halo_keyboard_typed_last())
+		once the keyboard types, until they are used again; none where the
+		system's keyboard types instead, Android's: halo_system_keyboard,
+		xinput_sdl.c) */
+		if (tag_editor_menu_typing() && !halo_keyboard_typed_last() && !halo_system_keyboard())
 			overlay_keyboard_draw(font_index, line_height, width, band.y0);
 		return;
 	}

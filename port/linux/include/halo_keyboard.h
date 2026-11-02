@@ -109,6 +109,14 @@ int halo_chat_taps(float *x, float *y);
 then goes at the top left: on Android, and in a browser once its touch
 controls have been used */
 int halo_chat_touch_layout(void);
+/* whether a chat line (and a Tag Editor's name) is typed with the system's
+own keyboard, as a player profile's name is (platform_text_typing), and not
+with the game's on-screen one: on Android, its touch controls used. What it
+types arrives as keys; it comes up while network_chat_system_keyboard is
+(xinput_sdl.c), and _again brings it up once more (a tap, after it was
+closed by hand) */
+int halo_system_keyboard(void);
+void halo_system_keyboard_again(void);
 /* the mouse wheel's notches turned while a chat line is typed, since the
 last call (up positive): they scroll the lines, not the weapons */
 int halo_chat_wheel_steps(void);

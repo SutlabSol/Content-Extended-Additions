@@ -4111,17 +4111,17 @@ static boolean daily_random(short controller)
 	return TRUE;
 }
 
-/* "port daily back" (the challenge's screen's B and BACK): to Campaign's
+/* "port daily back" (the challenge's screen's B and BACK): to PLAY's
 menu, whose own back is the main menu's, however many days were looked at
 (each day's screen opened over the one before) */
-#define CAMPAIGN_MENU_NAME "pc\\main_menu\\campaign_select\\campaign_menu"
+#define PLAY_MENU_NAME "pc\\main_menu\\play\\play_screen"
 #define MAIN_MENU_NAME "pc\\main_menu\\main_menu"
 /* (menu_tags.c's: a widget's tag group) */
 #define DAILY_WIDGET_DEFINITION_TAG 'DeLa'
 
 static boolean daily_back(boolean *widget_deleted)
 {
-	if (!ui_widget_load_by_name_or_tag(CAMPAIGN_MENU_NAME, NONE, NULL, NONE,
+	if (!ui_widget_load_by_name_or_tag(PLAY_MENU_NAME, NONE, NULL, NONE,
 		tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME), NONE, NONE))
 	{
 		return campaign_fail();
@@ -4133,7 +4133,7 @@ static boolean daily_back(boolean *widget_deleted)
 
 /* (ui_widget.c's main_screen_shell_load, the main menu just opened) after a
 challenge's level won here, its day's leaderboard, whose BACK is the
-challenge's screen (and its own Campaign's menu); after a random run's, the
+challenge's screen (and its own PLAY's menu); after a random run's, the
 challenge's screen */
 #define DAILY_SCREEN_NAME "pc\\main_menu\\daily\\daily_screen"
 #define DAILY_LEADERBOARD_NAME "pc\\main_menu\\daily\\leaderboard\\leaderboard_screen"
