@@ -1,11 +1,11 @@
 'use strict';
 
 (() => {
-  const pages = ['home', 'game-data', 'servers', 'downloads', 'settings', 'about'];
+  const pages = ['home', 'game-data', 'features', 'downloads', 'settings', 'about'];
   const titles = {
     home: 'Home',
     'game-data': 'Game data',
-    servers: 'Server browser',
+    features: 'Features',
     downloads: 'Downloads',
     settings: 'Settings and data',
     about: 'About',
@@ -17,8 +17,8 @@
     'mods-panel': 'game-data',
     'profiles-panel': 'game-data',
     'checks-panel': 'game-data',
-    'room-panel': 'servers',
-    'servers-panel': 'servers',
+    'room-panel': 'home',
+    'servers-panel': 'home',
     'downloads-panel': 'downloads',
     'settings-panel': 'settings',
     'about-panel': 'about',

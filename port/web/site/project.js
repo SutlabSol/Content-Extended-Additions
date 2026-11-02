@@ -9,6 +9,97 @@
   const RELEASES_API = `https://api.github.com/repos/${REPOSITORY}/releases?per_page=100`;
   const releaseUrl = (tag) => `${RELEASES_PAGE}/tag/${encodeURIComponent(tag)}`;
   const WATANOGE = { name: 'Watanoge', href: 'https://github.com/Watanoge' };
+  const showcase = [
+    {
+      kind: 'Campaign',
+      title: 'Campaign randomizer',
+      images: [
+        { src: 'features/randomizer/randomizer.webp', alt: 'Randomizer settings' },
+        { src: 'features/randomizer/randomizer_gameplay.webp', alt: 'Campaign gameplay with randomized enemies and weapons' },
+      ],
+      description: 'Remix enemy squads, enemy weapons, and map pickups to create a fresh campaign run.',
+    },
+    {
+      kind: 'Campaign',
+      title: 'Campaign skulls',
+      images: [
+        { src: 'features/skulls/skulls.webp', alt: 'Campaign skull selection' },
+        { src: 'features/skulls/skull-in-world.webp', alt: 'A skull placed in a campaign level' },
+        { src: 'features/skulls/skull-dropped.webp', alt: 'A skull dropped during campaign gameplay' },
+      ],
+      description: 'Choose from 40 skulls, unlock them through play, or roll a random set for a tougher run.',
+    },
+    {
+      kind: 'Campaign',
+      title: 'Scoring and medals',
+      images: [
+        { src: 'features/scoring-medals/scoring.webp', alt: 'Scoring and medals settings' },
+        { src: 'features/scoring-medals/scoring-campaign-overview.webp', alt: 'Campaign score and medal summary' },
+        { src: 'features/scoring-medals/scoring-medals-multiplayer.webp', alt: 'Multiplayer score panel and medals' },
+      ],
+      description: 'Earn medals, chase level scores and times, and share campaign or multiplayer results on leaderboards.',
+    },
+    {
+      kind: 'Campaign',
+      title: 'Daily challenges',
+      images: [{ src: 'features/campaign/daily-challenge.webp', alt: 'Daily campaign challenge with its level, skulls, and leaderboard' }],
+      description: 'A shared daily setup gives everyone the same level, difficulty, randomizer seed, and skulls.',
+    },
+    {
+      kind: 'Custom Edition',
+      title: 'Tag Injector',
+      images: [
+        { src: 'features/tag-injection/tag-injector.webp', alt: 'Custom Edition weapon and enemy tags in a Halo campaign' },
+        { src: 'features/tag-injection/tag_injection_multiplayer.webp', alt: 'Multiplayer tag profile selection' },
+        { src: 'features/tag-injection/tag_injection_coop.webp', alt: 'Co-op campaign tag profile settings' },
+      ],
+      description: 'Bring weapons, enemies, and equipment from Custom Edition maps into solo, co-op, and multiplayer profiles.',
+    },
+    {
+      kind: 'Content creation',
+      title: 'Firing range',
+      images: [
+        { src: 'features/firing-range/firing-range.webp', alt: 'Firing range for testing tag injection profiles' },
+        { src: 'features/firing-range/firing_range_guns.webp', alt: 'Custom weapons arranged in the firing range' },
+        { src: 'features/firing-range/firing_range_ai.webp', alt: 'Custom AI arranged for testing' },
+        { src: 'features/firing-range/firing_range_editmode.webp', alt: 'Firing range edit mode' },
+      ],
+      description: 'Test profile weapons, AI, animations, and balance before taking them into a match.',
+    },
+    {
+      kind: 'Gamemodes',
+      title: 'Floodfection and Tag Gun Game',
+      images: [
+        { src: 'features/custom-gamemodes/gamemodes.webp', alt: 'Custom tag injection gamemodes' },
+        { src: 'features/custom-gamemodes/floodfection_gameplay.webp', alt: 'Floodfection gameplay' },
+        { src: 'features/custom-gamemodes/floodfection_gameplay_flood.webp', alt: 'Flood forms in Floodfection' },
+        { src: 'features/custom-gamemodes/tag_gungame_gameplay.webp', alt: 'Tag Gun Game using custom weapons' },
+      ],
+      description: 'Custom multiplayer modes use tag profiles as the foundation for new Halo CE experiences.',
+    },
+    {
+      kind: 'Gameplay upgrade',
+      title: 'Third-person mode',
+      images: [
+        { src: 'features/third-person/third_person.webp', alt: 'Third-person campaign gameplay' },
+        { src: 'features/third-person/third_person_settings.webp', alt: 'Third-person camera settings' },
+      ],
+      description: 'Play on foot with an adjustable over-the-shoulder view in campaign, co-op, and supported modes.',
+    },
+    {
+      kind: 'Social',
+      title: 'Friends, chat, and joining',
+      images: [
+        { src: 'features/social-features/social-menu.webp', alt: 'Halo Content Evolved social menu' },
+        { src: 'features/social-features/main_menu_socials.webp', alt: 'Social profile and friends panel' },
+        { src: 'features/social-features/socials_requests.webp', alt: 'Friend request interface' },
+        { src: 'features/social-features/socials_player_records.webp', alt: 'Player records and match history' },
+        { src: 'features/social-features/socials_user_tooltip.webp', alt: 'Player quick actions' },
+        { src: 'features/social-features/socials_join_from_list.webp', alt: 'Joining a friend from the friends list' },
+      ],
+      description: 'Find friends, talk in global and match chat, and join friends in-game.',
+    },
+  ];
 
   const roadmap = {
     planned: [
@@ -133,6 +224,93 @@
     }
   }
 
+  function renderFeatures() {
+    const list = document.getElementById('feature-list');
+    list.replaceChildren(...showcase.map((feature) => {
+      const card = document.createElement('article');
+      card.className = 'showcase-card';
+      const collage = document.createElement('button');
+      collage.className = 'showcase-collage';
+      collage.type = 'button';
+      collage.dataset.count = String(feature.images.length);
+      collage.setAttribute('aria-label', `View ${feature.images.length} ${feature.images.length === 1 ? 'image' : 'images'} for ${feature.title}`);
+      collage.title = `View images: ${feature.title}`;
+      const columns = feature.images.length < 3 ? feature.images.length : feature.images.length <= 4 ? 2 : 3;
+      collage.style.gridTemplateColumns = `repeat(${columns}, minmax(0, 1fr))`;
+      collage.style.gridTemplateRows = `repeat(${Math.ceil(feature.images.length / columns)}, minmax(0, 1fr))`;
+      feature.images.forEach((source, index) => {
+        const image = document.createElement('img');
+        image.src = source.src;
+        image.alt = '';
+        image.loading = 'lazy';
+        image.dataset.imageIndex = String(index);
+        collage.append(image);
+      });
+      collage.addEventListener('click', (event) => {
+        const image = event.target.closest('img[data-image-index]');
+        openFeatureCarousel(feature, image ? Number(image.dataset.imageIndex) : 0);
+      });
+      const body = document.createElement('div');
+      body.className = 'showcase-copy';
+      const kind = document.createElement('p');
+      kind.className = 'feature-kind';
+      kind.textContent = feature.kind;
+      const title = document.createElement('h3');
+      title.textContent = feature.title;
+      const description = document.createElement('p');
+      description.textContent = feature.description;
+      body.append(kind, title, description);
+      card.append(collage, body);
+      return card;
+    }));
+  }
+
+  let activeFeature = null;
+  let activeImageIndex = 0;
+
+  function renderFeatureCarousel() {
+    if (!activeFeature) return;
+    const image = activeFeature.images[activeImageIndex];
+    document.getElementById('feature-carousel-kind').textContent = activeFeature.kind;
+    document.getElementById('feature-carousel-title').textContent = activeFeature.title;
+    const preview = document.getElementById('feature-carousel-image');
+    preview.src = image.src;
+    preview.alt = image.alt;
+    document.getElementById('feature-carousel-caption').textContent = image.alt;
+    document.getElementById('feature-carousel-count').textContent = `${activeImageIndex + 1} / ${activeFeature.images.length}`;
+    document.getElementById('feature-carousel-thumbnails').replaceChildren(...activeFeature.images.map((item, index) => {
+      const thumbnail = document.createElement('button');
+      thumbnail.type = 'button';
+      thumbnail.className = 'carousel-thumbnail';
+      thumbnail.setAttribute('aria-label', `Show image ${index + 1}: ${item.alt}`);
+      thumbnail.setAttribute('aria-current', String(index === activeImageIndex));
+      const thumbImage = document.createElement('img');
+      thumbImage.src = item.src;
+      thumbImage.alt = '';
+      thumbImage.loading = 'lazy';
+      thumbnail.append(thumbImage);
+      thumbnail.addEventListener('click', () => {
+        activeImageIndex = index;
+        renderFeatureCarousel();
+      });
+      return thumbnail;
+    }));
+  }
+
+  function openFeatureCarousel(feature, index) {
+    activeFeature = feature;
+    activeImageIndex = index;
+    renderFeatureCarousel();
+    document.getElementById('feature-carousel').showModal();
+  }
+
+  function moveFeatureCarousel(direction) {
+    if (!activeFeature) return;
+    const count = activeFeature.images.length;
+    activeImageIndex = (activeImageIndex + direction + count) % count;
+    renderFeatureCarousel();
+  }
+
   function releaseDate(value) {
     const date = new Date(value);
     return Number.isNaN(date.valueOf()) ? '' : new Intl.DateTimeFormat('en', { dateStyle: 'medium' }).format(date);
@@ -144,36 +322,134 @@
     return normalized.split('-').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ') + format;
   }
 
-  function assetLinks(assets, className = '') {
-    const links = (assets || []).filter((asset) => asset && typeof asset.name === 'string' &&
-      typeof asset.browser_download_url === 'string' && (() => {
-        try {
-          const url = new URL(asset.browser_download_url);
-          return url.protocol === 'https:' && url.hostname === 'github.com' &&
-            url.pathname.startsWith(`/Watanoge/halo-content-evolved/releases/download/`);
-        } catch {
-          return false;
-        }
-      })());
-    if (!links.length) {
-      const empty = document.createElement('p');
-      empty.className = 'release-empty';
-      empty.textContent = 'No downloadable files are attached to this release.';
-      return empty;
+  const platformOptions = [
+    { key: 'android', label: 'Android APK', matches: (name) => /android/i.test(name) && /\.apk$/i.test(name) && !/debug/i.test(name) },
+    { key: 'switch', label: 'Nintendo Switch', matches: (name) => /switch/i.test(name) && /\.zip$/i.test(name) && !/debug/i.test(name) },
+    { key: 'web', label: 'Web', matches: (name) => /web/i.test(name) && /\.zip$/i.test(name) && !/debug/i.test(name) },
+    { key: 'windows', label: 'Windows', matches: (name) => /windows/i.test(name) && /\.zip$/i.test(name) && !/debug/i.test(name) },
+  ];
+
+  function validReleaseAsset(asset) {
+    try {
+      const url = new URL(asset.browser_download_url);
+      return url.protocol === 'https:' && url.hostname === 'github.com' &&
+        url.pathname.startsWith(`/Watanoge/halo-content-evolved/releases/download/`);
+    } catch {
+      return false;
     }
-    const container = document.createElement('div');
-    container.className = `release-assets ${className}`.trim();
-    for (const asset of links) {
+  }
+
+  function showDownloadOptions(release) {
+    const modal = document.getElementById('download-modal');
+    const title = document.getElementById('download-modal-title');
+    const detail = document.getElementById('download-modal-release');
+    const options = document.getElementById('download-modal-options');
+    title.textContent = 'Download';
+    detail.textContent = `${release.name || 'Halo Content Evolved'} · ${release.tag_name || ''}`;
+    const assets = Array.isArray(release.assets) ? release.assets.filter((asset) => asset &&
+      typeof asset.name === 'string' && typeof asset.browser_download_url === 'string' && validReleaseAsset(asset)) : [];
+    const links = platformOptions.flatMap((platform) => {
+      const asset = assets.find((candidate) => platform.matches(candidate.name));
+      if (!asset) return [];
       const link = document.createElement('a');
-      link.className = 'release-asset';
+      link.className = 'platform-download';
       link.href = asset.browser_download_url;
       link.target = '_blank';
       link.rel = 'noopener';
-      link.textContent = assetLabel(asset.name);
+      const label = document.createElement('span');
+      label.textContent = platform.label;
       const size = document.createElement('span');
       size.textContent = `${(asset.size / 1048576).toFixed(1)} MB`;
-      link.append(size);
-      container.append(link);
+      link.append(label, size);
+      return [link];
+    });
+    if (!links.length) {
+      const message = document.createElement('p');
+      message.className = 'release-empty';
+      message.textContent = 'No release downloads are available for this build.';
+      options.replaceChildren(message);
+    } else {
+      options.replaceChildren(...links);
+    }
+    modal.showModal();
+  }
+
+  function appendInlineMarkdown(parent, text) {
+    const pattern = /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|\*\*([^*]+)\*\*|`([^`]+)`/g;
+    let cursor = 0;
+    for (const match of text.matchAll(pattern)) {
+      parent.append(document.createTextNode(text.slice(cursor, match.index)));
+      if (match[1]) {
+        const link = document.createElement('a');
+        link.href = match[2];
+        link.target = '_blank';
+        link.rel = 'noopener';
+        link.textContent = match[1];
+        parent.append(link);
+      } else if (match[3]) {
+        const strong = document.createElement('strong');
+        strong.textContent = match[3];
+        parent.append(strong);
+      } else {
+        const code = document.createElement('code');
+        code.textContent = match[4];
+        parent.append(code);
+      }
+      cursor = match.index + match[0].length;
+    }
+    parent.append(document.createTextNode(text.slice(cursor)));
+  }
+
+  function renderMarkdown(markdown) {
+    const container = document.createElement('div');
+    container.className = 'release-markdown';
+    const lines = markdown.replace(/<img\b[\s\S]*?\/?>/gi, '').split(/\r?\n/);
+    let index = 0;
+    while (index < lines.length) {
+      const line = lines[index].trim();
+      if (!line || /^<\/?[a-z][^>]*>$/i.test(line)) {
+        index++;
+        continue;
+      }
+      const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+      if (heading) {
+        const element = document.createElement(heading[1].length < 3 ? 'h3' : 'h4');
+        appendInlineMarkdown(element, heading[2]);
+        container.append(element);
+        index++;
+        continue;
+      }
+      if (/^[-*]\s+/.test(line)) {
+        const list = document.createElement('ul');
+        while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+          const item = document.createElement('li');
+          appendInlineMarkdown(item, lines[index].replace(/^\s*[-*]\s+/, '').trim());
+          list.append(item);
+          index++;
+        }
+        container.append(list);
+        continue;
+      }
+      if (/^\d+[.)]\s+/.test(line)) {
+        const list = document.createElement('ol');
+        while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
+          const item = document.createElement('li');
+          appendInlineMarkdown(item, lines[index].replace(/^\s*\d+[.)]\s+/, '').trim());
+          list.append(item);
+          index++;
+        }
+        container.append(list);
+        continue;
+      }
+      const paragraph = document.createElement('p');
+      const paragraphLines = [];
+      while (index < lines.length && lines[index].trim() &&
+          !/^(?:#{1,4}\s|[-*]\s|\d+[.)]\s)/.test(lines[index].trim())) {
+        paragraphLines.push(lines[index].trim());
+        index++;
+      }
+      appendInlineMarkdown(paragraph, paragraphLines.join(' '));
+      container.append(paragraph);
     }
     return container;
   }
@@ -198,11 +474,14 @@
       item.append(summary);
       const content = document.createElement('div');
       content.className = 'release-details';
-      const notes = document.createElement('pre');
-      notes.className = 'release-notes';
       const body = typeof release.body === 'string' && release.body.trim() ? release.body.trim() : 'No release notes.';
-      notes.textContent = body.length > 7000 ? `${body.slice(0, 7000)}\n\nRelease notes truncated.` : body;
-      content.append(notes, assetLinks(release.assets));
+      const notes = renderMarkdown(body.length > 7000 ? `${body.slice(0, 7000)}\n\nRelease notes truncated.` : body);
+      const download = document.createElement('button');
+      download.className = 'button release-download';
+      download.type = 'button';
+      download.textContent = 'Download';
+      download.addEventListener('click', () => showDownloadOptions(release));
+      content.append(download, notes);
       item.append(content);
       return item;
     }));
@@ -227,10 +506,12 @@
         const date = document.getElementById('latest-release-date');
         date.textContent = releaseDate(latest.published_at);
         if (latest.published_at) date.dateTime = latest.published_at;
-        const latestAssets = document.getElementById('latest-assets');
-        latestAssets.replaceChildren(assetLinks(latest.assets));
-        renderReleaseHistory(releases);
-        status.textContent = `${releases.length} releases loaded from GitHub.`;
+        document.getElementById('latest-download').onclick = () => showDownloadOptions(latest);
+        const latestNotes = document.getElementById('latest-release-notes');
+        latestNotes.replaceChildren(renderMarkdown(typeof latest.body === 'string' ? latest.body : 'No release notes.'));
+        const previous = releases.filter((release) => release.tag_name !== latest.tag_name);
+        renderReleaseHistory(previous);
+        status.textContent = `${previous.length} previous releases loaded from GitHub.`;
       } catch (error) {
         releasesPromise = null;
         status.textContent = 'Could not load releases from GitHub. Use the links above to open the release page directly.';
@@ -245,6 +526,29 @@
   }
 
   renderRoadmap();
+  renderFeatures();
+  const featureCarousel = document.getElementById('feature-carousel');
+  document.getElementById('feature-carousel-close').addEventListener('click', () => featureCarousel.close());
+  document.getElementById('feature-carousel-previous').addEventListener('click', () => moveFeatureCarousel(-1));
+  document.getElementById('feature-carousel-next').addEventListener('click', () => moveFeatureCarousel(1));
+  featureCarousel.addEventListener('click', (event) => {
+    if (event.target === featureCarousel) featureCarousel.close();
+  });
+  featureCarousel.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      featureCarousel.close();
+      return;
+    }
+    if (event.key === 'ArrowLeft') moveFeatureCarousel(-1);
+    if (event.key === 'ArrowRight') moveFeatureCarousel(1);
+  });
+  document.getElementById('download-modal-close').addEventListener('click', () => {
+    document.getElementById('download-modal').close();
+  });
+  document.getElementById('download-modal').addEventListener('click', (event) => {
+    if (event.target === event.currentTarget) event.currentTarget.close();
+  });
   window.addEventListener('hashchange', checkDownloadsPage);
   checkDownloadsPage();
 })();

@@ -1184,11 +1184,6 @@ document.addEventListener('visibilitychange', async () => {
     updatePlay();
   }
   checkForUpdate();
-  window.HaloServers.start({
-    networkVersion: () => stamp.network_version,
-    visible: () => !gameStarted,
-    onPlay: joinServer,
-  });
   if (/^[0-9a-f]{32}$/.test(params.get('room') || '')) await joinRoom(params.get('room'));
   if (params.has('play')) play();
 })();

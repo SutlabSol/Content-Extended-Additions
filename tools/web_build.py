@@ -159,8 +159,11 @@ def find_emcc(sln: Any) -> Optional[str]:
 
 
 def site_sources() -> List[Path]:
-    """the page's files (port/web/site), copied beside halo.js"""
-    return sorted(path for path in (PORT_DIR / "site").rglob("*") if path.is_file())
+    """the page's shipped files, copied beside halo.js"""
+    site = PORT_DIR / "site"
+    feature_sources = site / "features"
+    return sorted(path for path in site.rglob("*") if path.is_file() and not (
+        feature_sources in path.parents and path.suffix.lower() == ".png" and path.with_suffix(".webp").is_file()))
 
 
 def web_configure_inputs() -> List[Path]:

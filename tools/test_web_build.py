@@ -148,6 +148,12 @@ def test_the_site_holds_the_page_its_fonts_licences_and_version():
         assert f"build/web/site/{name}" in outputs, name
     for source in web_build.site_sources():
         assert f"build/web/site/{source.relative_to(Path('port/web/site')).as_posix()}" in outputs, source
+    feature_dir = Path("port/web/site/features")
+    for source in feature_dir.rglob("*.png"):
+        if source.with_suffix(".webp").is_file():
+            assert source not in web_build.site_sources(), source
+    for image in feature_dir.rglob("*.webp"):
+        assert image in web_build.site_sources(), image
 
 
 def test_version_json_names_the_build_and_its_files(tmp_path, monkeypatch):

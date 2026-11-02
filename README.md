@@ -1,74 +1,55 @@
 <div align="center">
 
-# OpenCE Ports
+<a href="https://github.com/Watanoge/halo-content-evolved"><img src="port/assets/icon/opence-icon.png" alt="Halo Content Evolved" width="128"></a>
 
-**Halo: Combat Evolved on Android phones and handhelds, the Nintendo Switch and the PlayStation 5, built from the decompilation of the Xbox game.**
+# Halo Content Evolved
 
-[![Latest release](https://img.shields.io/github/v/release/thelinkin3000/halo-ce-universal?label=latest&color=2ea44f)](https://github.com/thelinkin3000/halo-ce-universal/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/thelinkin3000/halo-ce-universal/total?color=blue)](https://github.com/thelinkin3000/halo-ce-universal/releases)
-[![Android](https://img.shields.io/badge/Android-Vulkan%20%C2%B7%20Turnip%20%C2%B7%20OpenGL%20ES-3ddc84?logo=android&logoColor=white)](#android)
-[![Nintendo Switch](https://img.shields.io/badge/Switch-deko3d-e60012)](#nintendo-switch)
-[![PlayStation 5](https://img.shields.io/badge/PS5-Vulkan%20%C2%B7%20RADV-003791)](#playstation-5)
+**A full-featured Halo: Combat Evolved project, built on OpenCE and made to bring 20 years of Custom Edition content within reach.**
+
+[![Latest release](https://img.shields.io/github/v/release/Watanoge/halo-content-evolved?label=latest&color=77cf45)](https://github.com/Watanoge/halo-content-evolved/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Watanoge/halo-content-evolved/total?color=17451c)](https://github.com/Watanoge/halo-content-evolved/releases)
 [![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue)](LICENSE)
-[![Discord](https://img.shields.io/badge/Discord-join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9gqcHyr5km)
 
-[**Download**](#download) ·
+[**Download the latest build**](https://github.com/Watanoge/halo-content-evolved/releases/latest) ·
+[Feature showcase](https://opence.watanoge.com/#features) ·
 [Campaign upgrades](#campaign-upgrades) ·
-[Install](#install) ·
-[Graphics](#graphics-vulkan-turnip-and-deko3d) ·
-[Multiplayer](#multiplayer) ·
-[Controls](#controls) ·
-[Report a problem](#reporting-a-problem) ·
-[Building](#building) ·
-[Discord](https://discord.gg/9gqcHyr5km)
-
-<!-- Videos and screenshots from a contributor go here: one large capture,
-then a row of three, each taken on a phone, a Switch or a PS5. -->
+[Build instructions](#how-to-build-the-game)
 
 </div>
 
-On top of the port, this fork upgrades the campaign: an **enemy
-randomizer**, **40 skulls**, and a **scoring system** with medals,
-**online leaderboards** and a **daily challenge**. Not everyone will want
-all of it, so every part can be turned off or tuned in
-**Settings > Gameplay**. See [Campaign upgrades](#campaign-upgrades).
+Halo Content Evolved grew from Switch quality-of-life fixes into a broader
+project for replaying, creating, and sharing Halo CE experiences. It is based
+on [OpenCE](https://github.com/OpenCommunityEdition/OpenCE) and began from
+[Thelinkin3000's Switch-focused fork](https://github.com/thelinkin3000/halo-ce-universal).
 
-It is not an emulator. The game's own code, decompiled from the Xbox build
-2342, is compiled for the device's processor (ARM, or the PS5's x86-64).
-Its Direct3D 8 rendering is translated to **Vulkan** on Android and the PS5
-and to **deko3d**, the Switch's own GPU interface, on the Switch.
+## The goal
 
-> [!TIP]
-> **New: the OpenCE overlay.** Hold **L + R** and press **d-pad down** (on
-> Android without a controller, tap the screen with three fingers, or four as set in the touch controls' General options) for a
-> panel of cheats (god mode, infinite ammo, super jump and more), bots, the
-> game's speed, the HUD, the camera and the renderer's switches, without
-> leaving the game, and entries of your own. No cheats in multiplayer unless
-> you are the host: in a game someone else hosts, the overlay's cheats are
-> refused. See [The OpenCE overlay](#the-opence-overlay).
+Make Halo CE a full-featured platform for players and creators, while making
+the community's two decades of Halo Custom Edition content easier to use.
+That means richer campaign runs, new multiplayer experiences, social play,
+and tools for bringing custom weapons, enemies, and maps into the game.
+
+## Feature highlights
+
+- **Campaign:** randomizer, 40 skulls, scoring and medals, daily challenges,
+  and online leaderboards.
+- **Custom Edition:** Tag Injector profiles bring weapons, enemies, and
+  equipment from Custom Edition maps into campaign, co-op, and multiplayer.
+- **Create and experiment:** firing range, custom tag-injection gamemodes,
+  map organization, and theater tools.
+- **Play together:** split screen, co-op, bots, custom gamemodes, friends,
+  global and match chat, and joining friends in-game.
+- **In progress:** Forge and Firefight. See the
+  [live project roadmap](https://opence.watanoge.com/#home).
 
 > [!IMPORTANT]
 > **No game data is included.** You need your own **Xbox** disc image of
 > Halo: Combat Evolved (`.iso` or `.xiso`, any region). The game unpacks
 > its maps from it on the first start.
 
-> [!WARNING]
-> **Official sources.** The only official downloads are the
-> [releases on this repository](https://github.com/thelinkin3000/halo-ce-universal/releases). Builds,
-> "updates" or donation requests offered anywhere else under this project's
-> name are not from us.
-
-<div align="center">
-
-[![Halo Combat Evolved - Nintendo Switch: watch on YouTube](https://img.youtube.com/vi/imNdnKszCVI/maxresdefault.jpg)](https://www.youtube.com/watch?v=imNdnKszCVI)
-
-*Halo: Combat Evolved on the Nintendo Switch (video by puginatux).*
-
-</div>
-
 ## Contents
 
-- [What works](#what-works) · [Known issues](#known-issues)
+- [Feature highlights](#feature-highlights) · [Platform support](#what-works) · [Known issues](#known-issues)
 - [Campaign upgrades](#campaign-upgrades): [daily challenge](#daily-challenge), [randomizer](#enemy-randomizer), [Tag Injector](#tag-injector), [skulls](#skulls), [multiplayer and co-op](#multiplayer-and-co-op), [settings](#gameplay-settings)
 - [Download](#download) · [Install](#install): [Android](#android), [Nintendo Switch](#nintendo-switch), [PlayStation 5](#playstation-5), [updating](#updating)
 - [Graphics: Vulkan, Turnip and deko3d](#graphics-vulkan-turnip-and-deko3d)
@@ -102,7 +83,7 @@ and to **deko3d**, the Switch's own GPU interface, on the Switch.
 - **Android, Vulkan:** the first time a scene shows, a few parts can be
   missing for a moment while the phone compiles their shaders.
 
-The current list is in the [issues](https://github.com/thelinkin3000/halo-ce-universal/issues).
+The current list is in the [issues](https://github.com/Watanoge/halo-content-evolved/issues).
 
 ## Campaign upgrades
 
@@ -459,22 +440,19 @@ Every one of these settings is also in `config.toml`; they are listed in
 
 ## Download
 
-Each release is a build of `main` we choose to publish, numbered by its tag.
-These links always point to the latest one:
+The latest published builds are available individually, or from the
+[complete releases page](https://github.com/Watanoge/halo-content-evolved/releases):
 
-| Platform | Play | Debug (for reports) |
-| --- | --- | --- |
-| Android | [halo-android-release.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-android-release.zip) | [halo-android-debug.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-android-debug.zip) |
-| Nintendo Switch | [halo-switch-release.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-switch-release.zip) | [halo-switch-debug.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-switch-debug.zip) |
-| PlayStation 5 | [halo-ps5-release.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-ps5-release.zip) | [halo-ps5-debug.zip](https://github.com/thelinkin3000/halo-ce-universal/releases/latest/download/halo-ps5-debug.zip) |
+| Platform | Download |
+| --- | --- |
+| Android app | [APK](https://github.com/Watanoge/halo-content-evolved/releases/latest/download/halo-android-release.apk) · [ZIP](https://github.com/Watanoge/halo-content-evolved/releases/latest/download/halo-android-release.zip) |
+| Nintendo Switch | [halo-switch-release.zip](https://github.com/Watanoge/halo-content-evolved/releases/latest/download/halo-switch-release.zip) |
+| Web | [halo-web-release.zip](https://github.com/Watanoge/halo-content-evolved/releases/latest/download/halo-web-release.zip) · [play online](https://opence.watanoge.com/) |
+| Windows | [halo-windows-release.zip](https://github.com/Watanoge/halo-content-evolved/releases/latest/download/halo-windows-release.zip) |
 
-Use the release build to play. The debug build stops at the first failed
-assertion and writes it to the log, which makes it the one to use when
-you're chasing a problem. The [releases page](https://github.com/thelinkin3000/halo-ce-universal/releases)
-keeps the last five builds, if the latest one has a problem.
-
-For Windows and Linux, see the upstream project,
-[OpenCE](https://github.com/OpenCommunityEdition/OpenCE).
+Linux can be built from source with `ninja linux`; see
+[How to build the game](#how-to-build-the-game). Debug builds and historical
+assets are available on the [releases page](https://github.com/Watanoge/halo-content-evolved/releases).
 
 ## Install
 
