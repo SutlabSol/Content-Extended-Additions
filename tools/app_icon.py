@@ -100,10 +100,10 @@ def transparent_mark(icon: Image.Image) -> Image.Image:
     return framed
 
 
-def web_icons(icon: Image.Image) -> None:
+def web_icons(render: Image.Image) -> None:
     WEB_ICONS.mkdir(parents=True, exist_ok=True)
     for size in WEB_SIZES:
-        icon.resize((size, size), Image.LANCZOS).save(WEB_ICONS / f"icon-{size}.png", optimize=True)
+        render.resize((size, size), Image.LANCZOS).save(WEB_ICONS / f"icon-{size}.png", optimize=True)
     print(f"{WEB_ICONS.relative_to(ROOT)}: {', '.join(str(size) for size in WEB_SIZES)}")
 
 
@@ -123,7 +123,7 @@ def main() -> None:
     print(f"{WINDOW_ICON.relative_to(ROOT)}: 256x256")
     icon.save(WINDOWS_ICON, sizes=[(size, size) for size in WINDOWS_SIZES])
     print(f"{WINDOWS_ICON.relative_to(ROOT)}: {', '.join(str(size) for size in WINDOWS_SIZES)}")
-    web_icons(icon)
+    web_icons(render)
 
     icon.resize((256, 256), Image.LANCZOS).convert("RGB").save(SWITCH_ICON, quality=95, optimize=True)
     print(f"{SWITCH_ICON.relative_to(ROOT)}: 256x256")

@@ -31,6 +31,7 @@ halo.wasm: tools/web_build.py), whose canvas then fills the page.
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
+const androidBrowser = /android/i.test(navigator.userAgent);
 // the Xbox window ends the game's memory: tools/web_build.py WEB_MEMORY_BYTES
 const WEB_MEMORY_BYTES = 0x88000000;
 const MAXIMUM_LOG_LINES = 20000;
@@ -1165,6 +1166,7 @@ document.addEventListener('visibilitychange', async () => {
 // ---------- start
 
 (async () => {
+  if (androidBrowser) return;
   await isolate();
   await loadStamp();
   await watchGameElsewhere();

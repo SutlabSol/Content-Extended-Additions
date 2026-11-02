@@ -76,7 +76,6 @@ code { font-size: 0.95em; }
   width: 42px;
   height: 42px;
   object-fit: cover;
-  border: 1px solid rgba(119, 207, 69, 0.45);
 }
 .brand-mark {
   display: grid;
@@ -96,7 +95,8 @@ code { font-size: 0.95em; }
 }
 .tagline { color: #a9b7aa; font-size: 13px; }
 .community-link { color: #f5f8f5; font-size: 14px; text-decoration: none; }
-.community-link span { color: var(--edge-bright); margin-left: 5px; }
+.community-link span, .community-menu-link span { color: var(--edge-bright); margin-left: 5px; }
+.community-menu-link { display: none; }
 .nav-toggle { display: none; }
 .nav-backdrop { display: none; }
 
@@ -144,6 +144,7 @@ code { font-size: 0.95em; }
 }
 .menu > a:focus-visible { outline: 2px solid #77cf45; outline-offset: -2px; }
 .menu > a[aria-current="page"] { border-left-color: #77cf45; background: #0b180e; color: #f5f8f5; }
+.menu > .community-menu-link { display: none; }
 .nav-label { margin: 14px 14px 3px; color: #719178; font-size: 11px; font-weight: 900; text-transform: uppercase; }
 .nav-label-secondary { margin-top: 24px; }
 .menu-note { margin: 22px 14px 0; color: var(--soft); font-size: 12px; line-height: 1.5; }
@@ -404,7 +405,6 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
   width: 192px;
   height: 192px;
   object-fit: cover;
-  border: 1px solid rgba(119, 207, 69, 0.5);
   border-radius: 2px;
 }
 .launch-actions {
@@ -412,8 +412,11 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
   padding: 0;
   border: 0;
   background: transparent;
-  gap: 20px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
 }
+.android-download-link { display: none; }
 .launch-actions .data-link { color: #f5f8f5; font-size: 14px; text-decoration-color: #58735c; text-underline-offset: 4px; }
 .launch-actions .data-link span { color: #77cf45; padding-left: 5px; }
 #play-panel .help { padding: 0; color: #a9b7aa; }
@@ -501,6 +504,29 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
 .release-details { padding: 0 4px 16px 26px; }
 .release-notes { max-height: 260px; overflow: auto; margin: 0 0 12px; color: #a9b7aa; font: 12px/1.5 system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
 .release-empty { margin: 0; color: #a9b7aa; font-size: 12px; }
+
+/* Android browsers offer the native app instead of the heavy web runtime. */
+body.android-device .nav-toggle,
+body.android-device .community-link,
+body.android-device .menu,
+body.android-device .nav-backdrop,
+body.android-device .site-footer,
+body.android-device .launch-description,
+body.android-device .launch-hero .eyebrow,
+body.android-device .game-art,
+body.android-device #play,
+body.android-device #play-note,
+body.android-device .launch-actions .data-link,
+body.android-device .launch-status,
+body.android-device #project-panel { display: none !important; }
+body.android-device .app-shell { display: block; padding: 18px 16px; }
+body.android-device .masthead-inner { justify-content: flex-start; }
+body.android-device .launch-hero { min-height: 0; display: block; padding: 28px 20px; }
+body.android-device .launch-copy { display: grid; justify-items: center; text-align: center; }
+body.android-device .launch-hero h2 { margin: 0; text-align: center; font-size: 32px; }
+body.android-device .launch-actions { align-items: center; margin-top: 20px; }
+body.android-device .android-download-link { display: inline-flex; width: min(100%, 360px); min-height: 48px; }
+body.android-device #play-panel { background: transparent; border: 0; }
 @keyframes launch-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 760px) {
@@ -550,7 +576,8 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
   body.nav-open { overflow: hidden; }
   body.nav-open .menu { transform: translateX(0); }
   .menu > a { min-height: 46px; padding: 12px 14px; }
-  .menu-note { margin: auto 14px 10px; padding-top: 20px; border-top: 1px solid #1a2c1e; }
+  .community-link { display: none; }
+  .menu > .community-menu-link { display: block; min-height: 46px; padding: 12px 14px; }
   .nav-backdrop:not([hidden]) {
     display: block;
     position: fixed;

@@ -29,6 +29,7 @@
   const mobile = window.matchMedia('(max-width: 760px)');
 
   function currentPage() {
+    if (document.body.classList.contains('android-device')) return 'home';
     const requested = location.hash.slice(1);
     return aliases[requested] || (pages.includes(requested) ? requested : 'home');
   }

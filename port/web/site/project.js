@@ -1,6 +1,9 @@
 'use strict';
 
 (() => {
+  const androidBrowser = /android/i.test(navigator.userAgent);
+  document.body.classList.toggle('android-device', androidBrowser);
+
   const REPOSITORY = 'Watanoge/halo-content-evolved';
   const RELEASES_PAGE = `https://github.com/${REPOSITORY}/releases`;
   const RELEASES_API = `https://api.github.com/repos/${REPOSITORY}/releases?per_page=100`;
