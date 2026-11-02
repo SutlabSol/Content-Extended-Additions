@@ -179,6 +179,10 @@ struct vk_command_present
 {
 	struct vk_command_header header;
 	struct vk_surface back_buffer;
+	/* a guest address the host copies the back buffer's pixels to as it is
+	presented, 0 for none: B8G8R8A8, pixel_width * 4 bytes a row, the top row
+	first (a Custom Edition map's picture: port/linux/game/map_pictures.c) */
+	uint32_t readback;
 };
 
 /* ---------- data (phase 3)

@@ -2778,6 +2778,8 @@ static int listed_host_dedicated;
 /* ... and the masters that listed it, by their key ids */
 static unsigned char listed_host_masters[P2P_LISTING_MAXIMUM_MASTERS][P2P_LISTING_MASTER_KEY_ID_SIZE];
 static int listed_host_master_count;
+/* ... and whether it has a password (its invite unsealed with it) */
+static int listed_host_locked;
 
 /* a new join's progress (p2p_join_progress): answered, its host reached
 already (a probe's tunnel) */
@@ -2804,6 +2806,7 @@ static int join_invite(const char *text)
 	/* (any invite's game is no listed one, unless p2p_join_listing says) */
 	listed_host_known = 0;
 	listed_host_dedicated = 0;
+	listed_host_locked = 0;
 	listed_host_master_count = 0;
 	p2p_identifier_from_hash(hash, host);
 	if (!memcmp(host, identifier, P2P_IDENTIFIER_SIZE))
@@ -2901,6 +2904,7 @@ int p2p_join_listing(const struct p2p_listing *listing)
 		p2p_identifier_from_hash(hash, listed_host);
 		listed_host_known = 1;
 		listed_host_dedicated = listing->dedicated && listing->master;
+		listed_host_locked = listing->locked != 0;
 		listed_host_master_count = listing->master ? listing->master_key_id_count : 0;
 		if (listed_host_master_count > P2P_LISTING_MAXIMUM_MASTERS)
 			listed_host_master_count = P2P_LISTING_MAXIMUM_MASTERS;
@@ -2921,6 +2925,42 @@ int p2p_joined_listed_host(void)
 	peer = listed_host_known ? find_peer(listed_host) : NULL;
 	reached = peer && peer->connected;
 	pthread_mutex_unlock(&p2p_lock);
+	return reached;
+}
+
+int p2p_joined_invite(char *link, int size, char *host_key, int key_size, int *listed, int *locked)
+{
+	unsigned char bytes[P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE];
+	char text[2 * (P2P_KEY_HASH_SIZE + P2P_TOKEN_SIZE) + 1];
+	struct peer *peer;
+	int reached;
+
+	if (size > 0)
+		link[0] = 0;
+	if (key_size > 0)
+		host_key[0] = 0;
+	*listed = *locked = 0;
+	if (!p2p.running)
+		return 0;
+	pthread_mutex_lock(&p2p_lock);
+	peer = find_peer(p2p.join_host);
+	reached = peer && peer->connected && peer->is_host;
+	if (reached)
+	{
+		memcpy(bytes, p2p.join_host_hash, P2P_KEY_HASH_SIZE);
+		memcpy(bytes + P2P_KEY_HASH_SIZE, p2p.join_token, P2P_TOKEN_SIZE);
+		p2p_hex(bytes, sizeof(bytes), text);
+		snprintf(link, (size_t)size, "halo://join/%s", text);
+		p2p_hex(p2p.join_host_hash, P2P_KEY_HASH_SIZE, text);
+		snprintf(host_key, (size_t)key_size, "%s", text);
+		if (listed_host_known && !memcmp(listed_host, p2p.join_host, P2P_IDENTIFIER_SIZE))
+		{
+			*listed = 1;
+			*locked = listed_host_locked;
+		}
+	}
+	pthread_mutex_unlock(&p2p_lock);
+	memset(bytes, 0, sizeof(bytes));
 	return reached;
 }
 

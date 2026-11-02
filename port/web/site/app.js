@@ -1138,6 +1138,19 @@ window.addEventListener('keydown', (event) => {
 $('canvas').addEventListener('click', () => $('canvas').focus());
 $('canvas').addEventListener('contextmenu', (event) => event.preventDefault());
 
+// the tab closing or reloading (the game's Quit reloads it): the community
+// server told at once that this player went offline (web_library.js's
+// web_js_close_beacon), not minutes later
+window.addEventListener('pagehide', () => {
+  const beacon = game && game.haloCloseBeacon;
+  if (!beacon || !navigator.sendBeacon) return;
+  try {
+    navigator.sendBeacon(beacon.url, new Blob([beacon.body], { type: 'text/plain' }));
+  } catch {
+    // (the page goes anyway)
+  }
+});
+
 document.addEventListener('visibilitychange', async () => {
   if (gameStarted && !gameStopped && document.visibilityState === 'visible' && navigator.wakeLock && !wakeLock) {
     try {

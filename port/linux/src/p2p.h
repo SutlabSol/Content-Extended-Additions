@@ -111,6 +111,8 @@ join from the server browser (its invite link still joins it). Setting or
 changing it makes a new invite, if the old one was listed. It takes a few
 milliseconds (the password's key) */
 void p2p_set_hosting_password(const char *password);
+/* whether the game hosted for the internet has a password */
+int p2p_hosting_password(void);
 /* the hosted game's details as listed (printable ASCII is kept; NULL leaves
 one as it was): the game's server calls it as they change (calling it with
 the same again costs little) */
@@ -201,6 +203,12 @@ server's that a master server lists: an approved operator's, whose chat
 follows its network.text_chat (a listing's own dedicated flag, which any
 host may set, is not enough) */
 int p2p_joined_listed_dedicated(void);
+/* the game this machine joined as a player (not its host), while the
+tunnel reaches its host: the invite it joined with (which joins past the
+game's password: it is not for showing about), its host's key hash as hex
+(a password's listing's key_hash), and, if it was joined from the server
+browser, that it is listed and whether it has a password. 0 if none */
+int p2p_joined_invite(char *link, int size, char *host_key, int key_size, int *listed, int *locked);
 /* the key ids of the masters that listed the game being joined, if it was
 joined from the server browser (master_key_ids): how many, 0 if not known (an
 invite's, a LAN's) */

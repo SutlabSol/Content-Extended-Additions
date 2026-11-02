@@ -81,6 +81,7 @@ lobby) loads.
 #include "campaign_score_values.h"
 #include "campaign_medals.h"
 #include "community.h"
+#include "social.h"
 #include "networking/network_game_globals.h"
 #include "networking/network_game_manager.h"
 #include "halo_skulls.h"
@@ -120,10 +121,6 @@ enum
 	/* units.c's _unit_damage_part_head (its enum is its own): a body part
 	object_damage_aftermath is told of */
 	CAMPAIGN_SCORE_HEAD_BODY_PART = 2,
-	/* draw_string.c's justifications (its enum is its own) */
-	_campaign_score_text_left = 0,
-	_campaign_score_text_right = 1,
-	_campaign_score_text_center = 2,
 };
 
 /* the HUD's panel, in the HUD's 480 lines (scaled with the view as the
@@ -151,16 +148,13 @@ enum
 	CAMPAIGN_SCORE_HISTORY_MAXIMUM = 16,
 };
 
-/* the panel's colours, the Master Chief Collection's blue (ARGB): the
-summary's cards' edge; the HUD's panel is in the player's own colour
+/* the panel's colours (the summary's cards' edge, CAMPAIGN_SCORE_PANEL_EDGE,
+campaign_score.h's); the HUD's panel is in the player's own colour
 (campaign_score_palette) */
-#define CAMPAIGN_SCORE_PANEL_EDGE 0xE04F9BE0
 #define CAMPAIGN_SCORE_PANEL_FILL campaign_score_palette.fill
 #define CAMPAIGN_SCORE_HUD_EDGE campaign_score_palette.edge
 #define CAMPAIGN_SCORE_STRIP_FILL campaign_score_palette.strip
 #define CAMPAIGN_SCORE_STRIP_UNLIT campaign_score_palette.unlit
-/* the subline's text, smaller than the row's */
-#define CAMPAIGN_SCORE_SUBLINE_SIZE 0.72f
 
 /* a melee hit from behind: the blow going this nearly the way the body faces */
 #define CAMPAIGN_SCORE_BACKSMACK_DOT 0.5f
@@ -721,6 +715,27 @@ static long campaign_score_count_of(
 	{
 		if ((player_index == NONE || campaign_score_entries[index].player_index == player_index) &&
 			campaign_score_entries[index].kind == kind)
+		{
+			total++;
+		}
+	}
+	return total;
+}
+
+/* how many of a medal a player (absolute index; NONE: anyone's) won in this
+level or game, as the log has them (social.c's records) */
+long campaign_score_medal_count(
+	short player_index,
+	short medal)
+{
+	long total = 0;
+	long index;
+
+	for (index = 0; index < campaign_score_entry_count; index++)
+	{
+		if ((player_index == NONE || campaign_score_entries[index].player_index == player_index) &&
+			campaign_score_entries[index].kind == _campaign_score_entry_medal &&
+			campaign_score_entries[index].variant_index == medal)
 		{
 			total++;
 		}
@@ -1688,6 +1703,8 @@ static void campaign_score_win_compose(
 				MAX(network_game_get_game()->player_count, 1) : local_players;
 			community_level_won(tag_get_name(global_scenario_index), &online, profile.player_name, profile_index,
 				alone, campaign_score_pending_count);
+			/* (and the account's records: social.c) */
+			social_level_won(absolute_index, &online, tag_get_name(global_scenario_index), profile.player_name);
 		}
 		campaign_score_report_fill(report, absolute_index);
 		report->record_score = TEST_FLAG(records, _campaign_score_record_score_bit);
@@ -2026,21 +2043,7 @@ the panel is laid out in the HUD's 480 lines from the view's bottom right
 corner, and drawn scaled with the view (its height over 480), as the skulls'
 icons are */
 
-struct campaign_score_panel
-{
-	real scale;
-	/* (the panel's top left, in the view's pixels) */
-	real left;
-	real top;
-	/* (how wide it is, in its own units: CAMPAIGN_SCORE_PANEL_WIDTH, or a
-	multiplayer row's wider to fit its text) */
-	real width;
-	long font_index;
-	short line_height;
-};
-
-/* a rectangle of the panel, in its own units from its top left */
-static void campaign_score_panel_quad(
+void campaign_score_panel_quad(
 	struct campaign_score_panel const *panel,
 	real x0,
 	real y0,
@@ -2059,8 +2062,7 @@ static void campaign_score_panel_quad(
 	return;
 }
 
-/* a rectangle's edge, a unit wide */
-static void campaign_score_panel_frame(
+void campaign_score_panel_frame(
 	struct campaign_score_panel const *panel,
 	real x0,
 	real y0,
@@ -2076,9 +2078,7 @@ static void campaign_score_panel_frame(
 	return;
 }
 
-/* a line of text from x0 to x1 of the panel, its top at y, `size` times the
-HUD's text (scaled about its own top left: rasterizer_text_set_scale) */
-static void campaign_score_panel_text(
+void campaign_score_panel_text(
 	struct campaign_score_panel const *panel,
 	char const *text,
 	wchar_t const *unicode_text,
@@ -2745,9 +2745,7 @@ enum
 	CAMPAIGN_SCORE_CARD_MEDAL_SPACE = 56,
 };
 
-/* the summary's colours */
-#define CAMPAIGN_SCORE_CARD_FILL 0xF0081830
-#define CAMPAIGN_SCORE_CARD_RULE 0x804F9BE0
+/* (the summary's colours: campaign_score.h's CAMPAIGN_SCORE_CARD_*) */
 
 static void campaign_score_card_color(
 	real_argb_color *color,

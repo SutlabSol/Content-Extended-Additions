@@ -186,6 +186,11 @@ enum
 	without it (upstream's) drops it as a kind it does not know, and its
 	players stay in first person */
 	_distributed_message_third_person_policy = 165,
+	/* whether the host's internet game is listed in the server browser, and
+	has a password (port/linux/game/network_privacy.c), to every client,
+	reliably, when it is ready and when it changes. A build without it
+	(upstream's) drops it as a kind it does not know */
+	_distributed_message_game_privacy = 166,
 
 	NUMBER_OF_DISTRIBUTED_MESSAGES
 };

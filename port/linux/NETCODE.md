@@ -440,6 +440,14 @@ of a host that never sends it (upstream's) stays in first person. Only the
 view changes: the shots, aim assist and every message go from the eye as
 before (`third_person.c`).
 
+The host tells each client, the same way, whether its internet game is
+listed in the server browser and has a password
+(`_distributed_message_game_privacy`, 166: `network_privacy.c`), which the
+client's social presence tells its friends (`social.c`): a public game's
+players say how to join it, a private one's only that it is private. Until
+it arrives (an upstream host never sends it) a game joined by an invite is
+taken as private.
+
 The host also finds a client whose game runs faster than time (a speed
 hack, which speeds up the machine's own clock, so that nothing on it can
 tell): every two seconds it measures how fast the ticks the client's

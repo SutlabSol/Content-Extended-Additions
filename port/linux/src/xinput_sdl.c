@@ -235,6 +235,8 @@ static void chat_pad_record(short port, const XINPUT_GAMEPAD *pad)
 	if (pad->sThumbLY < -PUSHED) buttons |= 1UL << HALO_CHAT_PAD_STICK_DOWN;
 	if (pad->sThumbLX < -PUSHED) buttons |= 1UL << HALO_CHAT_PAD_STICK_LEFT;
 	if (pad->sThumbLX > PUSHED) buttons |= 1UL << HALO_CHAT_PAD_STICK_RIGHT;
+	if (pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] >= PRESSED) buttons |= 1UL << HALO_CHAT_PAD_LEFT_SHOULDER;
+	if (pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] >= PRESSED) buttons |= 1UL << HALO_CHAT_PAD_RIGHT_SHOULDER;
 	chat_pad[port] = buttons;
 }
 
@@ -1084,6 +1086,16 @@ static void keyboard_controls(unsigned long held, XINPUT_GAMEPAD *pad)
 unsigned long halo_keyboard_actions(short controller_index)
 {
 	return controller_index == 0 ? keyboard_actions_held : 0;
+}
+
+/* the keyboard's actions held in the menus too (the fork's chat box's keys:
+port/linux/game/social_chat.c); none while a line or a menu's text field is
+typed, or the console is up */
+static unsigned long keyboard_actions_anywhere;
+
+unsigned long halo_keyboard_actions_anywhere(void)
+{
+	return keyboard_actions_anywhere;
 }
 
 /* a replay's playback (port/linux/game/network_replay_playback.c), which
@@ -2266,6 +2278,7 @@ DWORD WINAPI XInputGetState(HANDLE device, PXINPUT_STATE state)
 		console_active = console_is_active() || network_chat_typing();
 		debug_camera_update(&input, console_active);
 		held = console_active ? 0 : keyboard_bound_actions(&input, gamepad);
+		keyboard_actions_anywhere = text_typing ? 0 : held;
 		/* (what the player last used: a gamepad's button or stick, or a key
 		or mouse button bound to an action) */
 		{

@@ -655,6 +655,7 @@ struct widget_instance;
 #include "interface/ui_widget_game_data_input_functions.h"
 #include "custom_edition_maps.h" /* port: port/linux/game/custom_edition_maps.c */
 #include "tag_preview.h" /* port: port/linux/game/tag_preview.c */
+#include "map_manager.h" /* port: port/linux/game/map_manager.c */
 #include "interface/ui_widget_event_handler_functions.h"
 #include "interface/ui_widget_text_search_and_replace_functions.h"
 #include "interface/virtual_keyboard.h"
@@ -666,6 +667,7 @@ struct widget_instance;
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "touch_postgame.h" /* port: port/linux/game/touch_postgame.c */
+#include "social.h" /* port: port/linux/game/social.c */
 #include "rasterizer/rasterizer.h"
 #include "saved games/player_profile.h"
 #include "saved games/playlist_profile.h"
@@ -1981,6 +1983,8 @@ boolean filesystem_check_thread_is_active(
 void display_error_when_main_menu_loaded(
 	short error_code)
 {
+	/* port: a match left before its end recorded as why (port/linux/game/social.c) */
+	social_match_error(error_code);
 	if (widget_globals.main_menu_deferred_error_code == NONE)
 	{
 		widget_globals.main_menu_deferred_error_code = error_code;
@@ -7046,11 +7050,26 @@ static void ui_widgets_process_mouse(
 	ui_debug_frame++;
 	/* port: the overlay menu takes the pointer while it is open, over the
 	menus or the game (port/linux/game/overlay_menu.c) */
-	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active() || overlay_menu_open(), &pointer) != 0;
+	pointer_active = halo_ui_pointer_update(ui_mouse_menus_active() || overlay_menu_open() ||
+		social_chat_wants_pointer(), &pointer) != 0;
 	if (overlay_menu_open())
 	{
 		if (pointer_active)
 			overlay_menu_pointer(&pointer);
+		pointer_active = FALSE;
+	}
+	/* port: the fork's chat box, open, takes it too: a player's name clicked
+	(port/linux/game/social_chat.c) */
+	else if (social_chat_wants_pointer())
+	{
+		if (pointer_active)
+			social_chat_pointer(&pointer);
+		pointer_active = FALSE;
+	}
+	/* port: and a click on the main menu's social column, its own
+	(port/linux/game/menu_functions.c) */
+	else if (pointer_active && menu_port_pointer_taken(&pointer))
+	{
 		pointer_active = FALSE;
 	}
 	if (pointer_active)
@@ -7313,6 +7332,10 @@ static void widget_instance_render_recursive(
 	custom_edition_picture = custom_edition_maps_picture(definition->background_bitmap.index, &frame_index);
 	tag_preview_picture_shown = !custom_edition_picture && widget->name && !strcmp(widget->name, "tag_preview") ?
 		tag_preview_picture() : NULL;
+	/* port: (and the Map Manager's picture of the row chosen, over its
+	map_picture widget, the same way: port/linux/game/map_manager.c) */
+	if (!custom_edition_picture && !tag_preview_picture_shown && widget->name && !strcmp(widget->name, "map_picture"))
+		tag_preview_picture_shown = map_manager_menu_picture();
 	if (tag_preview_picture_shown)
 		custom_edition_picture = tag_preview_picture_shown;
 	bitmap = custom_edition_picture ? custom_edition_picture : bitmap_group_get_bitmap_from_sequence(
@@ -9004,7 +9027,10 @@ void process_ui_widgets(
 			{
 				do
 				{
-					if (!pause_pressed)
+					/* port: (an event the menus are not to have: the fork's
+					chat typed in, the main menu's social column focused;
+					port/linux/game/menu_functions.c) */
+					if (!pause_pressed && !menu_port_event_taken(widget, &event))
 					{
 						widget_instance_process_one_event_recursive(
 							widget,

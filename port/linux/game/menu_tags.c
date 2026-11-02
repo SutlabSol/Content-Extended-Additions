@@ -439,6 +439,11 @@ static char const *const port_function_names[] =
 	"port news open",
 	/* (the main menu's Theater: menu_functions.c) */
 	"port theater record", "port theater export", "port theater watch", "port theater delete",
+	/* (the Map Manager, and the map lists' MANAGE MAP: menu_functions.c, map_manager.c) */
+	"port maps init", "port maps close", "port maps choose", "port maps back", "port map manage",
+	/* (Social: the main menu's Y, and Chat's BLOCKED & MUTED: menu_functions.c, social_menu.c) */
+	"port social init", "port social close", "port social choose", "port social back", "port social open",
+	"port social moderation", "port social options", "port social join", "port social profile", "port play init",
 	/* (the server browser's buttons' shortcuts: menu_functions.c) */
 	"port browser refresh", "port browser filters", "port browser mode previous", "port browser mode next",
 	"port browser column previous", "port browser column next", "port browser sort decreasing",
@@ -494,6 +499,10 @@ static char const *const port_game_data_input_names[] =
 	"port news update", "port news hint update",
 	/* (the main menu's Theater) */
 	"port theater update",
+	/* (the Map Manager) */
+	"port maps update",
+	/* (Social) */
+	"port social update",
 	"port controller update",
 	/* (a dedicated server's map vote's screen) */
 	"port map vote update",

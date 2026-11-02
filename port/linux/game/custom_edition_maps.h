@@ -33,9 +33,31 @@ indices fit before the campaigns' (custom_edition_maps.c) */
 when the map is in the maps folder itself). One level of folders. */
 #define CUSTOM_EDITION_MAP_CATEGORY_LENGTH 64
 
+/* the most of custom_maps' own folders listed (custom_edition_maps_folder_name) */
+#define CUSTOM_EDITION_MAP_FOLDERS_MAXIMUM 256
+
+/* room for a map's file name, without .map (51 characters at most: the
+level name custom_maps\<name> the game keeps whole) */
+#define CUSTOM_EDITION_MAP_NAME_SIZE 64
+
 /* ---------- structures */
 
 struct bitmap_data;
+
+/* a map's files (custom_edition_maps_file_get) */
+struct custom_edition_map_file
+{
+	/* its file name without .map, and its subfolder ("" for none) */
+	char name[CUSTOM_EDITION_MAP_NAME_SIZE];
+	char category[CUSTOM_EDITION_MAP_CATEGORY_LENGTH];
+	/* it is in custom_maps (not the Custom Edition install's maps folder,
+	which is not changed) */
+	boolean managed;
+	boolean campaign;
+	/* its folder has <name>.bmp and <name>.txt */
+	boolean has_picture;
+	boolean has_description;
+};
 
 /* ---------- prototypes/CUSTOM_EDITION_MAPS.C */
 
@@ -117,5 +139,37 @@ For anything else it returns NULL and leaves the frame alone. */
 struct bitmap_data *custom_edition_maps_picture(
 	long bitmap_tag_index,
 	short *frame_index);
+
+/* ---------- the Map Manager's (map_manager.c) */
+
+/* custom_maps' own folders, empty ones too, sorted by name, as of the last
+scan: how many, and the name of the one at `index` (NULL past them) */
+short custom_edition_maps_folder_count(
+	void);
+char const *custom_edition_maps_folder_name(
+	short index);
+
+/* the files of a display index's map; FALSE for none */
+boolean custom_edition_maps_file_get(
+	short display_index,
+	struct custom_edition_map_file *file);
+
+/* <folder><category\><name><extension>, the path of a display index's
+map's file (".map") or of one beside it (".bmp", ".txt"); FALSE for none,
+or one that does not fit */
+boolean custom_edition_maps_file_path(
+	short display_index,
+	char const *extension,
+	char *path,
+	long size);
+
+/* the picture file at path (a .bmp) as a texture of the menus' map
+pictures' shape, or NULL (logged) */
+struct bitmap_data *custom_edition_maps_picture_file_read(
+	char const *path);
+
+/* the map's picture read again when next drawn (it was changed) */
+void custom_edition_maps_picture_forget(
+	short display_index);
 
 #endif

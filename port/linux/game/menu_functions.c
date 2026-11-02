@@ -134,6 +134,11 @@ their handlers open opens.
 #include "custom_edition_maps.h"
 #include "tag_injector.h"
 #include "tag_pack.h"
+#include "map_manager.h"
+#include "social.h"
+#include "social_chat.h"
+#include "social_menu.h"
+#include "map_pictures.h"
 #include "randomizer.h"
 #include "firing_range.h"
 #include "tag_multiplayer.h"
@@ -1154,11 +1159,21 @@ static void profile_name_show(struct widget_instance *description)
 }
 
 /* (Campaign's menu) "campaign menu init": player 1's profile and saved
-game, for its items; DAILY CHALLENGE only with game.daily_challenge on (off,
-Back takes its place) */
+game, for its items */
 static boolean campaign_menu_initialize(struct widget_instance *list, short controller)
 {
 	struct player_profile profile;
+
+	(void)list;
+	if (campaign_profile(controller, &profile))
+		campaign_levels_read(&profile);
+	return TRUE;
+}
+
+/* (PLAY's menu) "port play init": DAILY CHALLENGE only with
+game.daily_challenge on (off, Back takes its place) */
+static boolean play_menu_initialize(struct widget_instance *list)
+{
 	struct widget_instance *daily_item = named(list, "menu_item_daily", 0);
 	struct widget_instance *back_item = named(list, "menu_item_back", 0);
 
@@ -1169,8 +1184,6 @@ static boolean campaign_menu_initialize(struct widget_instance *list, short cont
 		if (list->focused_child == daily_item)
 			list->focused_child = back_item;
 	}
-	if (campaign_profile(controller, &profile))
-		campaign_levels_read(&profile);
 	return TRUE;
 }
 
@@ -1783,6 +1796,52 @@ static char const *custom_map_level_name(short kind, short entry)
 	return custom_edition_maps_level_name(map_kind_display_index(kind, entry));
 }
 
+/* ---- the map lists' MANAGE MAP (and their X and Y): the Custom Edition
+map chosen opened in the Map Manager (map_manager.c), whose B comes back to
+the list as it was, its kind, folder and row */
+static struct
+{
+	/* the custom_maps map chosen in the list shown (its display index), NONE
+	for none, and whether that list is New Game's */
+	short display;
+	boolean level_list;
+	/* the list as the Map Manager was opened from it, put back as it is
+	made again */
+	boolean returning;
+	short kind;
+	char category[CUSTOM_EDITION_MAP_CATEGORY_LENGTH];
+	short category_entry;
+	short first, chosen;
+} map_manage = { NONE };
+
+/* the list's map chosen (NONE: none, or one that is not custom_maps'), and
+MANAGE MAP shown with one */
+static void map_manage_show(struct widget_instance *list, short display, boolean level_list)
+{
+	struct custom_edition_map_file file;
+
+	if (display != NONE && (!custom_edition_maps_file_get(display, &file) || !file.managed))
+		display = NONE;
+	map_manage.display = display;
+	map_manage.level_list = level_list;
+	visible_set(named(list, "map_manage_button", 0), display != NONE);
+}
+
+/* the list as it was before the Map Manager, once: FALSE when it was not
+opened from it */
+static boolean map_manage_return(short *kind, char *category, short *category_entry, short *first, short *chosen)
+{
+	if (!map_manage.returning)
+		return FALSE;
+	map_manage.returning = FALSE;
+	*kind = map_manage.kind;
+	csstrcpy(category, map_manage.category);
+	*category_entry = map_manage.category_entry;
+	*first = map_manage.first;
+	*chosen = map_manage.chosen;
+	return TRUE;
+}
+
 /* "initialize sp level list solo" starts on the level last played */
 static boolean level_list_initialize(struct widget_instance *list, short controller)
 {
@@ -1806,6 +1865,8 @@ static boolean level_list_initialize(struct widget_instance *list, short control
 	level_list.category_entry = 0;
 	level_list.chosen = level;
 	level_list.first = map_kind_first(level, NUMBER_OF_SINGLE_PLAYER_LEVELS);
+	map_manage_return(&level_list.kind, level_list.category, &level_list.category_entry, &level_list.first,
+		&level_list.chosen);
 	map_kind_set(list, level_list.kind);
 	map_kind_focus(list, level_list.first, level_list.chosen);
 	return TRUE;
@@ -1865,6 +1926,7 @@ static void level_list_update(struct widget_instance *list)
 	short kind = map_kind_shown(list, TRUE, level_list.kind), count, entry, level;
 
 	daily_overlays_hide(description);
+	map_manage_show(list, NONE, TRUE);
 	if (kind != level_list.kind)
 	{
 		level_list.kind = kind;
@@ -1905,6 +1967,8 @@ static void level_list_update(struct widget_instance *list)
 		}
 		visible_set(named(description, "replay_level_right_item", 0), display != NONE);
 		map_description_show(description, NONE, display);
+		if (kind == MAP_KIND_CUSTOM_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_MULTIPLAYER)
+			map_manage_show(list, display, TRUE);
 		/* (no LEADERBOARD for a map: only the campaign's levels have records) */
 		visible_set(named(screen_of(list), "button_leaderboard", 0), FALSE);
 		/* (a map's: no level's records) */
@@ -3807,7 +3871,7 @@ static struct
 	short history_chosen;
 } daily;
 
-/* "port daily today" (Campaign's DAILY CHALLENGE) */
+/* "port daily today" (PLAY's DAILY CHALLENGE) */
 static boolean daily_today(void)
 {
 	daily.day[0] = 0;
@@ -4074,12 +4138,33 @@ challenge's screen */
 #define DAILY_SCREEN_NAME "pc\\main_menu\\daily\\daily_screen"
 #define DAILY_LEADERBOARD_NAME "pc\\main_menu\\daily\\leaderboard\\leaderboard_screen"
 
+/* (and after the Map Manager left for the game, a map's pictures taken or
+a Theater played for one, or a Theater shot taken of a map with a picture:
+the Map Manager again, at that map's pictures (or which of the two to
+keep), whose BACK is the main menu, the map list it came from not kept) */
+#define MAP_MANAGER_SCREEN_NAME "pc\\main_menu\\map_manager\\map_manager_screen"
+
 void pc_menus_shell_loaded(void)
 {
 	struct community_challenge const *challenge;
 	long main_menu, daily_screen;
 	boolean random;
+	char map_name[CUSTOM_EDITION_MAP_NAME_SIZE];
+	boolean choosing;
 
+	if (map_pictures_return_take(map_name, sizeof(map_name), &choosing))
+	{
+		long manager_screen = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAP_MANAGER_SCREEN_NAME);
+
+		map_manage.returning = FALSE;
+		main_menu = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME);
+		if (main_menu != NONE && manager_screen != NONE)
+		{
+			map_manager_open_at(map_name, TRUE, choosing);
+			ui_widget_load_by_name_or_tag(NULL, manager_screen, NULL, NONE, main_menu, NONE, NONE);
+		}
+		return;
+	}
 	if (!community_daily_won_take(&random))
 		return;
 	main_menu = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAIN_MENU_NAME);
@@ -5554,6 +5639,9 @@ static char const *const mod_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "mod_d
 measures (one screen is shown at a time) */
 static char const *const tag_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "tag_details_name", "tag_details_text",
 	"tag_name" };
+/* ... and the Map Manager's, the same way */
+static char const *const map_text_box_names[NUMBER_OF_MOD_TEXT_BOXES] = { "map_details_name", "map_details_text",
+	"map_name" };
 static short const mod_text_box_characters[NUMBER_OF_MOD_TEXT_BOXES] = { 17, 30, 24 };
 
 /* (port/linux/src/port_mods.c, port_mods.h's) */
@@ -9745,6 +9833,207 @@ static boolean theater_export(void)
 #endif
 }
 
+/* ---------- the Map Manager (a map list's MANAGE MAP: map_manager.c): its
+lists laid out as the Tag Injector's, a row each with its name and state,
+scrolling over more; on the right, in the lobby's frame, the row chosen's
+details, the last thing done above them, and its map's picture or shot
+under them (map_picture, drawn by ui_widget.c). A goes down a list or does
+what the row says, B goes back up, and from the first to the map list */
+
+#define MAP_MANAGER_ROWS 11
+/* the details' lines above the picture */
+#define MAP_MANAGER_DETAILS_LINES 8
+
+static struct
+{
+	/* the list shown last (its rows focused again when it changes), and
+	what the details and each row show (made again when it changes) */
+	short list_shown;
+	char shown[MOD_DETAILS_LENGTH];
+	char row_shown[MAP_MANAGER_ROWS][2 * ROW_TEXT_LENGTH + 16];
+} maps_screen;
+
+/* the row (op_map_<n>) a widget is or is in, else NULL */
+static struct widget_instance *maps_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_map_", 7))
+			return widget;
+	}
+	return NULL;
+}
+
+/* the place on the list of the row, else NONE */
+static short maps_row_place(struct widget_instance *row)
+{
+	short place = row ? (short)(*map_manager_first() + atoi(row->name + 7) - 1) : NONE;
+
+	return place >= 0 && place < map_manager_count() ? place : NONE;
+}
+
+/* "port maps init" (the list's created) and "port maps close" (its
+deleted) */
+static boolean maps_screen_reset(boolean opening)
+{
+	short index;
+
+	if (opening)
+		map_manager_open();
+	else
+		map_manager_close();
+	/* (the map lists built again as they open: their maps may have moved) */
+	map_browse_forget();
+	maps_screen.list_shown = NONE;
+	maps_screen.shown[0] = 0;
+	csmemset(maps_screen.row_shown, 0, sizeof(maps_screen.row_shown));
+	/* (the text boxes' measures it shares with the Mods screen: none until
+	they are drawn) */
+	for (index = 0; index < NUMBER_OF_MOD_TEXT_BOXES; index++)
+	{
+		mods_screen.fonts[index] = NONE;
+		mods_screen.widths[index] = 0;
+	}
+	return TRUE;
+}
+
+/* "port maps update": what was typed taken, the rows (the list moving on
+at its ends while there are more past them), each one's name (cut short
+where it is too long) and state, and the details of the one chosen */
+static void maps_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *focused;
+	struct widget_instance *details = list->parameters.list.extended_description;
+	short *first;
+	short *chosen;
+	short count;
+	short focused_index;
+
+	map_manager_poll();
+	first = map_manager_first();
+	chosen = map_manager_chosen();
+	count = map_manager_count();
+	/* (a list opened: its row chosen focused) */
+	if (map_manager_list() != maps_screen.list_shown)
+	{
+		maps_screen.list_shown = map_manager_list();
+		if (*chosen < *first || *chosen >= *first + MAP_MANAGER_ROWS)
+			*first = (short)PIN(*chosen - MAP_MANAGER_ROWS / 2, 0, MAX(count - MAP_MANAGER_ROWS, 0));
+		focus_row(list, count ? (short)(*chosen - *first) : NONE);
+		csmemset(maps_screen.row_shown, 0, sizeof(maps_screen.row_shown));
+	}
+	focused = maps_row(list->focused_child);
+	focused_index = focused ? (short)(atoi(focused->name + 7) - 1) : NONE;
+	if (focused_index == MAP_MANAGER_ROWS - 1 && *first + MAP_MANAGER_ROWS < count && list_scrolls_at_end())
+	{
+		(*first)++;
+		focus_row(list, --focused_index);
+	}
+	else if (focused_index == 0 && *first > 0 && list_scrolls_at_end())
+	{
+		(*first)--;
+		focus_row(list, ++focused_index);
+	}
+	if (*first > 0 && *first + MAP_MANAGER_ROWS > count)
+		*first = (short)MAX(0, count - MAP_MANAGER_ROWS);
+	if (focused_index != NONE && *first + focused_index < count)
+		*chosen = (short)(*first + focused_index);
+	for (row = list->child; row; row = row->next)
+	{
+		short place;
+		short row_index;
+		char name[ROW_TEXT_LENGTH];
+		char state[ROW_TEXT_LENGTH];
+		char shown[sizeof(maps_screen.row_shown[0])];
+
+		if (strncmp(row->name, "op_map_", 7))
+			continue;
+		row->animation.current_frame_index = row == focused ? 1 : 0;
+		place = maps_row_place(row);
+		row->visible = place != NONE;
+		if (place == NONE)
+		{
+			if (row == focused)
+				focus_row(list, count ? (short)(count - 1 - *first) : NONE);
+			continue;
+		}
+		row_index = (short)PIN(atoi(row->name + 7) - 1, 0, MAP_MANAGER_ROWS - 1);
+		map_manager_row(place, name, sizeof(name), state, sizeof(state));
+		snprintf(shown, sizeof(shown), "%s|%s|%ld", name, state, mods_screen.fonts[_mod_row_name]);
+		if (strcmp(shown, maps_screen.row_shown[row_index]))
+		{
+			char shortened[MOD_DETAILS_LENGTH];
+			wchar_t wide[ROW_TEXT_LENGTH];
+
+			if (mods_text_fits(_mod_row_name, name, strlen(name)))
+				snprintf(shortened, sizeof(shortened), "%s", name);
+			else
+				mods_text_shorten(_mod_row_name, name, strlen(name), shortened, sizeof(shortened));
+			mods_wide_text(shortened, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "map_name", 0), wide);
+			mods_wide_text(state, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "map_state", 0), wide);
+			snprintf(maps_screen.row_shown[row_index], sizeof(maps_screen.row_shown[0]), "%s", shown);
+		}
+	}
+	if (details)
+	{
+		char title[MOD_DETAILS_LENGTH];
+		char text[MOD_DETAILS_LENGTH];
+		char wrapped[MOD_DETAILS_LENGTH];
+		char shown[sizeof(maps_screen.shown)];
+		wchar_t wide[MOD_DETAILS_LENGTH];
+
+		map_manager_details(count ? *chosen : NONE, title, sizeof(title), text, sizeof(text));
+		/* (made again only when what they show, or its fonts, change) */
+		snprintf(shown, sizeof(shown), "%ld %d %ld %d|%s|%s", mods_screen.fonts[_mod_details_name],
+			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],
+			mods_screen.widths[_mod_details_text], title, text);
+		if (strcmp(shown, maps_screen.shown))
+		{
+			snprintf(maps_screen.shown, sizeof(maps_screen.shown), "%s", shown);
+			wrapped[0] = 0;
+			mods_wrap(title, wrapped, sizeof(wrapped), _mod_details_name, 2, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "map_details_name", 0), wide, NUMBEROF(wide));
+			wrapped[0] = 0;
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, MAP_MANAGER_DETAILS_LINES, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "map_details_text", 0), wide, NUMBEROF(wide));
+		}
+	}
+}
+
+/* "port maps choose" (A on a row): a Theater loading closes the menus
+with its game; the map deleted, back to the map list */
+static boolean maps_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short place = maps_row_place(maps_row(widget));
+
+	if (place == NONE)
+		place = *map_manager_chosen();
+	*map_manager_chosen() = place;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	if (map_manager_choose(place) == _map_manager_closes)
+	{
+		ui_widget_port_go_back(widget);
+		*widget_deleted = TRUE;
+	}
+	return TRUE;
+}
+
+/* "port maps back" (B, and BACK): up a list, else away */
+static boolean maps_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	if (map_manager_back())
+		return TRUE;
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
 /* ---------- Multiplayer (port/assets/menus' PLAN: Create Game > Internet
 or LAN; Join Game > Server Browser (blank, for now), LAN, Direct Link): the
 Xbox's networking, run by the engine's port entry points
@@ -10260,6 +10549,12 @@ static boolean map_list_initialize(struct widget_instance *list)
 			last_used = view == NONE ? 0 : view;
 		}
 	}
+	/* (back from the Map Manager: the list as it was) */
+	if (map_manage_return(&map_list.kind, map_list.category, &map_list.category_entry, &map_list.first,
+		&map_list.chosen))
+	{
+		last_used = map_list.chosen;
+	}
 	map_kind_set(list, map_list.kind);
 	map_step_open(list, MAP_STEP_MAPS, last_used);
 	return TRUE;
@@ -10276,6 +10571,7 @@ static void map_list_update(struct widget_instance *list)
 	boolean custom = kind == MAP_KIND_CUSTOM_SINGLEPLAYER || kind == MAP_KIND_CUSTOM_MULTIPLAYER;
 
 	daily_overlays_hide(description);
+	map_manage_show(list, NONE, FALSE);
 	if (kind != map_list.kind)
 	{
 		map_list.kind = kind;
@@ -10321,8 +10617,42 @@ static void map_list_update(struct widget_instance *list)
 		}
 		visible_set(named(description, "mp_map_right_item", 0), display != NONE);
 		map_description_show(description, NONE, display);
+		/* (a map's difficulties listed: it is being played, not managed) */
+		if (custom && map_list.step == MAP_STEP_MAPS)
+			map_manage_show(list, display, FALSE);
 	}
 	profile_name_show(description);
+}
+
+/* "port map manage" (MANAGE MAP, or X or Y in a map list): the map chosen
+in the Map Manager, over the list's screen, which its B returns to as it
+was */
+static boolean map_manage_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	struct custom_edition_map_file file;
+	long manager_screen = tag_loaded(DAILY_WIDGET_DEFINITION_TAG, MAP_MANAGER_SCREEN_NAME);
+
+	if (map_manage.display == NONE || manager_screen == NONE ||
+		!custom_edition_maps_file_get(map_manage.display, &file) || !file.managed)
+	{
+		return TRUE;
+	}
+	map_manage.returning = TRUE;
+	map_manage.kind = map_manage.level_list ? level_list.kind : map_list.kind;
+	csstrcpy(map_manage.category, map_manage.level_list ? level_list.category : map_list.category);
+	map_manage.category_entry = map_manage.level_list ? level_list.category_entry : map_list.category_entry;
+	map_manage.first = map_manage.level_list ? level_list.first : map_list.first;
+	map_manage.chosen = map_manage.level_list ? level_list.chosen : map_list.chosen;
+	map_manager_open_at(file.name, FALSE, FALSE);
+	if (!ui_widget_load_by_name_or_tag(NULL, manager_screen, NULL, NONE, screen_of(widget)->definition_tag_index,
+		NONE, NONE))
+	{
+		map_manage.returning = FALSE;
+		return TRUE;
+	}
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	*widget_deleted = TRUE;
+	return TRUE;
 }
 
 /* "mp level select" (the list's OK): the map chosen, or a level's
@@ -11487,6 +11817,7 @@ static void daily_settings_update(struct widget_instance *list)
 
 	visible_set(named(list, "op_upload_scores", 0), online);
 	visible_set(named(list, "op_server_mode", 0), online);
+	visible_set(named(list, "op_social", 0), online);
 	if (!row)
 		return;
 	if (!custom && text_field_editing(row))
@@ -11983,10 +12314,13 @@ enum
 /* the Tag Injector's rows of what failed to load (tags_row_failed) */
 #define TAG_FAILED_COLOR 0xE8C547FFUL
 #define ROW_COLOR_GREYED 0x8A8F99FFUL
+/* the main menu's Social hint while friend requests wait (the Y button's) */
+#define SOCIAL_HINT_REQUESTS_COLOR 0xFFC72CFFUL
 
 /* ui_widget.c: a text's colour in place of its own (FALSE: its own): a
-server browser row's ping by how good it is, and the Tag Injector's rows of
-what failed to load in yellow */
+server browser row's ping by how good it is, the Tag Injector's rows of
+what failed to load in yellow, and the main menu's Social hint yellow while
+friend requests wait */
 boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *color)
 {
 	short row = widget->parent ? browser_row_index(widget->parent) : NONE;
@@ -11995,6 +12329,16 @@ boolean pc_menu_text_color(struct widget_instance *widget, real_argb_color *colo
 	short ping;
 	unsigned long rgba;
 
+	if (widget->name && !strcmp(widget->name, "social_hint"))
+	{
+		if (social_menu_requests_waiting() <= 0)
+			return FALSE;
+		rgba = SOCIAL_HINT_REQUESTS_COLOR;
+		color->red = (real)((rgba >> 24) & 0xFF) / 255.0f;
+		color->green = (real)((rgba >> 16) & 0xFF) / 255.0f;
+		color->blue = (real)((rgba >> 8) & 0xFF) / 255.0f;
+		return TRUE;
+	}
 	if (tag_row_widget)
 	{
 		short tag_row_index = (short)(atoi(tag_row_widget->name + 7) - 1);
@@ -12449,7 +12793,37 @@ static struct
 	browser takes up again as it comes back */
 	struct p2p_listing password_game;
 	boolean password_joined;
+	/* a friend's game sought (social_menu.c's JOIN GAME of a public game
+	with a password): its listing's key (hex), since when, and whether the
+	browser found it though its filters hide it. Once shown, it is chosen
+	and an A press posted on it (its password screen opens) */
+	char seek_key[2 * P2P_LISTING_KEY_HASH_SIZE + 1];
+	unsigned long seek_time;
+	boolean seek_hidden;
 } lobby_browser;
+
+#define LOBBY_BROWSER_SEEK_TIMEOUT 20000
+
+/* the listing's key as hex, matched with a friend's (any case) */
+static boolean lobby_browser_seeks(struct p2p_listing const *game)
+{
+	static char const digits[] = "0123456789abcdef";
+	short index;
+
+	if (!lobby_browser.seek_key[0] || !game->locked)
+		return FALSE;
+	for (index = 0; index < P2P_LISTING_KEY_HASH_SIZE; index++)
+	{
+		char high = lobby_browser.seek_key[2 * index];
+		char low = high ? lobby_browser.seek_key[2 * index + 1] : 0;
+
+		high = (char)(high >= 'A' && high <= 'F' ? high + 'a' - 'A' : high);
+		low = (char)(low >= 'A' && low <= 'F' ? low + 'a' - 'A' : low);
+		if (high != digits[game->key_hash[index] >> 4] || low != digits[game->key_hash[index] & 15])
+			return FALSE;
+	}
+	return lobby_browser.seek_key[2 * P2P_LISTING_KEY_HASH_SIZE] == 0;
+}
 
 /* whether the game this machine joined last is a dedicated server's: its
 advertisement's flag, or its listing's (the lobby's line, lobby_update) */
@@ -12596,7 +12970,10 @@ static void lobby_browser_begin(void)
 /* "gamespy screen dispose" */
 static void lobby_browser_end(void)
 {
+	/* (the join screen left: a friend's game's join's panel goes too) */
+	social_menu_join_end(NULL);
 	lobby_browser.joining = lobby_browser.ready = FALSE;
+	lobby_browser.seek_key[0] = 0;
 	p2p_lobby_browse(FALSE);
 }
 
@@ -13154,6 +13531,13 @@ static void lobby_browser_update(struct widget_instance *list)
 
 	lobby_browser.found = lobby_browser_valid_games(lobby_browser.games,
 		(short)p2p_lobby_games(lobby_browser.games, LOBBY_BROWSER_GAMES));
+	/* (a friend's game sought: found, though the filters may hide it) */
+	{
+		short index;
+
+		for (index = 0; index < lobby_browser.found && lobby_browser.seek_key[0]; index++)
+			lobby_browser.seek_hidden = lobby_browser.seek_hidden || lobby_browser_seeks(&lobby_browser.games[index]);
+	}
 	lobby_browser_choices(&choices, lobby_browser_source(list));
 	lobby_browser.count = (short)p2p_lobby_filter(lobby_browser.games, lobby_browser.found, &choices,
 		lobby_browser_map_state);
@@ -13182,6 +13566,40 @@ static void lobby_browser_update(struct widget_instance *list)
 			lobby_browser_focus_row(list, 0);
 			focused = 0;
 			lobby_browser.chosen = lobby_browser.first;
+		}
+	}
+	/* (a friend's game sought: chosen once shown, and an A press posted on
+	it, which opens its password screen; the player told if it is not) */
+	if (lobby_browser.seek_key[0] && !lobby_browser.joining)
+	{
+		static wchar_t const hidden[] = L"Your friend's game is listed, but\r\nthe server browser's filters hide it.";
+		static wchar_t const missing[] = L"Your friend's game was not found\r\nin the server browser.";
+		short index;
+
+		for (index = 0; index < lobby_browser.count && !lobby_browser_seeks(&lobby_browser.games[index]); index++)
+			;
+		if (index < lobby_browser.count)
+		{
+			lobby_browser.seek_key[0] = 0;
+			lobby_browser.first = (short)MIN(index, MAX(0, lobby_browser.count - BROWSER_ROWS));
+			focused = (short)(index - lobby_browser.first);
+			lobby_browser.shown = TRUE;
+			lobby_browser.chosen = index;
+			lobby_browser_focus_row(list, focused);
+			ui_widget_port_post_button(0, BUTTON_A);
+			/* (its password screen next: the join's panel goes) */
+			social_menu_join_end(NULL);
+		}
+		else if (now - lobby_browser.seek_time > LOBBY_BROWSER_SEEK_TIMEOUT)
+		{
+			lobby_browser.seek_key[0] = 0;
+			if (social_menu_join_active())
+			{
+				social_menu_join_end(lobby_browser.seek_hidden ? "It is listed, but the browser's filters hide it." :
+					"It was not found in the server browser.");
+			}
+			else
+				display_error_text_deferred(lobby_browser.seek_hidden ? hidden : missing, NONE);
 		}
 	}
 	if (focused != NONE && !ui_widget_port_hover_focused())
@@ -13672,6 +14090,49 @@ static boolean password_screen_edit(struct widget_instance *row, boolean *widget
 	return TRUE;
 }
 
+/* (Direct Link's, a friend's game being joined: social_menu_join_seeking)
+the game whose host's key hash is the invite's chosen, its row focused and
+an A press posted on it, which joins it; TRUE when it was */
+static boolean social_join_direct_link(struct widget_instance *list)
+{
+	static char const digits[] = "0123456789abcdef";
+	char const *seeking = social_menu_join_seeking();
+	short index;
+
+	if (!seeking || !seeking[0])
+		return FALSE;
+	for (index = 0; index < multiplayer.game_count && index < BROWSER_ROWS; index++)
+	{
+		struct advertised_game *game = multiplayer.games[index];
+		unsigned char identifier[6];
+		unsigned char key_hash[P2P_LISTING_KEY_HASH_SIZE];
+		unsigned long address;
+		short byte;
+
+		if (!p2p_peer_address(game->xnaddr + 2, &address) || !p2p_peer_key_hash(address, identifier, key_hash))
+			continue;
+		for (byte = 0; byte < P2P_LISTING_KEY_HASH_SIZE; byte++)
+		{
+			char high = seeking[2 * byte];
+			char low = high ? seeking[2 * byte + 1] : 0;
+
+			high = (char)(high >= 'A' && high <= 'F' ? high + 'a' - 'A' : high);
+			low = (char)(low >= 'A' && low <= 'F' ? low + 'a' - 'A' : low);
+			if (high != digits[key_hash[byte] >> 4] || low != digits[key_hash[byte] & 15])
+				break;
+		}
+		if (byte < P2P_LISTING_KEY_HASH_SIZE)
+			continue;
+		multiplayer.game_chosen = index;
+		lobby_browser_focus_row(list, index);
+		ui_widget_port_post_button(0, BUTTON_A);
+		social_menu_join_posted();
+		platform_log("social: a friend's game shows in Direct Link: joining it");
+		return TRUE;
+	}
+	return FALSE;
+}
+
 /* "gamespy screen update": the games' rows (name, map, gametype, players),
 the one chosen's line, the counts over the titles (the PC version's: its
 players, page, servers) */
@@ -13694,6 +14155,10 @@ static void browser_update(struct widget_instance *list)
 	browser_games_read();
 	if (focused != NONE && focused < multiplayer.game_count && !ui_widget_port_hover_focused())
 		multiplayer.game_chosen = focused;
+	/* (a friend's game being joined from Social: chosen and joined as soon
+	as it shows, its host's key the invite's) */
+	if (multiplayer.mode == _multiplayer_mode_direct_link && social_join_direct_link(list))
+		focused = browser_row_index(list->focused_child);
 	for (row = list->child; row; row = row->next)
 	{
 		short index = browser_row_index(row);
@@ -13817,6 +14282,292 @@ static boolean direct_link_from_clipboard(void)
 		return campaign_fail();
 	}
 	return TRUE;
+}
+
+/* ---------- the Social screen (social_menu.h): the main menu's Y (its
+SETTINGS the social settings' screens, with Social off too); its lists shown as
+the Map Manager's are (the same rows, details and scrolling), its JOIN GAME
+a friend's invite joined as PASTE LINK joins one, Direct Link then shown */
+
+#define SOCIAL_SCREEN_NAME "pc\\main_menu\\social\\social_screen"
+/* (its SETTINGS: tools/port_settings.py's, under the profile settings' folder) */
+#define SOCIAL_SETTINGS_SCREEN_NAME \
+	"pc\\main_menu\\settings_select\\player_setup\\player_profile_edit\\gameplay\\community\\social\\social_settings_screen"
+#define JOIN_GAME_SCREEN_NAME "pc\\main_menu\\multiplayer_type_select\\join_game\\join_game_screen"
+#define SOCIAL_ROWS 11
+#define SOCIAL_DETAILS_LINES 16
+
+static struct
+{
+	short list_shown;
+	char shown[MOD_DETAILS_LENGTH];
+	char row_shown[SOCIAL_ROWS][2 * ROW_TEXT_LENGTH + 16];
+} social_screen;
+
+/* the row (op_soc_<n>) a widget is or is in, else NULL */
+static struct widget_instance *social_row(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strncmp(widget->name, "op_soc_", 7))
+			return widget;
+	}
+	return NULL;
+}
+
+static short social_row_place(struct widget_instance *row)
+{
+	short place = row ? (short)(*social_menu_first() + atoi(row->name + 7) - 1) : NONE;
+
+	return place >= 0 && place < social_menu_count() ? place : NONE;
+}
+
+/* "port social init" (the list's created) and "port social close" (its
+deleted) */
+static boolean social_screen_reset(boolean opening)
+{
+	short index;
+
+	if (opening)
+		social_menu_open();
+	else
+		social_menu_close();
+	social_screen.list_shown = NONE;
+	social_screen.shown[0] = 0;
+	csmemset(social_screen.row_shown, 0, sizeof(social_screen.row_shown));
+	for (index = 0; index < NUMBER_OF_MOD_TEXT_BOXES; index++)
+	{
+		mods_screen.fonts[index] = NONE;
+		mods_screen.widths[index] = 0;
+	}
+	return TRUE;
+}
+
+/* "port social update": the server's answers and what was typed taken, the
+rows (scrolling at the list's ends), each one's name and state, and the
+details of the one chosen (as maps_update) */
+static void social_screen_update(struct widget_instance *list)
+{
+	struct widget_instance *row;
+	struct widget_instance *focused;
+	struct widget_instance *details = list->parameters.list.extended_description;
+	struct widget_instance *bar = named(list, "button_bar", 0);
+	struct widget_instance *options = named(bar, "button_options", 0);
+	struct widget_instance *join = named(bar, "button_join", 0);
+	short *first;
+	short *chosen;
+	short count;
+	short focused_index;
+	boolean card;
+
+	social_menu_poll();
+	first = social_menu_first();
+	chosen = social_menu_chosen();
+	count = social_menu_count();
+	/* (a player's card, drawn where the rows and the details are: the
+	details and their frame hidden, and OPTIONS shown for another's, the
+	focus on it as the card opens; else on BACK) */
+	card = social_menu_card_shown();
+	visible_set(details, !card);
+	visible_set(named(screen_of(list), "sel_list_desc_bkd", 0), !card);
+	visible_set(options, social_menu_card_has_options());
+	visible_set(join, social_menu_card_has_join());
+	if (bar && ((options && bar->focused_child == options && !options->visible) ||
+		(join && bar->focused_child == join && !join->visible)))
+	{
+		bar->focused_child = named(bar, "button_back", 0);
+	}
+	/* (the card opening: the focus on JOIN, else OPTIONS) */
+	if (social_menu_list() != social_screen.list_shown && card && bar)
+	{
+		if (join && join->visible)
+			bar->focused_child = join;
+		else if (options && options->visible)
+			bar->focused_child = options;
+	}
+	if (social_menu_list() != social_screen.list_shown)
+	{
+		social_screen.list_shown = social_menu_list();
+		if (*chosen < *first || *chosen >= *first + SOCIAL_ROWS)
+			*first = (short)PIN(*chosen - SOCIAL_ROWS / 2, 0, MAX(count - SOCIAL_ROWS, 0));
+		focus_row(list, count ? (short)(*chosen - *first) : NONE);
+		csmemset(social_screen.row_shown, 0, sizeof(social_screen.row_shown));
+	}
+	focused = social_row(list->focused_child);
+	focused_index = focused ? (short)(atoi(focused->name + 7) - 1) : NONE;
+	if (focused_index == SOCIAL_ROWS - 1 && *first + SOCIAL_ROWS < count && list_scrolls_at_end())
+	{
+		(*first)++;
+		focus_row(list, --focused_index);
+	}
+	else if (focused_index == 0 && *first > 0 && list_scrolls_at_end())
+	{
+		(*first)--;
+		focus_row(list, ++focused_index);
+	}
+	if (*first > 0 && *first + SOCIAL_ROWS > count)
+		*first = (short)MAX(0, count - SOCIAL_ROWS);
+	if (focused_index != NONE && *first + focused_index < count)
+		*chosen = (short)(*first + focused_index);
+	for (row = list->child; row; row = row->next)
+	{
+		short place;
+		short row_index;
+		char name[ROW_TEXT_LENGTH];
+		char state[ROW_TEXT_LENGTH];
+		char shown[sizeof(social_screen.row_shown[0])];
+
+		if (strncmp(row->name, "op_soc_", 7))
+			continue;
+		row->animation.current_frame_index = row == focused ? 1 : 0;
+		place = social_row_place(row);
+		row->visible = place != NONE;
+		if (place == NONE)
+		{
+			if (row == focused)
+				focus_row(list, count ? (short)(count - 1 - *first) : NONE);
+			continue;
+		}
+		row_index = (short)PIN(atoi(row->name + 7) - 1, 0, SOCIAL_ROWS - 1);
+		social_menu_row(place, name, sizeof(name), state, sizeof(state));
+		snprintf(shown, sizeof(shown), "%s|%s|%ld", name, state, mods_screen.fonts[_mod_row_name]);
+		if (strcmp(shown, social_screen.row_shown[row_index]))
+		{
+			char shortened[MOD_DETAILS_LENGTH];
+			wchar_t wide[ROW_TEXT_LENGTH];
+
+			if (mods_text_fits(_mod_row_name, name, strlen(name)))
+				snprintf(shortened, sizeof(shortened), "%s", name);
+			else
+				mods_text_shorten(_mod_row_name, name, strlen(name), shortened, sizeof(shortened));
+			mods_wide_text(shortened, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "social_name", 0), wide);
+			mods_wide_text(state, wide, ROW_TEXT_LENGTH);
+			text_set(named(row, "social_state", 0), wide);
+			snprintf(social_screen.row_shown[row_index], sizeof(social_screen.row_shown[0]), "%s", shown);
+		}
+	}
+	if (details && !card)
+	{
+		char title[MOD_DETAILS_LENGTH];
+		char text[MOD_DETAILS_LENGTH];
+		char wrapped[MOD_DETAILS_LENGTH];
+		char shown[sizeof(social_screen.shown)];
+		wchar_t wide[MOD_DETAILS_LENGTH];
+
+		social_menu_details(count ? *chosen : NONE, title, sizeof(title), text, sizeof(text));
+		snprintf(shown, sizeof(shown), "%ld %d %ld %d|%s|%s", mods_screen.fonts[_mod_details_name],
+			mods_screen.widths[_mod_details_name], mods_screen.fonts[_mod_details_text],
+			mods_screen.widths[_mod_details_text], title, text);
+		if (strcmp(shown, social_screen.shown))
+		{
+			snprintf(social_screen.shown, sizeof(social_screen.shown), "%s", shown);
+			wrapped[0] = 0;
+			mods_wrap(title, wrapped, sizeof(wrapped), _mod_details_name, 2, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "social_details_name", 0), wide, NUMBEROF(wide));
+			wrapped[0] = 0;
+			mods_wrap(text, wrapped, sizeof(wrapped), _mod_details_text, SOCIAL_DETAILS_LINES, 0);
+			mods_wide_text(wrapped, wide, NUMBEROF(wide));
+			text_set_length(named(details, "social_details_text", 0), wide, NUMBEROF(wide));
+		}
+	}
+}
+
+/* a friend's game joined (social_menu_choose's _social_menu_join or
+_join_listed), the join's panel over the screen it goes on in
+(social_menu_join_begin): its invite in Direct Link, which chooses and joins
+the game as soon as it shows (browser_update), or a public game with a
+password found in the server browser, which asks for the password */
+static boolean social_screen_join(struct widget_instance *widget, short choice, boolean *widget_deleted)
+{
+	char logged[96];
+
+	if (choice == _social_menu_join_listed)
+	{
+		snprintf(lobby_browser.seek_key, sizeof(lobby_browser.seek_key), "%s", social_menu_join_host_key());
+		lobby_browser.seek_time = system_milliseconds();
+		lobby_browser.seek_hidden = FALSE;
+		platform_log("social: finding a friend's game in the server browser");
+		social_menu_join_begin(choice);
+		multiplayer.mode = _multiplayer_mode_server_browser;
+		return ui_widget_port_open(widget, JOIN_GAME_SCREEN_NAME, widget_deleted);
+	}
+	if (choice != _social_menu_join)
+		return TRUE;
+	if (!p2p_join_invite(social_menu_join_invite()))
+	{
+		social_menu_join_failed();
+		return campaign_fail();
+	}
+	platform_log("social: joining a friend's game (%s)", p2p_invite_log_text(social_menu_join_invite(), logged,
+		sizeof(logged)));
+	social_menu_join_begin(choice);
+	multiplayer.mode = _multiplayer_mode_direct_link;
+	return ui_widget_port_open(widget, JOIN_GAME_SCREEN_NAME, widget_deleted);
+}
+
+/* "port social choose" (A on a row): JOIN GAME joins the friend's invite
+and shows Direct Link, or, a public game with a password, shows the server
+browser, which finds it and asks for the password (B comes back here);
+SETTINGS opens the social settings, over it */
+static boolean social_screen_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	short place = social_row_place(social_row(widget));
+	short choice;
+
+	if (place == NONE)
+		place = *social_menu_chosen();
+	*social_menu_chosen() = place;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	choice = social_menu_choose(place);
+	if (choice == _social_menu_settings)
+		return ui_widget_port_open(widget, SOCIAL_SETTINGS_SCREEN_NAME, widget_deleted);
+	return social_screen_join(widget, choice, widget_deleted);
+}
+
+/* "port social join" (a player's card's JOIN): as their JOIN GAME row */
+static boolean social_screen_card_join(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (!social_menu_card_has_join())
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return social_screen_join(widget, social_menu_card_join(), widget_deleted);
+}
+
+/* "port social options" (a player's card's OPTIONS): what can be done about
+them */
+static boolean social_screen_options(struct widget_instance *widget)
+{
+	(void)widget;
+	if (!social_menu_card_has_options())
+		return FALSE;
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	social_menu_card_options();
+	return TRUE;
+}
+
+/* "port social back" (B, and BACK): up a list, else away */
+static boolean social_screen_back(struct widget_instance *widget, boolean *widget_deleted)
+{
+	ui_play_audio_feedback_sound(SOUND_BACK);
+	if (social_menu_back())
+		return TRUE;
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "port social open" (the main menu's Y), "port social moderation" (Chat's
+BLOCKED & MUTED) and "port social profile" (Social's MY PROFILE): the screen,
+over the one asking, at its first list, the players muted and blocked, or
+your own card; with Social off too, its SETTINGS alone, where it is turned
+on */
+static boolean social_screen_open(struct widget_instance *widget, short where, boolean *widget_deleted)
+{
+	social_menu_open_at(where);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return ui_widget_port_open(widget, SOCIAL_SCREEN_NAME, widget_deleted);
 }
 
 /* joining the game chosen: player 1 in, then the lobby */
@@ -14535,6 +15286,9 @@ static void news_hint_update(struct widget_instance *list)
 
 	visible_set(named(screen, "news_hint", 0), shown);
 	visible_set(named(screen, "x_butn_news", 0), shown);
+	/* (and that Y opens Social: always, its settings there) */
+	visible_set(named(screen, "social_hint", 0), TRUE);
+	visible_set(named(screen, "y_butn_social", 0), TRUE);
 }
 
 /* "port news init" */
@@ -14676,6 +15430,233 @@ static boolean news_close(struct widget_instance *widget, boolean *widget_delete
 (its font and justification still set): a lobby row's player talking in
 voice chat (or muted) has a speaker just left of their name
 (port/linux/game/network_voice.c) */
+/* ---------- the main menu's social column (tools/port_settings.py's
+SOCIAL_HOME): right of its items, your totals and friends (social_menu.c's
+social_menu_home_draw, over the social_home text box) and the fork's chat
+box docked under them (social_chat.c, over social_home_chat). A
+controller's Right goes into it and Left (or B) back out; in it, up and
+down choose a friend or, past them, the chat; A opens the Social screen at
+the friend's card, or writes in the chat; Y and X are Social's and the
+news', as on the items. A click on a friend or the chat does the same.
+Meanwhile the main menu's list gets none of the controller
+(menu_port_event_taken, which ui_widget.c asks before each event). The
+right stick, focused or not, goes through the chat's lines (up and down,
+an arrow by the one chosen) and, pushed right, opens its player's menu, as
+a name clicked in the chat does (your own line: the Social screen at your
+card) */
+
+/* ui_widget.c's event types (its own: event_manager.c publishes none) */
+enum
+{
+	MENU_EVENT_LEFT_STICK = 1,
+	MENU_EVENT_RIGHT_STICK = 2,
+	MENU_EVENT_BUTTON = 3,
+	/* the column drawn this lately: the main menu shown */
+	SOCIAL_HOME_SHOWN_MILLISECONDS = 250,
+};
+
+static struct
+{
+	boolean focused;
+	short chosen;
+	/* when it was drawn last, the screen it is on, and the chat box's
+	place (the menus' 640) */
+	unsigned long drawn_at;
+	struct widget_instance *screen;
+	rectangle2d chat;
+} social_home;
+
+static boolean social_home_shown(void)
+{
+	/* (signed: drawn_at, made odd, may be a millisecond ahead) */
+	return social_home.drawn_at && (long)(system_milliseconds() - social_home.drawn_at) < SOCIAL_HOME_SHOWN_MILLISECONDS;
+}
+
+/* A on a row, or a click: a friend's card (the Social screen over the main
+menu), or the chat written in (its keyboard the controller's) */
+static void social_home_pick(struct widget_instance *screen, short row, short port)
+{
+	boolean deleted = FALSE;
+
+	if (row < social_menu_home_rows())
+	{
+		social_menu_home_friend_open(row);
+		social_screen_open(screen, _social_menu_open_player, &deleted);
+	}
+	else
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		social_chat_open_docked(port);
+	}
+}
+
+/* the right stick on the main menu: the docked chat's line chosen, or its
+player's menu (the right stick's y is the other way from the left's) */
+static void social_home_chat_stick(struct widget_instance *widget, struct event_record const *event)
+{
+	short across = event->data.stick.x == SHORT_MIN ? -1 : event->data.stick.x == SHORT_MAX ? 1 : 0;
+	short down = event->data.stick.y == SHORT_MAX ? 1 : event->data.stick.y == SHORT_MIN ? -1 : 0;
+
+	if (down)
+	{
+		if (social_chat_dock_pick_step(down))
+			ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (across > 0 && social_chat_dock_pick_menu(event->controller_index))
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+	}
+	else if (across > 0)
+	{
+		short where = social_chat_dock_pick_open();
+		boolean deleted = FALSE;
+
+		if (where == NONE)
+			ui_play_audio_feedback_sound(SOUND_ERROR);
+		else
+			social_screen_open(widget, where, &deleted);
+	}
+}
+
+/* halo_linux_source_fixups.h: an event the menus are not to have: any
+while the fork's chat is typed in (or just closed); on the main menu, the
+controller's while its social column has the focus, and its Right into it,
+and the right stick (social_home_chat_stick) */
+unsigned char menu_port_event_taken(void *instance, void *record)
+{
+	struct widget_instance *widget = instance;
+	struct event_record *event = record;
+	short button = NONE;
+	short across = 0;
+	short down = 0;
+	short rows;
+
+	if (event->type != MENU_EVENT_BUTTON && event->type != MENU_EVENT_LEFT_STICK &&
+		event->type != MENU_EVENT_RIGHT_STICK)
+	{
+		return FALSE;
+	}
+	if (social_chat_busy())
+		return TRUE;
+	if (!widget || !widget->name || strcmp(widget->name, "main_menu") || !social_home_shown() || !social_enabled())
+	{
+		social_home.focused = FALSE;
+		return FALSE;
+	}
+	if (event->type == MENU_EVENT_RIGHT_STICK)
+	{
+		social_home_chat_stick(widget, event);
+		return TRUE;
+	}
+	if (event->type == MENU_EVENT_BUTTON)
+	{
+		/* (a press, not one held) */
+		if (event->data.button.value != 1)
+			return social_home.focused;
+		button = event->data.button.index;
+		across = button == _gamepad_binary_button_dpad_left ? -1 : button == _gamepad_binary_button_dpad_right ? 1 : 0;
+		down = button == _gamepad_binary_button_dpad_up ? -1 : button == _gamepad_binary_button_dpad_down ? 1 : 0;
+	}
+	else
+	{
+		across = event->data.stick.x == SHORT_MIN ? -1 : event->data.stick.x == SHORT_MAX ? 1 : 0;
+		down = event->data.stick.y == SHORT_MAX ? -1 : event->data.stick.y == SHORT_MIN ? 1 : 0;
+	}
+	if (!social_home.focused)
+	{
+		if (across <= 0)
+			return FALSE;
+		social_home.focused = TRUE;
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+		return TRUE;
+	}
+	/* (the friends, then the chat) */
+	rows = (short)(social_menu_home_rows() + 1);
+	social_home.chosen = (short)PIN(social_home.chosen, 0, rows - 1);
+	if (down)
+	{
+		social_home.chosen = (short)PIN(social_home.chosen + down, 0, rows - 1);
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (across < 0 || button == _gamepad_analog_button_b || button == _gamepad_binary_button_back)
+	{
+		social_home.focused = FALSE;
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+	}
+	else if (button == _gamepad_analog_button_a || button == _gamepad_binary_button_start)
+	{
+		social_home_pick(widget, social_home.chosen, event->controller_index);
+	}
+	else if (button == _gamepad_analog_button_y)
+	{
+		boolean deleted = FALSE;
+
+		social_screen_open(widget, _social_menu_open_home, &deleted);
+	}
+	else if (button == _gamepad_analog_button_x)
+	{
+		boolean deleted = FALSE;
+
+		news_open(widget, &deleted);
+	}
+	return TRUE;
+}
+
+/* halo_linux_source_fixups.h: a click on the main menu's social column (a
+friend's row, the chat box), which the menus behind do not get; one
+elsewhere gives the focus back to the items */
+unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer)
+{
+	short row;
+
+	if (!pointer->left_clicks || !social_home_shown() || !social_home.screen)
+		return FALSE;
+	if (pointer->click_x >= social_home.chat.x0 && pointer->click_x < social_home.chat.x1 &&
+		pointer->click_y >= social_home.chat.y0 && pointer->click_y < social_home.chat.y1)
+	{
+		if (!social_enabled())
+			return FALSE;
+		social_home.focused = TRUE;
+		social_home.chosen = social_menu_home_rows();
+		/* (a tap: the on-screen keyboard; a click: the keyboard's keys) */
+		social_chat_open_docked(pointer->touch ? 0 : NONE);
+		return TRUE;
+	}
+	if (!social_menu_home_inside(pointer->click_x, pointer->click_y))
+	{
+		social_home.focused = FALSE;
+		return FALSE;
+	}
+	row = social_menu_home_hit(pointer->click_x, pointer->click_y);
+	if (row != NONE)
+	{
+		social_home.focused = TRUE;
+		social_home.chosen = row;
+		social_home_pick(social_home.screen, row, NONE);
+	}
+	return TRUE;
+}
+
+/* (menu_functions_text_box_drawn) the column's two text boxes: the friends,
+and the chat box docked, drawn with them (the menus' 640, centred in the
+screen by offset) */
+static void social_home_drawn(struct widget_instance *widget, rectangle2d const *bounds, boolean chat)
+{
+	long offset = halo_screen_ui_offset_current();
+
+	social_home.drawn_at = system_milliseconds() | 1;
+	social_home.screen = screen_of(widget);
+	if (!chat)
+	{
+		social_menu_home_draw(bounds->x0, bounds->y0, bounds->x1, bounds->y1, social_home.focused,
+			social_home.chosen);
+		return;
+	}
+	social_home.chat = *bounds;
+	social_chat_draw_docked(bounds->x0, bounds->y0, bounds->x1, bounds->y1, (short)offset,
+		social_home.focused && social_home.chosen >= social_menu_home_rows());
+}
+
 void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d const *bounds)
 {
 	short row;
@@ -14696,6 +15677,18 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 			(short)(bounds->y0 - (392 - (258 + 388) / 2) * scale), (short)(126 * scale));
 	}
 #endif
+	/* (the main menu's social column: social_home_drawn) */
+	if (widget->name && (!strcmp(widget->name, "social_home") || !strcmp(widget->name, "social_home_chat")))
+	{
+		social_home_drawn(widget, bounds, widget->name[11] == '_');
+		return;
+	}
+	/* (the Social screen's player card, over its rows: social_menu.c) */
+	if (widget->name && !strcmp(widget->name, "social_card"))
+	{
+		social_menu_card_draw(bounds->x0, bounds->y0, bounds->x1, bounds->y1);
+		return;
+	}
 	/* (the news's rows: the font and width its notes are wrapped to; and
 	its title's, which a release's name is measured in) */
 	if (widget->name && !strcmp(widget->name, "news_line"))
@@ -14714,7 +15707,8 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	measured in, mods_text_fits) */
 	for (row = 0; widget->name && row < NUMBER_OF_MOD_TEXT_BOXES; row++)
 	{
-		if (!strcmp(widget->name, mod_text_box_names[row]) || !strcmp(widget->name, tag_text_box_names[row]))
+		if (!strcmp(widget->name, mod_text_box_names[row]) || !strcmp(widget->name, tag_text_box_names[row]) ||
+			!strcmp(widget->name, map_text_box_names[row]))
 		{
 			mods_screen.fonts[row] = draw_string_get_font();
 			mods_screen.widths[row] = (short)(bounds->x1 - bounds->x0);
@@ -16758,6 +17752,10 @@ boolean pc_menu_event_function_invoke(
 		{
 			return daily_today();
 		}
+		else if (!strcmp(name, "port play init"))
+		{
+			return play_menu_initialize(widget);
+		}
 		else if (!strcmp(name, "port daily init"))
 		{
 			return daily_initialize();
@@ -16955,6 +17953,49 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port theater export"))
 		{
 			return theater_export();
+		}
+		else if (!strcmp(name, "port maps init") || !strcmp(name, "port maps close"))
+		{
+			return maps_screen_reset(!strcmp(name, "port maps init"));
+		}
+		else if (!strcmp(name, "port maps choose"))
+		{
+			return maps_choose(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port maps back"))
+		{
+			return maps_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port map manage"))
+		{
+			return map_manage_open(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social init") || !strcmp(name, "port social close"))
+		{
+			return social_screen_reset(!strcmp(name, "port social init"));
+		}
+		else if (!strcmp(name, "port social join"))
+		{
+			return social_screen_card_join(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social choose"))
+		{
+			return social_screen_choose(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social options"))
+		{
+			return social_screen_options(widget);
+		}
+		else if (!strcmp(name, "port social back"))
+		{
+			return social_screen_back(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "port social open") || !strcmp(name, "port social moderation") ||
+			!strcmp(name, "port social profile"))
+		{
+			return social_screen_open(widget, !strcmp(name, "port social moderation") ? _social_menu_open_moderation :
+				!strcmp(name, "port social profile") ? _social_menu_open_profile : _social_menu_open_home,
+				widget_deleted);
 		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
 		{
@@ -17347,6 +18388,10 @@ void pc_menu_game_data_function_invoke(
 		tags_update(widget);
 	else if (!strcmp(name, "port theater update"))
 		theater_update(widget);
+	else if (!strcmp(name, "port maps update"))
+		maps_update(widget);
+	else if (!strcmp(name, "port social update"))
+		social_screen_update(widget);
 	else if (!strcmp(name, "color picker update"))
 		color_list_update(widget);
 	else if (!strcmp(name, "3wide player profile list update"))

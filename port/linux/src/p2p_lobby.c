@@ -1106,6 +1106,16 @@ int p2p_hosting_listed(void)
 	return listed;
 }
 
+int p2p_hosting_password(void)
+{
+	int has_password;
+
+	pthread_mutex_lock(&p2p_lock);
+	has_password = lobby.has_password;
+	pthread_mutex_unlock(&p2p_lock);
+	return has_password;
+}
+
 void p2p_set_hosting_password(const char *password)
 {
 	unsigned char key[P2P_PASSWORD_KEY_SIZE];

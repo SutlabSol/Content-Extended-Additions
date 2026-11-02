@@ -111,6 +111,7 @@ symbols in this file:
 #include "network_replay.h" /* port: port/linux/game/network_replay_playback.c */
 #include "stats_log.h" /* port: port/linux/game/stats_log.c */
 #include "frame_rate_display.h" /* port: port/linux/game/frame_rate_display.c */
+#include "social_chat.h" /* port: port/linux/game/social_chat.c */
 
 /* ---------- constants */
 
@@ -410,6 +411,8 @@ void interface_draw_fullscreen_overlays(
 	terminal_draw();
 	main_framerate_render();
 	render_debug_profile();
+	/* port: the fork's chat box (port/linux/game/social_chat.c) */
+	social_chat_draw();
 	/* port: the overlay menu, over everything (port/linux/game/overlay_menu.c) */
 	overlay_menu_draw();
 

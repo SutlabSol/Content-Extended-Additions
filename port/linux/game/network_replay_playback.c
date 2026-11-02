@@ -100,6 +100,8 @@ the way put back (playback_seek_chase); back, once it is let go.
 #include "rasterizer/rasterizer.h"
 #include "render/render.h"
 #include "scenario/scenario.h"
+#include "structures/structure_bsp_definitions.h"
+#include "cache/cache_files.h"
 #include "text/draw_string.h"
 #include "tag_files/tag_groups.h"
 #include "text/font_group.h"
@@ -111,6 +113,7 @@ the way put back (playback_seek_chase); back, once it is let go.
 #include "sound/sound_manager.h"
 #include "network_distributed.h"
 #include "network_replay.h"
+#include "map_pictures.h"
 #include "tag_multiplayer.h"
 #include "halo_skulls.h"
 #include "halo_port_limits.h"
@@ -444,6 +447,15 @@ static struct
 	boolean tags_differ;
 	/* the network version it was recorded in (older ones: replay_changed_messages) */
 	unsigned long network_version;
+	/* the level, its game's map (a picture taken is its: map_pictures.c);
+	a Theater with no recording (network_replay_explore), and whether it
+	is the Map Manager's three shots being taken */
+	char level_name[128];
+	boolean explore;
+	boolean shots;
+	/* (a Theater with no recording) its clock held, after its first tick:
+	no frame of a map is drawn before one (main.c) */
+	boolean explore_held;
 	/* a client's recording, and its own players (by absolute index): only
 	theirs is a view through the eyes, the others' it never had */
 	boolean client;
@@ -620,6 +632,8 @@ static boolean playback_inflate(
 }
 
 static boolean playback_keyframe_collect(boolean wait);
+static void playback_camera_set(real_point3d const *position, real_vector3d const *forward);
+static void playback_free_camera_place(real_point3d const *position, real yaw, real pitch);
 
 /* a skip ahead ended, reached or not: the frames drawn and the sound heard
 again (the speed is the caller's) */
@@ -680,6 +694,10 @@ static void playback_free(
 	playback.tag_count = 0;
 	playback.tag_hash = 0;
 	playback.tags_differ = FALSE;
+	playback.level_name[0] = 0;
+	playback.explore = FALSE;
+	playback.shots = FALSE;
+	playback.explore_held = FALSE;
 	/* (the recording's level setup let go: the next game's is its host's) */
 	tag_multiplayer_replay_share_set(NULL, 0, 0);
 	playback.client = FALSE;
@@ -982,9 +1000,72 @@ boolean network_replay_watch(
 			(setup.skulls_flags & HALO_PORT_ADVERTISED_SKULL_DROPS_FLAG) ? " (dropped)" : "",
 			setup.share_active ? "a Tag Injector share" : "no Tag Injector share", setup.tag_count, setup.tag_hash);
 	}
+	csstrncpy(playback.level_name, game.map.name, sizeof(playback.level_name) - 1);
+	playback.level_name[sizeof(playback.level_name) - 1] = 0;
 	playback.starting = TRUE;
 	error(_error_log, "replay: playing %s (%s), from tick %ld", path, game.map.name, playback.start_tick);
 	return TRUE;
+}
+
+boolean network_replay_explore(
+	char const *level_name,
+	boolean shots,
+	char *why,
+	long why_size)
+{
+	/* (the game a replay's first record holds, of this level and nobody:
+	no game engine, as New Game's multiplayer maps walked round have none)
+	(static: the players' slots make it large) */
+	static struct network_game game;
+
+	why[0] = 0;
+	playback_free();
+	csmemset(&game, 0, sizeof(game));
+	csstrncpy(game.map.name, level_name, sizeof(game.map.name) - 1);
+	game.map.version = (long)cache_files_map_version(game.map.name);
+	game.difficulty = _game_difficulty_level_normal;
+	game.random_seed = system_milliseconds();
+	/* (no records: a byte, for network_replay_playing) */
+	playback.data = (byte *)malloc(1);
+	if (!playback.data)
+	{
+		snprintf(why, (size_t)why_size, "There is no memory for it.");
+		return FALSE;
+	}
+	playback.size = 0;
+	playback.next = 0;
+	playback.start_tick = 0;
+	playback.end_tick = 0;
+	playback.network_version = HALO_PORT_NETWORK_VERSION;
+	playback.explore = TRUE;
+	playback.shots = shots;
+	csstrncpy(playback.level_name, level_name, sizeof(playback.level_name) - 1);
+	playback.level_name[sizeof(playback.level_name) - 1] = 0;
+	playback.setting_up = TRUE;
+	dispose_global_network_game_server();
+	dispose_global_network_game_client();
+	if (!create_global_network_game_client() || !network_game_client_port_replay_begin(&game))
+	{
+		snprintf(why, (size_t)why_size, "The map cannot be set up.");
+		dispose_global_network_game_client();
+		playback.setting_up = FALSE;
+		playback_free();
+		return FALSE;
+	}
+	playback.setting_up = FALSE;
+	/* (the level as it is: no randomizer, skulls or Tag Injector share) */
+	randomizer_set_remote(FALSE, NULL, 0);
+	skulls_set_remote(0, NULL);
+	tag_multiplayer_replay_share_set(NULL, 0, 0);
+	playback.starting = TRUE;
+	error(_error_log, "replay: exploring %s%s", level_name, shots ? ", taking its pictures" : "");
+	return TRUE;
+}
+
+char const *network_replay_level_name(
+	void)
+{
+	return network_replay_playing() && playback.level_name[0] ? playback.level_name : NULL;
 }
 
 boolean network_replay_network_version_playable(
@@ -1103,6 +1184,33 @@ void network_replay_playback_started(
 		}
 		else
 			error(_error_log, "replay: the level's tags are the recording's (%ld, %08lx)", count, hash);
+	}
+	/* (a Theater with no recording: its clock held after its first tick
+	(playback_explore_idle), as the pause holds it, so nothing moves and
+	little of its scripts and AI starts; the free camera at a starting
+	place) */
+	if (playback.explore)
+	{
+		real_point3d position;
+		real_vector3d forward;
+		real yaw = 0.0f;
+
+		playback.speed = 0;
+		game_time_set_speed(1.0f);
+		playback.view = _replay_view_free;
+		if (!map_pictures_start_camera(&position, &yaw))
+		{
+			struct structure_bsp *bsp = global_structure_bsp_get();
+
+			position.x = bsp ? (bsp->world_bounds.x0 + bsp->world_bounds.x1) / 2.0f : 0.0f;
+			position.y = bsp ? (bsp->world_bounds.y0 + bsp->world_bounds.y1) / 2.0f : 0.0f;
+			position.z = bsp ? (bsp->world_bounds.z0 + bsp->world_bounds.z1) / 2.0f : 0.0f;
+		}
+		playback_free_camera_place(&position, yaw, 0.0f);
+		forward.i = (real)cos(yaw);
+		forward.j = (real)sin(yaw);
+		forward.k = 0.0f;
+		playback_camera_set(&position, &forward);
 	}
 	error(_error_log, "replay: the game is loaded; playing from tick %ld", playback.start_tick);
 }
@@ -1708,6 +1816,52 @@ static void playback_seek_chase(
 		playback_keyframe_restore(index, TRUE);
 }
 
+/* a Theater with no recording's idle: no keyframes, seeking, players or
+speeds (its clock held); the west button takes the frame as the level's
+picture (the pause menu's too), B hides the lines over the screen, Start
+puts up the pause menu, whose B leaves. While the Map Manager's shots are
+taken the camera is theirs, and once they are, the Theater leaves */
+static boolean playback_explore_idle(
+	void)
+{
+	/* (its first tick run: the clock held from here) */
+	if (!playback.explore_held && game_time_get() > playback.start_tick)
+	{
+		playback.explore_held = TRUE;
+		game_time_set_speed(0.0f);
+	}
+	if (playback.shots && map_pictures_shots_done())
+	{
+		error(_error_log, "replay: the map's pictures are taken; leaving");
+		playback.leaving = TRUE;
+		network_game_abort();
+		return TRUE;
+	}
+	if (playback_pressed(_gamepad_binary_button_start))
+		playback.paused = !playback.paused;
+	if (playback.paused)
+	{
+		if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y))
+			config_write_boolean("network.replay_hints", !config_boolean("network.replay_hints"));
+		if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x) && !playback.shots)
+			map_pictures_take(playback.level_name);
+		if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b))
+		{
+			error(_error_log, "replay: left the map");
+			playback.leaving = TRUE;
+			network_game_abort();
+		}
+		return TRUE;
+	}
+	if (playback.shots)
+		return TRUE;
+	if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x))
+		map_pictures_take(playback.level_name);
+	if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b))
+		playback.hidden = !playback.hidden;
+	return TRUE;
+}
+
 boolean network_replay_playback_idle(
 	struct network_game_client *client)
 {
@@ -1715,6 +1869,10 @@ boolean network_replay_playback_idle(
 
 	if (!playback.playing)
 		return TRUE;
+	/* (a Theater with no recording has no host's objects: the level's own,
+	which being synchronized would let go, are kept) */
+	if (playback.explore)
+		return playback.leaving ? TRUE : playback_explore_idle();
 	playback_feed(client);
 	/* (the host's objects, all of them, came at the game's first tick: as a
 	client is told once the host has sent it them all, its own objects the
@@ -1777,6 +1935,10 @@ boolean network_replay_playback_idle(
 		config.toml: network.replay_hints) */
 		if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y))
 			config_write_boolean("network.replay_hints", !config_boolean("network.replay_hints"));
+		/* (the west button: the frame as the level's picture, the pause
+		menu hidden while it is taken: map_pictures.c) */
+		if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x))
+			map_pictures_take(playback.level_name);
 		if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b))
 		{
 			error(_error_log, "replay: left at tick %ld", game_time_get());
@@ -2198,6 +2360,25 @@ static void playback_cinematic_sight(
 	else
 		playback.cinematic_hidden = 0.0f;
 	playback.cinematic_spawned = MAX(playback.cinematic_spawned - seconds, 0.0f);
+}
+
+/* the free camera put at position, turned to yaw and pitch, and still,
+tracking nobody (a Theater with no recording's start, the Map Manager's
+shots) */
+static void playback_free_camera_place(
+	real_point3d const *position,
+	real yaw,
+	real pitch)
+{
+	playback.free_placing = FALSE;
+	playback.free_tracking = FALSE;
+	playback.free_still = FALSE;
+	playback.free_focus_valid = FALSE;
+	playback.free_field_of_view = CAMERA_FIELD_OF_VIEW;
+	playback.free_move_x = playback.free_move_y = playback.free_rise = 0.0f;
+	playback.free_position = *position;
+	playback.free_yaw = yaw;
+	playback.free_pitch = PIN(pitch, -FREE_CAMERA_MAXIMUM_PITCH, FREE_CAMERA_MAXIMUM_PITCH);
 }
 
 /* the free camera, a tripod: placed behind the player when it is chosen (as
@@ -2626,6 +2807,19 @@ void network_replay_playback_frame(
 
 	if (!playback.playing)
 		return;
+	/* (the Map Manager's shots being taken: the camera theirs, the pause
+	menu up or not) */
+	if (playback.shots)
+	{
+		real_point3d position;
+		real_vector3d forward;
+
+		if (map_pictures_shots_camera(&position, &forward))
+		{
+			playback_camera_set(&position, &forward);
+			return;
+		}
+	}
 	/* (paused: the camera where it was, its sticks let be) */
 	if (playback.paused && playback.camera_valid)
 		return;
@@ -2985,6 +3179,10 @@ static void playback_draw_seek(
 	wchar_t text[16];
 	long length = MAX(1, playback.end_tick - playback.start_tick);
 	real fraction = PIN((real)(game_time_get() - playback.start_tick) / (real)length, 0.0f, 1.0f);
+
+	/* (a Theater with no recording has no length) */
+	if (playback.explore)
+		return;
 	short middle;
 	short head;
 
@@ -3208,16 +3406,78 @@ static void playback_draw_hints(
 	playback_draw_seek(font_index);
 }
 
-/* the pause menu: the screen dimmed, PAUSED in its middle, and its
-buttons' bar (resume, the hints shown or hidden, leave) */
+/* what was last done with a picture (map_pictures.c), a line under
+`bounds` (its own height), while it is said */
+static void playback_draw_status(
+	long font_index,
+	rectangle2d const *bounds)
+{
+	wchar_t text[96];
+	rectangle2d line = *bounds;
+	real_argb_color color = *global_real_argb_white;
+
+	if (!map_pictures_status(text, NUMBEROF(text)))
+		return;
+	line.y0 = bounds->y1;
+	line.y1 = (short)(line.y0 + (bounds->y1 - bounds->y0));
+	draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
+	rasterizer_draw_unicode_string(&line, NULL, NULL, 0, text);
+}
+
+/* the pause menu: the screen dimmed, PAUSED in its middle (what was last
+done with a picture under it), and its buttons' bar (resume, the hints
+shown or hidden, the frame taken as the level's picture, leave) */
 static void playback_draw_pause_menu(
 	long font_index)
 {
-	struct playback_hint const hints[] = {
-		{ { _gamepad_binary_button_start, NONE }, L"RESUME" },
-		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y, NONE },
-			config_boolean("network.replay_hints") ? L"HIDE HINTS" : L"SHOW HINTS" },
-		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b, NONE }, L"LEAVE" },
+	struct playback_hint hints[4];
+	short count = 0;
+	struct font_header *font = font_definition_get(font_index);
+	short height = (short)(font->ascending_height + font->descending_height);
+	real_argb_color color = *global_real_argb_white;
+	rectangle2d window = render.camera.window_bounds;
+	rectangle2d bounds;
+
+	hints[count].buttons[0] = _gamepad_binary_button_start;
+	hints[count].buttons[1] = NONE;
+	hints[count++].action = L"RESUME";
+	hints[count].buttons[0] = FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y;
+	hints[count].buttons[1] = NONE;
+	hints[count++].action = config_boolean("network.replay_hints") ? L"HIDE HINTS" : L"SHOW HINTS";
+	if (!playback.shots)
+	{
+		hints[count].buttons[0] = FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x;
+		hints[count].buttons[1] = NONE;
+		hints[count++].action = L"TAKE PICTURE";
+	}
+	hints[count].buttons[0] = FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b;
+	hints[count].buttons[1] = NONE;
+	hints[count++].action = L"LEAVE";
+	draw_quad(&window, REPLAY_PAUSE_DIM_COLOR);
+	bounds = window;
+	bounds.y0 = (short)((window.y0 + window.y1 - height) / 2);
+	bounds.y1 = (short)(bounds.y0 + height + 4);
+	draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
+	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, L"PAUSED");
+	playback_draw_status(font_index, &bounds);
+	playback_draw_hints(font_index, hints, count, NULL, 0);
+}
+
+/* a Theater with no recording's lines: at the top what it is (what was
+last done with a picture under it), and its buttons, the free camera's
+sticks above them; none but the top while the Map Manager's shots are
+taken */
+static void playback_draw_explore(
+	long font_index)
+{
+	static struct playback_hint const hints[] = {
+		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x, NONE }, L"TAKE PICTURE" },
+		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b, NONE }, L"HIDE" },
+		{ { _gamepad_binary_button_start, NONE }, L"PAUSE" },
+	};
+	static struct playback_hint const camera[] = {
+		{ { _replay_hint_stick_left, NONE }, L"MOVE" },
+		{ { _replay_hint_stick_right, NONE }, L"AIM" },
 	};
 	struct font_header *font = font_definition_get(font_index);
 	short height = (short)(font->ascending_height + font->descending_height);
@@ -3225,13 +3485,19 @@ static void playback_draw_pause_menu(
 	rectangle2d window = render.camera.window_bounds;
 	rectangle2d bounds;
 
-	draw_quad(&window, REPLAY_PAUSE_DIM_COLOR);
 	bounds = window;
-	bounds.y0 = (short)((window.y0 + window.y1 - height) / 2);
+	bounds.y0 = (short)(window.y0 + REPLAY_SCREEN_MARGIN);
 	bounds.y1 = (short)(bounds.y0 + height + 4);
 	draw_string_set_draw_mode(font_index, NONE, 2, 0, &color);
-	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, L"PAUSED");
-	playback_draw_hints(font_index, hints, NUMBEROF(hints), NULL, 0);
+	rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0,
+		playback.shots ? L"TAKING THE MAP'S PICTURES" : L"EXPLORE   FREE CAMERA");
+	playback_draw_status(font_index, &bounds);
+	if (playback.shots)
+		return;
+	if (!playback_touch() && !config_boolean("network.replay_hints"))
+		return;
+	playback_draw_hints(font_index, hints, NUMBEROF(hints), playback_touch() ? NULL : camera,
+		playback_touch() ? 0 : (short)NUMBEROF(camera));
 }
 
 void network_replay_playback_draw(
@@ -3304,6 +3570,9 @@ void network_replay_playback_draw(
 
 	if (!playback.playing)
 		return;
+	/* (a picture being taken: nothing over the frame) */
+	if (map_pictures_hiding())
+		return;
 	player = playback.watched != NONE ? player_try_and_get(playback.watched) : NULL;
 	if (playback.scores && player)
 	{
@@ -3323,6 +3592,11 @@ void network_replay_playback_draw(
 	if (playback.paused)
 	{
 		playback_draw_pause_menu(font_index);
+		return;
+	}
+	if (playback.explore)
+	{
+		playback_draw_explore(font_index);
 		return;
 	}
 	if (playback.skip_tick != NONE)
@@ -3373,6 +3647,7 @@ void network_replay_playback_draw(
 		bounds.y1 = (short)(bounds.y0 + height + 4);
 		rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, L"THIS LEVEL LOADED DIFFERENTLY FROM THE RECORDING'S");
 	}
+	playback_draw_status(font_index, &bounds);
 	if (playback.ended)
 	{
 		if (playback_touch())

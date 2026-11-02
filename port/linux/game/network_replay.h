@@ -210,6 +210,17 @@ with why in why, for one that cannot be played (not a replay, an older
 format, a network version it cannot read) */
 boolean network_replay_watch(char const *path, char *why, long why_size);
 
+/* a Theater with no recording, of the level (level_name, a level name a
+game loads: custom_maps\<name>): its map loaded with nobody in it, its
+clock held, the free camera at one of its starting places, the west button
+taking the frame as its picture (map_pictures.c); with shots, the Map
+Manager's three shots taken, after which it leaves. FALSE, with why, for
+one that cannot be set up */
+boolean network_replay_explore(char const *level_name, boolean shots, char *why, long why_size);
+
+/* the level of the replay being played (its game's map), NULL when none is */
+char const *network_replay_level_name(void);
+
 /* whether a replay of the network version can be played: this one's, or an
 older one whose messages are this one's but for the kinds
 network_replay_skips_message leaves out (port/linux/network_format.txt) */

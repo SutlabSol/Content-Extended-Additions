@@ -3447,6 +3447,12 @@ static long screenshot_every = -1;
 static int statistics_enabled = -1;
 static unsigned char *screenshot_pixels;
 static uint32_t screenshot_width, screenshot_height;
+/* (the frame read back the same way for a Custom Edition map's picture:
+port/linux/game/map_pictures.c, which declares these) */
+static int picture_wanted, screenshot_due;
+int map_pictures_capture_wanted(void);
+void map_pictures_capture_take(const unsigned char *pixels, unsigned long width, unsigned long height,
+	unsigned long pitch, int bgra);
 
 static void screenshot_write(void)
 {
@@ -3524,13 +3530,15 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 
 		surface_describe(&device.back_buffer, FALSE, &command->back_buffer, scale);
 		command->screenshot = 0;
-		if (screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0 && command->back_buffer.width &&
-			*config_string("debug.screenshot_directory"))
+		picture_wanted = command->back_buffer.width && map_pictures_capture_wanted();
+		screenshot_due = screenshot_every > 0 && device.frame % (unsigned long)screenshot_every == 0 &&
+			command->back_buffer.width && *config_string("debug.screenshot_directory");
+		if (picture_wanted || screenshot_due)
 		{
 			/* (the back buffer's pixels: the host reads them as it has them) */
 			screenshot_width = command->back_buffer.pixel_width;
 			screenshot_height = command->back_buffer.pixel_height;
-			screenshot_pixels = malloc((unsigned long)screenshot_width * screenshot_height * 4);
+			screenshot_pixels = calloc((unsigned long)screenshot_width * screenshot_height, 4);
 			command->screenshot = (uint32_t)(uintptr_t)screenshot_pixels;
 		}
 	}
@@ -3540,7 +3548,12 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		/* (the host writes the pixels as it runs the present, on its render
 		thread: all of it run, and the GPU done) */
 		host_dk_idle();
-		screenshot_write();
+		/* (the host's RGBA: the picture's before screenshot_write turns it) */
+		if (picture_wanted)
+			map_pictures_capture_take(screenshot_pixels, screenshot_width, screenshot_height,
+				(unsigned long)screenshot_width * 4, 0);
+		if (screenshot_due)
+			screenshot_write();
 		free(screenshot_pixels);
 		screenshot_pixels = NULL;
 	}

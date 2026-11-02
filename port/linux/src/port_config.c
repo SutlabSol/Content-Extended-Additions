@@ -1373,6 +1373,57 @@ static const struct config_setting config_settings[] =
 		"This install's own key on the community server, made the first time it\n"
 		"is asked: it keeps your scores yours. Keep it secret; copy it to move\n"
 		"your scores to another install." },
+	{ "social.enabled", _config_boolean, "true", "HALO_SOCIAL", _environment_value, _platform_all,
+		"With community.enabled: this install's account on the community server\n"
+		"(made the first time, with no sign-up: community.key is its key), the\n"
+		"records of its matches and levels (social.record_matches), and the\n"
+		"fork's chat (social.chat). false: none of them is sent or asked." },
+	{ "social.chat", _config_boolean, "true", "HALO_SOCIAL_CHAT", _environment_value, _platform_all,
+		"The fork's chat box, in the game and the menus: the network games' text\n"
+		"chat in it (its lines marked U), and the fork's own through the\n"
+		"community server (marked F): the match's, the team's, private ones and\n"
+		"global ones. T, Y, D-pad Up in a network game, or L + R + D-pad Up open\n"
+		"it. false: the network games' text chat as it was." },
+	{ "social.global_chat", _config_boolean, "true", "HALO_SOCIAL_GLOBAL_CHAT", _environment_value,
+		_platform_all,
+		"social.chat: the fork's global chat (every player of the fork's online)\n"
+		"is heard; false hears the match's, the team's and private lines alone." },
+	{ "social.global_everywhere", _config_boolean, "true", "HALO_SOCIAL_GLOBAL_EVERYWHERE", _environment_value,
+		_platform_all,
+		"social.global_chat: global lines show with the others, in a match too;\n"
+		"false: only in the box's GLOBAL channel, which shows them alone." },
+	{ "social.record_matches", _config_boolean, "true", "HALO_SOCIAL_RECORD_MATCHES", _environment_value,
+		_platform_all,
+		"social.enabled: each multiplayer match played (kills, deaths, assists,\n"
+		"medals with game.multiplayer_medals, won or lost) and each campaign\n"
+		"level won is added to the account's records." },
+	{ "social.private_chat", _config_boolean, "true", "HALO_SOCIAL_PRIVATE_CHAT", _environment_value,
+		_platform_all,
+		"social.chat: private lines reach you (and the box's PRIVATE channel is\n"
+		"there); false: no one's private line reaches you, nor do you send any." },
+	{ "social.private_anyone", _config_boolean, "true", "HALO_SOCIAL_PRIVATE_ANYONE", _environment_value,
+		_platform_all,
+		"social.private_chat: private lines with anyone; false: only your friends'\n"
+		"reach you, and you write to your friends alone." },
+	{ "social.show_reported", _config_boolean, "false", "HALO_SOCIAL_SHOW_REPORTED", _environment_value,
+		_platform_all,
+		"social.chat: the lines of players many others reported are shown\n"
+		"(marked REPORTED); false hides them. Muted and blocked players' never show." },
+	{ "social.friends", _config_boolean, "true", "HALO_SOCIAL_FRIENDS", _environment_value, _platform_all,
+		"social.enabled: the friend list (main menu's Y: SOCIAL). false: your\n"
+		"friends see you offline and no one can ask to be your friend." },
+	{ "social.friend_requests", _config_boolean, "true", "HALO_SOCIAL_FRIEND_REQUESTS", _environment_value,
+		_platform_all,
+		"social.friends: other players can ask to be your friend (from the chat\n"
+		"or your page); false: only those you give your code to can." },
+	{ "social.show_activity", _config_boolean, "true", "HALO_SOCIAL_SHOW_ACTIVITY", _environment_value,
+		_platform_all,
+		"social.friends: your friends see what you are playing, your latest\n"
+		"matches and levels; false: only that you are online." },
+	{ "social.instant_join", _config_boolean, "true", "HALO_SOCIAL_INSTANT_JOIN", _environment_value,
+		_platform_all,
+		"social.friends: your friends can join the internet game you host from\n"
+		"their friend list (its invite is theirs); false: only by your invite." },
 
 	{ "update.auto", _config_boolean, "true", "HALO_UPDATE_AUTO", _environment_value, _platform_all,
 		"Look for a new version when the game starts, and offer to update to it;\n"

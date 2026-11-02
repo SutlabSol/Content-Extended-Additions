@@ -49,6 +49,10 @@ struct halo_ui_pointer;
 /* the menus' pointer while the overlay is open, in the menus' centred 640
 (ui_widget.c), which takes it instead of the menus */
 void overlay_menu_pointer(struct halo_ui_pointer const *pointer);
+/* the fork's chat box takes it too while it is open (its players' names
+clicked: port/linux/game/social_chat.c) */
+int social_chat_wants_pointer(void);
+void social_chat_pointer(struct halo_ui_pointer const *pointer);
 /* each frame, after the input (main.c) */
 void overlay_menu_update(void);
 /* over the whole screen, last (interface.c) */

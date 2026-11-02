@@ -63,6 +63,12 @@ int community_net_poll(int ticket, int *status, char *answer, int size);
 /* the ticket's answer is not wanted (its screen closed): dropped when it comes */
 void community_net_forget(int ticket);
 
+/* (the web build) path is POSTed with the install's key as its text body
+when the page's tab closes or reloads (navigator.sendBeacon, which sends no
+headers of the game's: the server takes the key from the body); a path
+given again replaces it. Nothing elsewhere */
+void community_net_close_beacon(const char *path);
+
 /* the platform this build is, as the server is told ("windows", "web") */
 char const *community_net_platform(void);
 
