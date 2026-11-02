@@ -312,7 +312,7 @@ DELETE (pressed twice), EXPORT (Android) and BACK. A recording shorter than
   window is local player 0's (as the Xbox's film playback's was), with
   the playback's camera, made once a frame (`main.c`), which the sound
   listens from too (`sound_manager.c`); no HUD is drawn
-  (`interface_draw_screen`). Y goes round three views: behind the player
+  (`interface_draw_screen`). Y goes round four views: behind the player
   watched (or the vehicle they ride), where the frame draws them (render
   interpolation), turning round behind them, kept this side of walls,
   until the right stick flies it round them (across, and up to straight
@@ -321,7 +321,7 @@ DELETE (pressed twice), EXPORT (Android) and BACK. A recording shorter than
   what they saw, where they aim: through their eyes with their arms and
   weapon (`first_person_weapons.c` drawing them as local player 0's), or,
   in a seat with a third-person camera (a Warthog's, a Ghost's), the
-  game's view from behind it (`following_camera_unit_view`); and a free
+  game's view from behind it (`following_camera_unit_view`); a free
   camera that flies as the game's debug camera does (the left stick moves
   it level, toward where it looks across the ground, as its tilt squared,
   so a slight tilt moves it slowly, its speed eased up in 0.2 seconds and
@@ -338,9 +338,16 @@ DELETE (pressed twice), EXPORT (Android) and BACK. A recording shorter than
   It tracks the next player A or X chooses, aims at where the player died
   until they spawn again, and the top line says FREE CAMERA (TRACKING).
   Until it first moves, it zooms on the player as they go further than 5
-  units, so they stay the size they were (down to 15 degrees of view);
+  units, so they stay the size they were (down to 8 degrees of view);
   once moved it eases back to the usual view, and does not zoom again until
-  it is chosen again (`playback_free_camera_zoom`). Through the eyes, the aim
+  it is chosen again (`playback_free_camera_zoom`). And a cinematic camera:
+  the free camera with no controls (its sticks, R3, L3 and swipes not
+  heard, and no camera bar above the buttons'), placed and tracking and
+  zooming as it is when chosen; whenever the level, its scenery or its
+  doors hide the player from it for 0.2 seconds, it is placed behind them
+  again, as L3 places the free camera, and tracks them from there
+  (`playback_cinematic_sight`); hidden from it in the half second after
+  they spawn, it is placed behind them at once. The top line says CINEMATIC. Through the eyes, the aim
   turns smoothly between the facings the replay has of the player (all
   of them indexed as it loads, `playback_index_facings`: the host's
   relayed input and a client's own input's records), the aim the
@@ -393,9 +400,14 @@ DELETE (pressed twice), EXPORT (Android) and BACK. A recording shorter than
   behind's zoom), and a swipe elsewhere is the right one: the free
   camera's aim, behind's orbit (`halo_linux_touch_look`, which no player
   reads in a replay).
-- **The end.** The replay's end, or the game's, returns to the main menu
-  four seconds later (`network_game_abort`), unless the d-pad's left
-  goes back first.
+- **The end.** The replay's end, or the game's, returns to the Theater
+  half a second later (`network_game_abort`), unless the d-pad's left
+  goes back first: the main menu loads, and opens the Theater over it
+  (`network_replay_theater_wanted`, as a replay left from its pause menu
+  does too), B going back to the main menu. The records after the game's end are not handed to
+  the client: the host's switch to the next game's pregame among them
+  would leave it in a pregame with no host, which it reports as the host
+  gone (`playback_feed`).
 - **Keyframes.** Every 10 seconds of the game, as the playback first
   reaches them (the first at its start), `playback_keyframe_take` keeps
   the game as it is in memory, copied in one go and compressed on a
