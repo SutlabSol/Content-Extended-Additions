@@ -12764,8 +12764,8 @@ static struct
 	/* the order (network.browser_sort's); the source the tab showed */
 	short order;
 	boolean reverse;
-	/* the column the d-pad's left and right highlight, which its up and
-	down sort by (a sort_columns' index; NONE: the order's) */
+	/* the column the d-pad's left and right highlight, which the right
+	stick's up and down sort by (a sort_columns' index; NONE: the order's) */
 	short column;
 	short source;
 	/* the error panel was shown since the browser opened */
@@ -13305,17 +13305,6 @@ static boolean list_focused_tab(struct widget_instance *screen)
 
 	return list && list->focused_child && !strcmp(list->focused_child->name + MAX(0,
 		(long)strlen(list->focused_child->name) - 15), "op_browser_mode");
-}
-
-/* halo_linux_source_fixups.h: the server browser's list sorts with the
-d-pad's up and down (its stick goes through the rows) */
-unsigned char ui_widget_port_dpad_updown_taken(void *instance)
-{
-	struct widget_instance *widget = instance;
-	size_t length = widget && widget->name ? strlen(widget->name) : 0;
-
-	return multiplayer.mode == _multiplayer_mode_server_browser && length >= 20 &&
-		!strcmp(widget->name + length - 20, "join_game_items_list");
 }
 
 /* the server browser's buttons by the controller's, whatever row has the

@@ -864,7 +864,7 @@ SCREENS["gameplay/community/social/chat"] = {
          "Hear the GLOBAL channel: every player of the\nfork who is online.",
          None),
         ("SHOW WORLD CHAT:", "social.global_everywhere", [("ALWAYS", "true"), ("GLOBAL TAB", "false")],
-         "Always: world lines show with the others, in a\nmatch too. Global tab: only there, on their own.",
+         "Always: world lines show with the others, in a\nmatch too. Global tab: in a match, only there.",
          None),
         ("PRIVATE CHATS:", "social.private_chat", ON_OFF,
          "Private lines reach you, and you can send them.\nOff: no one's private line reaches you.",
@@ -2920,12 +2920,13 @@ WIDGET_PATCHES = {
     f"{MT}/join_game/join_game_items_list": {"handlers": [
         '<on event="y" run="port browser refresh"/>', '<on event="x" run="port browser filters"/>',
         '<on event="white" run="port browser mode previous"/>', '<on event="black" run="port browser mode next"/>',
-        # (the d-pad: left and right highlight a column, up sorts by it the
-        # fewest or A first, down the most or Z first, as the column's arrow
-        # points; the stick goes through the rows: ui_widget.c's
-        # ui_widget_port_dpad_updown_taken)
+        # (the d-pad's left and right highlight a column; the right stick's
+        # up sorts by it the fewest or A first, down the most or Z first, as
+        # the column's arrow points; the d-pad's up and down, a touch drag
+        # and the wheel go through the rows, as they are pressed as the d-pad)
         '<on event="left" run="port browser column previous"/>', '<on event="right" run="port browser column next"/>',
-        '<on event="up" run="port browser sort increasing"/>', '<on event="down" run="port browser sort decreasing"/>']},
+        '<on event="right_stick_up" run="port browser sort increasing"/>',
+        '<on event="right_stick_down" run="port browser sort decreasing"/>']},
     # (Select Profile's buttons as hints on the Switch and the PS5,
     # PROFILE_HINTS; a touchscreen keeps them)
     f"{PROFILE}/profile_manager_button_bar": {"child_platforms": {
@@ -5001,8 +5002,10 @@ def _map_manager() -> list:
     lines += _text_button(f"{base}/button_back", "BACK", ['<on event="a" run="port maps back"/>',
                                                          '<on event="start" run="port maps back"/>'])
     # (the map lists' MANAGE MAP, shown with a Custom Edition map of
-    # custom_maps chosen: menu_functions.c's map_manage_show)
-    lines += _text_button(MAP_MANAGE_BUTTON, "%x-button MANAGE", ['<on event="a" run="port map manage"/>',
+    # custom_maps chosen: menu_functions.c's map_manage_show; its words
+    # alone, centred over the whole button as LEADERBOARD's: an icon's
+    # placeholder before them threw them off its middle)
+    lines += _text_button(MAP_MANAGE_BUTTON, "MANAGE MAP", ['<on event="a" run="port map manage"/>',
                                                                  '<on event="start" run="port map manage"/>'])
     return lines
 

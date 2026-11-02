@@ -26,11 +26,12 @@ social_chat.o: port/linux/game/social_chat.c \
   source/structures/structure_render.h source/scenario/scenario.h \
   source/sound/sound_environment_definitions.h \
   source/tag_files/tag_groups.h source/memory/byte_swapping.h \
-  source/text/draw_string.h source/text/font_group.h \
-  source/text/text_group.h source/text/unicode.h \
-  port/linux/include/wchar.h port/linux/include/halo_keyboard.h \
-  port/linux/game/network_chat.h port/linux/game/network_replay.h \
-  port/linux/game/social.h port/linux/game/social_chat.h \
-  port/linux/game/social_menu.h port/linux/game/../src/community_net.h \
+  port/linux/include/halo_port_window.h source/text/draw_string.h \
+  source/text/font_group.h source/text/text_group.h \
+  source/text/unicode.h port/linux/include/wchar.h \
+  port/linux/include/halo_keyboard.h port/linux/game/network_chat.h \
+  port/linux/game/network_replay.h port/linux/game/social.h \
+  port/linux/game/social_chat.h port/linux/game/social_menu.h \
+  port/linux/game/../src/community_net.h \
   port/linux/game/../src/port_config.h \
   port/linux/game/../src/server_json.h

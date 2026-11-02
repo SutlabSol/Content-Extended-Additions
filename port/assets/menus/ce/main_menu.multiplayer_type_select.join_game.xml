@@ -84,8 +84,8 @@
 		<on event="black" run="port browser mode next"/>
 		<on event="left" run="port browser column previous"/>
 		<on event="right" run="port browser column next"/>
-		<on event="up" run="port browser sort increasing"/>
-		<on event="down" run="port browser sort decreasing"/>
+		<on event="right_stick_up" run="port browser sort increasing"/>
+		<on event="right_stick_down" run="port browser sort decreasing"/>
 		<child widget="main_menu/multiplayer_type_select/join_game/op_browser_mode" x="10" y="55"/>
 		<child widget="main_menu/multiplayer_type_select/join_game/join_game_header" y="83"/>
 		<child widget="main_menu/multiplayer_type_select/join_game/scroll_up_button" x="20" y="102"/>

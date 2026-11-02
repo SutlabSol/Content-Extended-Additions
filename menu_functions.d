@@ -17,7 +17,8 @@ menu_functions.o: port/linux/game/menu_functions.c \
   source/interface/player_ui.h source/interface/ui_widget.h \
   source/math/real_math.h port/linux/include/float.h \
   source/bitmaps/bitmap_group.h source/tag_files/tag_groups.h \
-  source/memory/byte_swapping.h source/bitmaps/bitmaps.h \
+  source/memory/byte_swapping.h port/linux/include/halo_port_window.h \
+  source/bitmaps/bitmaps.h \
   source/rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h \
   source/interface/ui_widget_event_handler_functions.h \
   source/main/main.h source/networking/network_game_manager.h \

@@ -24,17 +24,22 @@ the community server as the install's account (social.c; api-opence's
   host sends every client.
 - Opening it: in a network game, the upstream chat's keys (network_chat.c
   asks social_chat_open: T, Y, D-pad Up and the controls' chat actions);
-  elsewhere (the menus, the campaign), T and Y on the keyboard; on any
-  controller, L, R and the d-pad's up together (overlay_menu.c). While it is
+  elsewhere (the menus, the campaign), T and Y on the keyboard; in the
+  campaign, D-pad Up (the touch controls' too) and the controls' chat
+  actions as well (network_chat.c); on any controller, L, R and the d-pad's
+  up together (overlay_menu.c). While it is
   open: Tab (or L and R) the channel, Up and Down (or Y) who a private line
   goes to, Page Up and Page Down (or the wheel) back through the lines,
   Enter (or Start) sends, Escape (or B) closes. A controller types on the
   on-screen keyboard as the upstream chat's (the stick and the D-pad move,
   A presses, X deletes), the touchscreen taps its keys; on Android, the
   touchscreen types with Android's keyboard instead, as a player profile's
-  name does (halo_system_keyboard: a tap brings it up again, the back
-  closes the box). No hint of the keys is shown. The platform's input takes it
-  as the upstream chat's typing (network_chat_typing and the rest ask here).
+  name does (halo_system_keyboard: a tap in the box brings it up again, the
+  back closes the box). A click or a tap on a channel's name picks it, on
+  the private line's player the next one, and outside the box (its keyboard,
+  a player's menu) closes it. No hint of the keys is shown. The platform's
+  input takes it as the upstream chat's typing (network_chat_typing and the
+  rest ask here).
 - Docked (social_chat_dock: the main menu's social column asks each frame
   it is drawn), the box is in that place, its lines shown closed too and not
   faded, its channels and where a line is typed with them; opened from
@@ -44,8 +49,9 @@ the community server as the install's account (social.c; api-opence's
 - Closed, the latest lines show a while and fade (not in a cinematic);
   display.text_chat hides it all. social.chat turns it on (else the upstream
   chat is as it was); social.global_chat whether GLOBAL is heard, and
-  social.global_everywhere whether its lines show with the others (else only
-  with the box open at GLOBAL, which then shows them alone);
+  social.global_everywhere whether its lines show with the others in a
+  network game (else only with the box open at GLOBAL, which then shows them
+  alone; outside one they always show);
   social.private_chat whether PRIVATE is (the server keeps others' private
   lines from it too); social.show_reported whether the lines of players many
   others reported are (marked REPORTED: the server leaves them out else).
@@ -371,14 +377,23 @@ static struct
 	unsigned long held;
 	unsigned long opening;
 	unsigned long repeat_at;
-	/* where its keys were last drawn, in thousandths of the screen (a
-	tap's place) */
+	/* where its keys were last drawn, in the screen's coordinates (a
+	click's or a tap's place) */
 	boolean drawn;
-	short left;
-	short top;
-	short right;
-	short bottom;
+	rectangle2d bounds;
 } social_chat_keyboard;
+
+/* where the open box was drawn last, its channels and who a private line
+goes to (none drawn: empty), in the screen's coordinates (a click's or a
+tap's): one picks the channel, the next player, elsewhere outside the box
+(its keyboard, a player's menu) it closes */
+static struct
+{
+	boolean drawn;
+	rectangle2d box;
+	rectangle2d channels[NUMBER_OF_SOCIAL_CHAT_CHANNELS];
+	rectangle2d peer;
+} social_chat_hits;
 
 static char const *const social_chat_letters[SOCIAL_CHAT_KEYBOARD_ROWS - 1] =
 	{ "1234567890", "qwertyuiop", "asdfghjkl'", "zxcvbnm,.?" };
@@ -390,6 +405,7 @@ static wchar_t const *const social_chat_channel_tags[NUMBER_OF_SOCIAL_CHAT_CHANN
 	{ L"", L"[TEAM] ", L"[PM] ", L"[GLOBAL] " };
 
 static void social_chat_close(void);
+static boolean social_chat_network_game(void);
 static void social_chat_player_close(void);
 static void social_chat_player_back(void);
 static void social_chat_player_pick(void);
@@ -793,8 +809,9 @@ static boolean social_chat_name_is_local(
 }
 
 /* a line shown now: not of an upstream player muted in this match; a global
-one with social.global_everywhere, else only with the box open at GLOBAL,
-which then shows global lines alone (and notices) */
+one with social.global_everywhere or outside a network game (the menus, the
+campaign: no match's lines to keep it from), else only with the box open at
+GLOBAL, which then shows global lines alone (and notices) */
 static boolean social_chat_line_shown(
 	struct social_chat_line const *line)
 {
@@ -805,7 +822,7 @@ static boolean social_chat_line_shown(
 	{
 		return FALSE;
 	}
-	if (line->notice || social_chat_global_everywhere())
+	if (line->notice || social_chat_global_everywhere() || !social_chat_network_game())
 		return TRUE;
 	return line->channel == _social_chat_global ? global_open : !global_open;
 }
@@ -1563,6 +1580,17 @@ static void social_chat_channel_step(
 		social_chat_peer_next(0);
 }
 
+/* a channel's name clicked or tapped: that channel, where it can be used */
+static void social_chat_channel_pick(
+	short channel)
+{
+	if (social_chat_channel_usable(channel) != channel)
+		return;
+	social_chat.channel = channel;
+	if (channel == _social_chat_private && !social_chat_peer_picked())
+		social_chat_peer_next(0);
+}
+
 static void social_chat_delete(
 	void)
 {
@@ -1620,6 +1648,72 @@ static void social_chat_keyboard_press(
 		social_chat_send_typed();
 		break;
 	}
+}
+
+/* the key at this place in the keyboard (from its top left, of its width
+and height) pressed */
+static void social_chat_keyboard_press_at(
+	long x,
+	long width,
+	long y,
+	long height)
+{
+	short row = (short)(y * SOCIAL_CHAT_KEYBOARD_ROWS / MAX(height, 1));
+	short column = (short)(x * SOCIAL_CHAT_KEYBOARD_COLUMNS / MAX(width, 1));
+
+	social_chat_keyboard.row = (short)PIN(row, 0, SOCIAL_CHAT_KEYBOARD_ROWS - 1);
+	social_chat_keyboard.column = (short)PIN(column, 0, SOCIAL_CHAT_KEYBOARD_COLUMNS - 1);
+	social_chat_keyboard_press();
+}
+
+static boolean social_chat_inside(
+	rectangle2d const *bounds,
+	short x,
+	short y)
+{
+	return x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1;
+}
+
+/* a click or a tap at this place in the screen, past a player's menu and
+the names: a channel's name picks it, the private line's player the next
+one, a key presses it, elsewhere in the box the system's keyboard comes up
+again (closed by hand), and outside the box it closes */
+static void social_chat_click(
+	short x,
+	short y)
+{
+	short channel;
+
+	if (social_chat_keyboard.open && social_chat_keyboard.drawn &&
+		social_chat_inside(&social_chat_keyboard.bounds, x, y))
+	{
+		rectangle2d const *keys = &social_chat_keyboard.bounds;
+
+		social_chat_keyboard_press_at(x - keys->x0, keys->x1 - keys->x0, y - keys->y0, keys->y1 - keys->y0);
+		return;
+	}
+	if (!social_chat_hits.drawn)
+		return;
+	for (channel = 0; channel < NUMBER_OF_SOCIAL_CHAT_CHANNELS; channel++)
+	{
+		if (social_chat_inside(&social_chat_hits.channels[channel], x, y))
+		{
+			social_chat_channel_pick(channel);
+			return;
+		}
+	}
+	if (social_chat.channel == _social_chat_private && social_chat_inside(&social_chat_hits.peer, x, y))
+	{
+		social_chat_peer_next(1);
+		return;
+	}
+	if (social_chat_inside(&social_chat_hits.box, x, y))
+	{
+		if (social_chat_system_keyboard())
+			halo_system_keyboard_again();
+		return;
+	}
+	social_chat_close();
 }
 
 static void social_chat_keyboard_move(
@@ -1692,17 +1786,22 @@ static void social_chat_keyboard_update(
 		social_chat_channel_step(-1);
 	if (TEST_FLAG(pressed, HALO_CHAT_PAD_RIGHT_SHOULDER))
 		social_chat_channel_step(1);
+	/* (a tap, outside the menus: as a click, social_chat_click) */
+	if (social_chat.port == 0 && halo_chat_taps(&x, &y))
+	{
+		social_chat_click((short)(x * (render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0)),
+			(short)(y * (render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0)));
+		if (!social_chat.open)
+			return;
+	}
 	/* (the system's keyboard types in its place: no key to pick, the D-pad
-	who a private line goes to, and a tap brings it up again, closed by
-	hand) */
+	who a private line goes to) */
 	if (social_chat_keyboard.system)
 	{
 		if (TEST_FLAG(pressed, HALO_CHAT_PAD_UP))
 			social_chat_peer_next(-1);
 		if (TEST_FLAG(pressed, HALO_CHAT_PAD_DOWN))
 			social_chat_peer_next(1);
-		if (halo_chat_taps(&x, &y))
-			halo_system_keyboard_again();
 		return;
 	}
 	if (TEST_FLAG(held, HALO_CHAT_PAD_STICK_UP) || TEST_FLAG(held, HALO_CHAT_PAD_UP))
@@ -1733,29 +1832,6 @@ static void social_chat_keyboard_update(
 			social_chat_peer_next(1);
 		else
 			social_chat_keyboard.shift = !social_chat_keyboard.shift;
-	}
-	/* (a tap on a key presses it; elsewhere it closes the box) */
-	if (social_chat.open && social_chat.port == 0 && halo_chat_taps(&x, &y) && social_chat_keyboard.drawn)
-	{
-		short tap_x = (short)(x * 1000.0f);
-		short tap_y = (short)(y * 1000.0f);
-
-		if (tap_x >= social_chat_keyboard.left && tap_x < social_chat_keyboard.right &&
-			tap_y >= social_chat_keyboard.top && tap_y < social_chat_keyboard.bottom)
-		{
-			short row = (short)((tap_y - social_chat_keyboard.top) * SOCIAL_CHAT_KEYBOARD_ROWS /
-				MAX(social_chat_keyboard.bottom - social_chat_keyboard.top, 1));
-			short column = (short)((tap_x - social_chat_keyboard.left) * SOCIAL_CHAT_KEYBOARD_COLUMNS /
-				MAX(social_chat_keyboard.right - social_chat_keyboard.left, 1));
-
-			social_chat_keyboard.row = (short)PIN(row, 0, SOCIAL_CHAT_KEYBOARD_ROWS - 1);
-			social_chat_keyboard.column = (short)PIN(column, 0, SOCIAL_CHAT_KEYBOARD_COLUMNS - 1);
-			social_chat_keyboard_press();
-		}
-		else
-		{
-			social_chat_close();
-		}
 	}
 }
 
@@ -1948,14 +2024,6 @@ static void social_chat_player_step(
 		social_chat_player.option_count);
 }
 
-static boolean social_chat_inside(
-	rectangle2d const *bounds,
-	short x,
-	short y)
-{
-	return x >= bounds->x0 && x < bounds->x1 && y >= bounds->y0 && y < bounds->y1;
-}
-
 void social_chat_pointer(
 	struct halo_ui_pointer const *pointer)
 {
@@ -2013,10 +2081,7 @@ void social_chat_pointer(
 			return;
 		}
 	}
-	/* (elsewhere, with the system's keyboard: that keyboard up again,
-	closed by hand) */
-	if (social_chat_system_keyboard())
-		halo_system_keyboard_again();
+	social_chat_click(x, y);
 }
 
 int social_chat_wants_pointer(
@@ -2527,21 +2592,21 @@ static void social_chat_keyboard_draw(
 			rasterizer_draw_unicode_string(&bounds, NULL, NULL, 0, label);
 		}
 	}
-	social_chat_keyboard.left = (short)(panel.x0 * 1000L / screen_width);
-	social_chat_keyboard.right = (short)(panel.x1 * 1000L / screen_width);
-	social_chat_keyboard.top = (short)(panel.y0 * 1000L / screen_height);
-	social_chat_keyboard.bottom = (short)(panel.y1 * 1000L / screen_height);
+	social_chat_keyboard.bounds = panel;
 	social_chat_keyboard.drawn = TRUE;
 }
 
 /* the box's foot while open: the channels (the one picked lit), who a
-private line goes to, the line typed, and the keys' hint */
+private line goes to, the line typed, and the keys' hint; where the
+channels and the private line's player were drawn kept, for a click (the
+screen's coordinates: shift from them) */
 static short social_chat_open_draw(
 	long font_index,
 	short line_height,
 	short left,
 	short width,
-	short top)
+	short top,
+	short shift)
 {
 	static real_argb_color const blue = { 1.0f, 0x28 / 255.0f, 0x96 / 255.0f, 1.0f };
 	static real_argb_color const grey = { 1.0f, 0.55f, 0.55f, 0.55f };
@@ -2562,9 +2627,15 @@ static short social_chat_open_draw(
 		bounds.x0 = x;
 		bounds.x1 = (short)(left + width);
 		social_chat_text(font_index, &bounds, channel == social_chat.channel ? &blue : usable ? &white : &grey, name);
+		/* (half the gap either side of it its own) */
+		social_chat_hits.channels[channel].x0 = (short)(x + shift - (channel ? line_height / 2 : 0));
+		social_chat_hits.channels[channel].x1 = (short)(x + shift + social_chat_width(name, NONE) + line_height / 2);
+		social_chat_hits.channels[channel].y0 = bounds.y0;
+		social_chat_hits.channels[channel].y1 = bounds.y1;
 		x = (short)(x + social_chat_width(name, NONE) + line_height);
 	}
 	top = (short)(top + line_height);
+	csmemset(&social_chat_hits.peer, 0, sizeof(social_chat_hits.peer));
 	if (social_chat.channel == _social_chat_private)
 	{
 		struct social_chat_peer const *peer = social_chat_peer_picked();
@@ -2582,6 +2653,9 @@ static short social_chat_open_draw(
 		bounds.y0 = top;
 		bounds.y1 = (short)(top + line_height);
 		social_chat_text(font_index, &bounds, &white, text);
+		social_chat_hits.peer = bounds;
+		social_chat_hits.peer.x0 = (short)(bounds.x0 + shift);
+		social_chat_hits.peer.x1 = (short)(bounds.x1 + shift);
 		top = (short)(top + line_height);
 	}
 	/* (the line typed, its end where it is wider than the box, and the caret) */
@@ -2805,7 +2879,10 @@ static void social_chat_draw_in(
 		social_chat_player.drawn = FALSE;
 	}
 	if (box)
+	{
 		social_chat_player.hit_count = 0;
+		social_chat_hits.drawn = FALSE;
+	}
 	if (!social_chat_shown() || network_replay_playing() || (!social_chat.open && cinematic_in_progress()))
 		return;
 	if (!shown_open && !social_chat.line_count)
@@ -2905,6 +2982,10 @@ static void social_chat_draw_in(
 		panel.y0 = top;
 		panel.y1 = bottom;
 		draw_quad(&panel, (pixel32)0x99 << 24);
+		social_chat_hits.box = panel;
+		social_chat_hits.box.x0 = (short)(panel.x0 + shift);
+		social_chat_hits.box.x1 = (short)(panel.x1 + shift);
+		social_chat_hits.drawn = TRUE;
 		/* (docked and chosen there, or open: its edge lit) */
 		if (docked && (social_chat.dock_chosen || social_chat.open))
 		{
@@ -2991,7 +3072,7 @@ static void social_chat_draw_in(
 		}
 		if (shown_open && box)
 			y = social_chat_open_draw(font_index, line_height, (short)(left + SOCIAL_CHAT_PADDING),
-				(short)(width - 2 * SOCIAL_CHAT_PADDING), y);
+				(short)(width - 2 * SOCIAL_CHAT_PADDING), y, shift);
 		if (social_chat.open && extras)
 		{
 			/* (docked: left of the box, over the main menu's items) */

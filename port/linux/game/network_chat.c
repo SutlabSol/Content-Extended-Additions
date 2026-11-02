@@ -2097,6 +2097,15 @@ void network_chat_update(
 		vote_keys_held = vote_keys;
 		vote_pad_held = vote_pad;
 	}
+	/* port: in a game not a network one (the campaign), the controller's
+	D-pad Up (the touch controls' too) and the controls' chat actions open
+	the fork's chat box, as T and Y on the keyboard do (social_chat.c) */
+	if (!chat_network_game() && game_in_progress() && social_chat_replaces_upstream() && !social_chat_typing() &&
+		(requested_port != NONE || (TEST_FLAG(pad_pressed, HALO_CHAT_PAD_UP) && !network_replay_playing())) &&
+		!chat_hidden() && !console_is_active() && !overlay_menu_open())
+	{
+		social_chat_open(_social_chat_global, requested_port != NONE ? requested_port : 0);
+	}
 	if (!chat_network_game() || !game_in_progress() || chat_speaker(TRUE) == NONE || !chat_shown() || chat_hidden() ||
 		(chat_input.active && chat_input.physical && !controller_remap_connected(chat_input.controller)))
 	{

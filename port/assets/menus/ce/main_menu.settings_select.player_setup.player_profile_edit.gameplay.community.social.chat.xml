@@ -102,7 +102,7 @@
 		<string text=""/>
 		<string text="The fork's chat box, in games and the menus\n(T, Y; L + R + D-pad Up). Off: the game's own."/>
 		<string text="Hear the GLOBAL channel: every player of the\nfork who is online."/>
-		<string text="Always: world lines show with the others, in a\nmatch too. Global tab: only there, on their own."/>
+		<string text="Always: world lines show with the others, in a\nmatch too. Global tab: in a match, only there."/>
 		<string text="Private lines reach you, and you can send them.\nOff: no one's private line reaches you."/>
 		<string text="Private lines with any player, or with your\nfriends alone (both ways)."/>
 		<string text="The lines of players many others reported:\nhidden, or shown marked REPORTED."/>
