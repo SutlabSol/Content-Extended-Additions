@@ -176,6 +176,11 @@ Android also the game's own keyboard: the system's on-screen keyboard up
 while it is, where there is one that text input shows (Steam's, Android's on
 a touchscreen); each field begun brings it up again */
 void platform_screen_keyboard(BOOL show, BOOL password);
+#ifndef HALO_ANDROID
+/* a line typed from the keyboard or not: its characters the system's
+layout's while it is (SDL's text input), not the keys' US ones */
+void platform_text_layout(BOOL wanted);
+#endif
 BOOL platform_next_keystroke(struct platform_keystroke *keystroke);
 /* the multiplayer scoreboard (game_engine.c) open or not: while it is, the
 mouse wheel and Page Up/Down scroll it instead of switching weapons; how

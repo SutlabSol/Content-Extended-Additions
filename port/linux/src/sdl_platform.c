@@ -118,6 +118,9 @@ static unsigned long keystroke_head, keystroke_count;
 Android's) */
 static void screen_keyboard_update(void);
 #ifndef HALO_ANDROID
+/* SDL's text input run while a line is typed from the keyboard, for the
+layout's characters */
+static void text_layout_update(void);
 /* dsound_sdl.c's: the output device followed */
 void dsound_sdl_output_device_check(void);
 /* updater.c's: the desktop self-updater */
@@ -1874,17 +1877,32 @@ static CHAR ascii_from_key(SDL_Keycode key, SDL_Keymod modifiers)
 	return 0;
 }
 
-static void queue_keystroke(const SDL_KeyboardEvent *event)
+/* the queue's next keystroke, the oldest let go when it is full (counted
+by the caller) */
+static struct platform_keystroke *keystroke_slot(void)
 {
-	struct platform_keystroke *keystroke;
-	BYTE flags = 0;
-
 	if (keystroke_count == KEYSTROKE_QUEUE_SIZE)
 	{
 		keystroke_head = (keystroke_head + 1) % KEYSTROKE_QUEUE_SIZE;
 		keystroke_count--;
 	}
-	keystroke = &keystroke_queue[(keystroke_head + keystroke_count) % KEYSTROKE_QUEUE_SIZE];
+	return &keystroke_queue[(keystroke_head + keystroke_count) % KEYSTROKE_QUEUE_SIZE];
+}
+
+#ifndef HALO_ANDROID
+/* SDL's text input run for the layout's characters (text_layout_update),
+and the last key pressed meanwhile that typed one, whose key a character
+typed arrives as (queue_text) */
+static BOOL text_layout_started;
+static BYTE text_layout_virtual_key;
+#endif
+
+static void queue_keystroke(const SDL_KeyboardEvent *event)
+{
+	struct platform_keystroke *keystroke;
+	BYTE flags = 0;
+
+	keystroke = keystroke_slot();
 	if (event->mod & SDL_KMOD_CTRL) flags |= 0x01;
 	if (event->mod & SDL_KMOD_SHIFT) flags |= 0x02;
 	if (event->mod & SDL_KMOD_ALT) flags |= 0x04;
@@ -1895,6 +1913,15 @@ static void queue_keystroke(const SDL_KeyboardEvent *event)
 	keystroke->virtual_key = virtual_key_from_scancode(event->scancode);
 	keystroke->ascii = event->down ? ascii_from_key(event->key, event->mod) : 0;
 	keystroke->flags = flags;
+#ifndef HALO_ANDROID
+	/* (the layout's characters come as text instead, queue_text: the key
+	types none of its own, but Enter, Backspace, Tab and Escape) */
+	if (text_layout_started && keystroke->ascii >= ' ' && keystroke->ascii <= '~')
+	{
+		text_layout_virtual_key = keystroke->virtual_key;
+		keystroke->ascii = 0;
+	}
+#endif
 	/* (SDL's key is the one typed, its modifiers taken: | wherever the
 	layout has it; a build's SDL that gives the key bare still has Shift+\;
 	and Shift+O, the O key wherever it is: | shares the console's key on
@@ -1905,6 +1932,34 @@ static void queue_keystroke(const SDL_KeyboardEvent *event)
 			!(event->mod & (SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI))));
 	keystroke_count++;
 }
+
+#ifndef HALO_ANDROID
+/* the characters the layout typed (SDL's text input: AltGr's, a dead key's,
+whatever the system's layout has where the key is), each a press and a
+release of the last key that typed (else the space bar), as the game reads
+keys; those past ASCII the game has no letter for */
+static void queue_text(const char *text)
+{
+	for (; *text; text++)
+	{
+		struct platform_keystroke *keystroke;
+		BYTE virtual_key = text_layout_virtual_key ? text_layout_virtual_key : 0x20;
+
+		if (*text < ' ' || *text > '~')
+			continue;
+		keystroke = keystroke_slot();
+		memset(keystroke, 0, sizeof(*keystroke));
+		keystroke->virtual_key = virtual_key;
+		keystroke->ascii = *text;
+		keystroke_count++;
+		keystroke = keystroke_slot();
+		memset(keystroke, 0, sizeof(*keystroke));
+		keystroke->virtual_key = virtual_key;
+		keystroke->flags = 0x40;
+		keystroke_count++;
+	}
+}
+#endif
 
 /* whether a key was pressed after a controller or the touchscreen was last
 used (halo_keyboard.h's halo_keyboard_typed_last): none yet is not */
@@ -2350,6 +2405,9 @@ void platform_pump_events(void)
 	dsound_sdl_output_device_check();
 #endif
 	screen_keyboard_update();
+#ifndef HALO_ANDROID
+	text_layout_update();
+#endif
 	pthread_mutex_lock(&input_lock);
 #ifndef HALO_ANDROID
 	/* (the scoreboard closed, or no longer offering it: the pointer goes) */
@@ -2367,6 +2425,12 @@ void platform_pump_events(void)
 			pthread_mutex_unlock(&input_lock);
 			platform_log("window closed");
 			exit(EXIT_SUCCESS);
+#ifndef HALO_ANDROID
+		case SDL_EVENT_TEXT_INPUT:
+			if (text_layout_started)
+				queue_text(event.text.text);
+			break;
+#endif
 		case SDL_EVENT_KEY_DOWN:
 		case SDL_EVENT_KEY_UP:
 			if (event.key.scancode < SDL_SCANCODE_COUNT)
@@ -2829,7 +2893,7 @@ static void screen_keyboard_update(void)
 	if (!wanted)
 	{
 		open_time = 0;
-		if (SDL_TextInputActive(platform_window))
+		if (SDL_TextInputActive(platform_window) && !text_layout_started)
 			SDL_StopTextInput(platform_window);
 		return;
 	}
@@ -2862,6 +2926,38 @@ static void screen_keyboard_update(void)
 			wanted == 2 ? SDL_TEXTINPUT_TYPE_TEXT_PASSWORD_HIDDEN : SDL_TEXTINPUT_TYPE_TEXT);
 		SDL_StartTextInputWithProperties(platform_window, properties);
 		SDL_DestroyProperties(properties);
+	}
+}
+
+/* A line typed from the keyboard (a chat line, a name, a menu's text
+field: xinput_sdl.c) takes its characters as the system's layout has them:
+SDL's text input runs meanwhile, and what it types (SDL_EVENT_TEXT_INPUT,
+queue_text) arrives as keys, not the keys' own US characters. */
+static SDL_AtomicInt text_layout_wanted;
+
+void platform_text_layout(BOOL wanted)
+{
+	SDL_SetAtomicInt(&text_layout_wanted, wanted != 0);
+}
+
+/* (on the window's thread, after screen_keyboard_update: Steam's keyboard,
+up, keeps the text input it started) */
+static void text_layout_update(void)
+{
+	BOOL wanted = SDL_GetAtomicInt(&text_layout_wanted) != 0;
+
+	if (wanted && !text_layout_started)
+	{
+		if (!SDL_TextInputActive(platform_window))
+			SDL_StartTextInput(platform_window);
+		text_layout_started = TRUE;
+		text_layout_virtual_key = 0;
+	}
+	else if (!wanted && text_layout_started)
+	{
+		if (!SDL_GetAtomicInt(&screen_keyboard_wanted) && SDL_TextInputActive(platform_window))
+			SDL_StopTextInput(platform_window);
+		text_layout_started = FALSE;
 	}
 }
 

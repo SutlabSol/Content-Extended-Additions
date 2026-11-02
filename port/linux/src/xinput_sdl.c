@@ -2435,6 +2435,12 @@ DWORD WINAPI XInputDebugGetKeystroke(PXINPUT_DEBUG_KEYSTROKE keystroke)
 	struct platform_keystroke next;
 
 	memset(keystroke, 0, sizeof(*keystroke));
+#ifndef HALO_ANDROID
+	/* (a line typed from the keyboard: the system's layout's characters,
+	sdl_platform.c) */
+	platform_text_layout((network_chat_typing() || overlay_menu_typing() || text_typing) &&
+		halo_keyboard_typed_last());
+#endif
 	while (platform_next_keystroke(&next))
 	{
 		BOOL key_up = (next.flags & XINPUT_DEBUG_KEYSTROKE_FLAG_KEYUP) != 0;
