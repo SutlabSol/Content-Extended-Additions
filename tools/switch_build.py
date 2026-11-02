@@ -234,10 +234,8 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     nacp_author = "thelinkin3000 & Watanoge"
     nacp_version = "1.0.0"
     # The icon does not go in the NACP: it is an asset, embedded by elf2nro
-    # below. A 256x256 JPEG, converted from the same master the Android icon
-    # comes from (port/android/art/android-icon.png, via tools/android_icon.py),
-    # so the launcher on the console and the one on the phone show the same
-    # picture rather than two pictures that happen to be a port of each other.
+    # below. tools/app_icon.py makes this 256x256 JPEG from ContentEvolved.png,
+    # the same master as the Android, desktop and web icons.
     # absolute, for the same reason the paths below are: elf2nro reports
     # "Failed to open input!" for a relative one
     nro_icon = (Path.cwd() / PORT_DIR / "art" / "icon.jpg").resolve()

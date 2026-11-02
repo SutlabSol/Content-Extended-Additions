@@ -70,6 +70,14 @@ code { font-size: 0.95em; }
   gap: 24px;
 }
 .brand { display: flex; align-items: center; gap: 13px; color: inherit; text-decoration: none; }
+.brand-icon {
+  display: block;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border: 1px solid rgba(119, 207, 69, 0.45);
+}
 .brand-mark {
   display: grid;
   place-items: center;
@@ -346,6 +354,7 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
   :root { --masthead-height: 71px; }
   .masthead-inner { padding: 14px 16px; gap: 14px; }
   .brand { gap: 9px; }
+  .brand-icon { width: 36px; height: 36px; }
   .brand-mark { width: 36px; }
   .masthead h1 { font-size: 18px; }
   .tagline { font-size: 11px; }
@@ -427,22 +436,71 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
 }
 .story-heading h2 { padding: 10px 0 0; font-size: 30px; }
 .story-intro { max-width: 580px; margin: 0; color: #b1beb2; }
-.timeline {
-  list-style: none;
-  margin: 0;
-  padding: 20px 32px 30px;
+.kanban-board {
+  padding: 0 24px 24px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 22px;
-  border-top: 1px solid #1a2c1e;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px;
 }
-.timeline li { min-width: 0; padding-left: 14px; border-left: 2px solid #77cf45; }
-.timeline-mark { color: #77cf45; font-size: 11px; font-weight: 900; }
-.timeline h3 { margin: 6px 0 5px; font-size: 16px; font-weight: 900; }
-.timeline p { margin: 0; color: #a9b7aa; font-size: 14px; }
-@media (max-width: 1100px) {
-  .timeline { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.kanban-column {
+  min-width: 0;
+  max-height: min(760px, calc(100vh - 220px));
+  min-height: 360px;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  border: 1px solid #1a2c1e;
+  border-top: 2px solid #526b55;
+  background: #050805;
 }
+.kanban-column.doing { border-top-color: #b6d84e; }
+.kanban-column.done { border-top-color: #00ff41; }
+.kanban-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 2px 2px 12px; }
+.kanban-heading h3 { margin: 0; color: #edf5ed; font-size: 15px; font-weight: 900; }
+.kanban-heading span { color: #91a492; font: 700 12px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.doing .kanban-heading span { color: #b6d84e; }
+.done .kanban-heading span { color: #00ff41; }
+.feature-list { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding-right: 3px; }
+.feature-card { padding: 11px 12px; border: 1px solid #17291a; background: #09100a; }
+.feature-kind { margin: 0 0 5px; color: #87ae83; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+.feature-card h4 { margin: 0; color: #f2f7f2; font-size: 14px; line-height: 1.35; }
+.feature-description { margin: 6px 0 0; color: #a9b7aa; font-size: 12px; line-height: 1.45; }
+.feature-source { display: inline-block; margin-top: 7px; font-size: 12px; }
+.feature-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin-top: 9px; color: #899a8b; font-size: 11px; }
+.feature-release { color: #77cf45; text-decoration: none; }
+.feature-release::before { content: "↗ "; }
+.feature-authors a { color: #b8c5b9; text-decoration: none; }
+.feature-authors a:hover { color: #a2ff78; }
+
+/* Downloads: release links are grouped by build and platform. */
+.download-heading { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding: 24px 28px; }
+.download-heading h2 { padding: 8px 0 0; }
+.download-heading .button { flex: none; }
+.download-intro { margin: 8px 0 0; color: #a9b7aa; }
+.latest-release, .release-history { margin: 0 28px; padding: 18px 0; border-top: 1px solid #1a2c1e; }
+.latest-release { border-bottom: 1px solid #1a2c1e; }
+.release-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 16px; }
+.release-heading h3 { margin: 0; color: #edf5ed; font-size: 16px; font-weight: 900; }
+.release-heading > a { font-size: 13px; }
+.release-date { color: #93a295; font-size: 12px; }
+.release-name { margin: 8px 0 12px; color: #dce8dd; font-size: 14px; }
+.release-assets { display: flex; flex-wrap: wrap; gap: 8px; }
+.release-assets:empty { display: none; }
+.release-asset { display: inline-flex; align-items: center; gap: 12px; min-height: 38px; padding: 8px 11px; border: 1px solid #285d34; background: #09150b; color: #eaf5e9; font-size: 12px; text-decoration: none; }
+.release-asset:hover { border-color: #77cf45; background: #102015; }
+.release-asset span { color: #8fa092; font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.release-list { margin-top: 10px; border-top: 1px solid #142117; }
+.release-item { border-bottom: 1px solid #142117; }
+.release-item summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; padding: 13px 4px; cursor: pointer; list-style: none; }
+.release-item summary::-webkit-details-marker { display: none; }
+.release-item summary::before { content: "+"; grid-column: 1; grid-row: 1; width: 14px; color: #77cf45; }
+.release-item[open] summary::before { content: "−"; }
+.release-item-title { grid-column: 1; grid-row: 1; padding-left: 22px; color: #e5eee5; font-size: 13px; font-weight: 750; }
+.release-tag { color: #77cf45; font: 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.release-details { padding: 0 4px 16px 26px; }
+.release-notes { max-height: 260px; overflow: auto; margin: 0 0 12px; color: #a9b7aa; font: 12px/1.5 system-ui, sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; }
+.release-empty { margin: 0; color: #a9b7aa; font-size: 12px; }
 @keyframes launch-arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 760px) {
@@ -452,7 +510,14 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
   #play-panel .launch-status .rows { grid-template-columns: 1fr; }
   .story-heading { grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 24px 20px 20px; }
   .story-heading h2 { font-size: 26px; }
-  .timeline { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 18px 20px 24px; }
+  .kanban-board { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; padding: 0 16px 18px; }
+  .kanban-column { flex: 0 0 min(84vw, 360px); max-height: 68vh; min-height: 320px; scroll-snap-align: start; }
+  .download-heading { align-items: flex-start; flex-direction: column; padding: 20px 16px; gap: 14px; }
+  .download-heading .button { width: 100%; }
+  .latest-release, .release-history { margin: 0 16px; }
+  .release-item summary { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 10px; }
+  .release-item .release-tag { grid-column: 1; padding-left: 22px; }
+  .release-item .release-date { grid-column: 2; grid-row: 1 / span 2; }
   .nav-toggle {
     display: grid;
     place-items: center;

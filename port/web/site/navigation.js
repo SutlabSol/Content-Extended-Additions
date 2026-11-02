@@ -1,11 +1,12 @@
 'use strict';
 
 (() => {
-  const pages = ['home', 'game-data', 'servers', 'settings', 'about'];
+  const pages = ['home', 'game-data', 'servers', 'downloads', 'settings', 'about'];
   const titles = {
     home: 'Home',
     'game-data': 'Game data',
     servers: 'Server browser',
+    downloads: 'Downloads',
     settings: 'Settings and data',
     about: 'About',
   };
@@ -18,6 +19,7 @@
     'checks-panel': 'game-data',
     'room-panel': 'servers',
     'servers-panel': 'servers',
+    'downloads-panel': 'downloads',
     'settings-panel': 'settings',
     'about-panel': 'about',
   };

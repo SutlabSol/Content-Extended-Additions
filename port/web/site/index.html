@@ -20,7 +20,7 @@
   <header class="masthead">
     <div class="masthead-inner">
       <a class="brand" href="#home" aria-label="Halo Content Evolved home">
-        <span class="brand-mark" aria-hidden="true">CE</span>
+        <img class="brand-icon" src="icons/icon-192.png" alt="" width="42" height="42">
         <span class="brand-copy">
           <h1>Halo Content Evolved</h1>
           <span class="tagline">A community project built on OpenCE</span>
@@ -42,6 +42,7 @@
         <a href="#home" data-page-link="home">Home</a>
         <a href="#game-data" data-page-link="game-data">Game data</a>
         <a href="#servers" data-page-link="servers">Server browser</a>
+        <a href="#downloads" data-page-link="downloads">Downloads</a>
         <p class="nav-label nav-label-secondary">Manage</p>
         <a href="#settings" data-page-link="settings">Settings and data</a>
         <a href="#about" data-page-link="about">About</a>
@@ -57,10 +58,11 @@
               <div class="button-bar launch-actions">
                 <button id="play" class="primary play" disabled>Play</button>
                 <a class="data-link" href="#data-panel">Set up game data <span aria-hidden="true">→</span></a>
+                <a class="data-link" href="#downloads">Downloads <span aria-hidden="true">→</span></a>
               </div>
               <p id="play-note" class="help note"></p>
             </div>
-            <img class="game-art" src="icons/icon-512.png" alt="Armored soldier from Halo: Combat Evolved" width="192" height="192">
+            <img class="game-art" src="icons/icon-512.png" alt="Halo Content Evolved emblem" width="192" height="192">
           </div>
           <div class="launch-status">
             <div class="launch-status-heading">
@@ -82,18 +84,53 @@
         <section class="screen project-story" id="project-panel" data-page-view="home" aria-labelledby="project-title">
           <div class="story-heading">
             <div>
-              <p class="eyebrow">A project in motion</p>
-              <h2 id="project-title">From fixes to a bigger Halo.</h2>
+              <p class="eyebrow">Project roadmap</p>
+              <h2 id="project-title">A community-built Halo.</h2>
             </div>
-            <p class="story-intro">This began with a few Switch quality-of-life fixes. It grew into a broader goal: make Halo CE richer to play, and make two decades of Custom Edition content easier to reach.</p>
+            <p class="story-intro">From Switch quality-of-life fixes to a feature-rich Halo CE. The long-term goal is to make two decades of Custom Edition content easy to use, create with, and share.</p>
           </div>
-          <ol class="timeline">
-            <li><span class="timeline-mark">01</span><div><h3>Switch port fixes</h3><p>Started from <a href="https://github.com/thelinkin3000/halo-ce-universal">Thelinkin3000's OpenCE fork</a> to smooth out Switch-specific nitpicks.</p></div></li>
-            <li><span class="timeline-mark">02</span><div><h3>Campaign randomizer</h3><p>The first big addition: remixing encounters and weapons for another way through the campaign.</p></div></li>
-            <li><span class="timeline-mark">03</span><div><h3>Skulls and scoring</h3><p>More ways to shape a run, chase a score, and earn medals.</p></div></li>
-            <li><span class="timeline-mark">04</span><div><h3>Tag Injector</h3><p>Expanded access to the weapons, enemies, and other content made for Halo Custom Edition.</p></div></li>
-            <li><span class="timeline-mark">05</span><div><h3>Halo Content Evolved</h3><p>The vision: Theater, Forge, Firefight, social features, and easier access to 20 years of Custom Edition content.</p></div></li>
-          </ol>
+          <div class="kanban-board" aria-label="Project roadmap">
+            <section class="kanban-column planned" aria-labelledby="planned-title">
+              <div class="kanban-heading"><h3 id="planned-title">Planned</h3><span id="planned-count"></span></div>
+              <div class="feature-list" id="roadmap-planned"></div>
+            </section>
+            <section class="kanban-column doing" aria-labelledby="doing-title">
+              <div class="kanban-heading"><h3 id="doing-title">Doing</h3><span id="doing-count"></span></div>
+              <div class="feature-list" id="roadmap-doing"></div>
+            </section>
+            <section class="kanban-column done" aria-labelledby="done-title">
+              <div class="kanban-heading"><h3 id="done-title">Done</h3><span id="done-count"></span></div>
+              <div class="feature-list" id="roadmap-done"></div>
+            </section>
+          </div>
+        </section>
+
+        <section class="screen downloads-page" id="downloads-panel" data-page-view="downloads" aria-labelledby="downloads-title">
+          <div class="download-heading">
+            <div>
+              <p class="eyebrow">Get the latest build</p>
+              <h2 id="downloads-title">Downloads</h2>
+              <p class="download-intro">Choose a platform build or browse the complete release history.</p>
+            </div>
+            <a class="button primary" href="https://github.com/Watanoge/halo-content-evolved/releases/latest" target="_blank" rel="noopener">Latest release <span aria-hidden="true">↗</span></a>
+          </div>
+          <div class="latest-release" aria-labelledby="latest-release-title">
+            <div class="release-heading">
+              <h3>Latest release</h3>
+              <span id="latest-release-tag" class="release-tag"></span>
+              <span id="latest-release-date" class="release-date">Loading from GitHub…</span>
+            </div>
+            <p id="latest-release-name" class="release-name"></p>
+            <div id="latest-assets"></div>
+          </div>
+          <div class="release-history">
+            <div class="release-heading">
+              <h3>Release history</h3>
+              <a href="https://github.com/Watanoge/halo-content-evolved/releases" target="_blank" rel="noopener">All releases on GitHub ↗</a>
+            </div>
+            <p id="releases-status" class="release-date" role="status">Fetching release notes…</p>
+            <div id="releases-list" class="release-list"></div>
+          </div>
         </section>
 
         <section class="screen" id="data-panel" data-page-view="game-data" aria-labelledby="data-title">
@@ -309,6 +346,7 @@
 <script src="net.js"></script>
 <script src="p2p.js"></script>
 <script src="servers.js"></script>
+<script src="project.js"></script>
 <script src="navigation.js"></script>
 <script src="app.js"></script>
 </body>

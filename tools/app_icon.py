@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
-"""Makes the game's icons from its artwork, port/assets/icon:
+"""Makes the game's icons from ContentEvolved.png:
 
     python tools/app_icon.py
 
-- opence-icon.png, the helmet on its background (512x512): the Windows
-  executable's icon (port/windows/opence-icon.ico, which port/windows/halo.rc
-  puts in halo.exe) and the desktop builds' window icon (opence-icon-256.png,
-  which tools/embed_assets.py embeds and sdl_platform.c gives the window);
-- opence-icon-render.png, the helmet alone on transparency (1024x1024, the same
-  framing): the Android app's launcher icon;
-- opence-icon.png again: the web page's icons (port/web/site/icons), its tab's,
-  the installed web app's and the home screen's.
+- opence-icon.png: the Windows executable icon, desktop window icon and web
+    icons, including the tab, installed web app and home screen;
+- opence-icon-render.png (1024x1024): the white mark cropped to transparency
+    with safe margins, for Android's adaptive foreground and monochrome layers;
+- port/switch/art/icon.JPG and port/ps5/sce_sys/icon0.png: the console icons.
 
 The launcher icon is an adaptive one (Android 8 and later): the render as its
 foreground layer, the background's gradient as its background layer, and the
@@ -32,10 +29,13 @@ from PIL import Image
 
 ROOT = Path(__file__).resolve().parent.parent
 ARTWORK = ROOT / "port/assets/icon"
+SOURCE_ICON = ROOT / "ContentEvolved.png"
 ICON = ARTWORK / "opence-icon.png"
 RENDER = ARTWORK / "opence-icon-render.png"
 WINDOW_ICON = ARTWORK / "opence-icon-256.png"
 WINDOWS_ICON = ROOT / "port/windows/opence-icon.ico"
+SWITCH_ICON = ROOT / "port/switch/art/icon.jpg"
+PS5_ICON = ROOT / "port/ps5/sce_sys/icon0.png"
 RESOURCES = ROOT / "port/android/app/src/main/res"
 
 # the layers' size, and the part of them a launcher shows, in dp
@@ -50,25 +50,12 @@ WEB_ICONS = ROOT / "port/web/site/icons"
 WEB_SIZES = [32, 180, 192, 512]
 
 
-def background_gradient(icon: Image.Image, render: Image.Image) -> tuple:
-    """the icon's background as a line through its rows' colours (where the
-    render leaves it bare): the colours at the top and the bottom of the
-    launcher's layer, which reaches (LAYER_DP - VISIBLE_DP) / 2 beyond the
-    picture at each side"""
+def background_gradient(icon: Image.Image) -> tuple:
+    """The solid background color at the four outside corners of the master."""
     pixels = np.asarray(icon.convert("RGB"), dtype=np.float64)
-    bare = np.asarray(render.resize(icon.size, Image.LANCZOS).getchannel("A")) == 0
-    rows, colours = [], []
-    for y in range(icon.height):
-        if bare[y].any():
-            rows.append(y)
-            colours.append(pixels[y][bare[y]].mean(axis=0))
-    fit = np.polyfit(np.array(rows, dtype=np.float64), np.array(colours), 1)
-    margin = (LAYER_DP - VISIBLE_DP) / 2 / VISIBLE_DP * icon.height
-
-    def at(y: float) -> tuple:
-        return tuple(int(round(min(255.0, max(0.0, fit[0][c] * y + fit[1][c])))) for c in range(3))
-
-    return at(-margin), at(icon.height + margin)
+    corners = np.array([pixels[0, 0], pixels[0, -1], pixels[-1, 0], pixels[-1, -1]])
+    color = tuple(int(round(channel)) for channel in np.median(corners, axis=0))
+    return color, color
 
 
 def carried_out(image: Image.Image, size: int) -> Image.Image:
@@ -92,6 +79,27 @@ def monochrome(render: Image.Image) -> Image.Image:
     return Image.fromarray(out, "RGBA")
 
 
+def transparent_mark(icon: Image.Image) -> Image.Image:
+    """Remove the flat green canvas and frame the mark for an adaptive icon."""
+    pixels = np.asarray(icon.convert("RGBA"), dtype=np.float64)
+    corners = np.array([pixels[0, 0, :3], pixels[0, -1, :3], pixels[-1, 0, :3], pixels[-1, -1, :3]])
+    background = np.median(corners, axis=0)
+    foreground = np.clip((pixels[..., :3] - background) / (255.0 - background), 0.0, 1.0)
+    alpha = np.round(np.mean(foreground, axis=2) * 255).astype(np.uint8)
+    output = np.full(pixels.shape, 255, dtype=np.uint8)
+    output[..., 3] = alpha
+    mark = Image.fromarray(output, "RGBA")
+    bounds = mark.getchannel("A").getbbox()
+    if bounds is None:
+        raise ValueError(f"{SOURCE_ICON.name} has no visible mark")
+    cropped = mark.crop(bounds)
+    padding = round(max(cropped.size) * 0.1)
+    side = max(cropped.size) + padding * 2
+    framed = Image.new("RGBA", (side, side), (255, 255, 255, 0))
+    framed.alpha_composite(cropped, ((side - cropped.width) // 2, (side - cropped.height) // 2))
+    return framed
+
+
 def web_icons(icon: Image.Image) -> None:
     WEB_ICONS.mkdir(parents=True, exist_ok=True)
     for size in WEB_SIZES:
@@ -100,8 +108,15 @@ def web_icons(icon: Image.Image) -> None:
 
 
 def main() -> None:
-    icon = Image.open(ICON).convert("RGBA")
-    render = Image.open(RENDER).convert("RGBA")
+    source = Image.open(SOURCE_ICON).convert("RGBA")
+    if source.width != source.height:
+        raise ValueError(f"{SOURCE_ICON.name} must be square")
+    icon = source.resize((512, 512), Image.LANCZOS)
+    render = transparent_mark(icon).resize((1024, 1024), Image.LANCZOS)
+    ARTWORK.mkdir(parents=True, exist_ok=True)
+    icon.save(ICON, optimize=True)
+    render.save(RENDER, optimize=True)
+    print(f"{ICON.relative_to(ROOT)} and {RENDER.relative_to(ROOT)}: 512x512")
 
     # the desktop's icons
     icon.resize((256, 256), Image.LANCZOS).save(WINDOW_ICON, optimize=True)
@@ -109,6 +124,11 @@ def main() -> None:
     icon.save(WINDOWS_ICON, sizes=[(size, size) for size in WINDOWS_SIZES])
     print(f"{WINDOWS_ICON.relative_to(ROOT)}: {', '.join(str(size) for size in WINDOWS_SIZES)}")
     web_icons(icon)
+
+    icon.resize((256, 256), Image.LANCZOS).convert("RGB").save(SWITCH_ICON, quality=95, optimize=True)
+    print(f"{SWITCH_ICON.relative_to(ROOT)}: 256x256")
+    icon.save(PS5_ICON, optimize=True)
+    print(f"{PS5_ICON.relative_to(ROOT)}: 512x512")
 
     # the launcher's layers
     themed = monochrome(render)
@@ -122,7 +142,7 @@ def main() -> None:
                 directory / f"{name}.png", optimize=True)
         print(f"{directory.relative_to(ROOT)}: {size}x{size}")
 
-    top, bottom = background_gradient(icon, render)
+    top, bottom = background_gradient(icon)
     drawable = RESOURCES / "drawable"
     drawable.mkdir(parents=True, exist_ok=True)
     (drawable / "ic_launcher_background.xml").write_text(
