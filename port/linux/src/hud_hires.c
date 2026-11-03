@@ -718,13 +718,11 @@ static unsigned int png_pixels_texture(unsigned char *pixels, unsigned long widt
 	return texture;
 }
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height)
 {
 	*width = *height = 0;
 	return png_decode(png, size, width, height);
 }
-#endif
 unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
 {
 	unsigned long width = 0, height = 0;

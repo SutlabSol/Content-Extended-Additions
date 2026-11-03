@@ -76,6 +76,7 @@ machine (their datum identifiers need not be).
 #include "units/bipeds.h"
 #include "network_coop.h"
 #include "network_distributed.h"
+#include "platform_icons.h"
 #include "infection.h"
 #include "network_link.h"
 #include "network_voice.h"
@@ -699,6 +700,7 @@ static struct distributed_client_identity distributed_sent_identity;
 client: whether it sent its own this game */
 static struct distributed_client_build distributed_client_builds[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 static boolean distributed_client_build_known[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+static byte distributed_machine_platforms[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
 static boolean distributed_build_sent;
 static boolean distributed_identity_sent;
 static struct distributed_client_clock
@@ -1483,6 +1485,7 @@ static boolean distributed_machine_loaded(
 	distributed_client_clocks[machine_index].window_tick = NONE;
 	csmemset(&distributed_client_identities[machine_index], 0, sizeof(distributed_client_identities[machine_index]));
 	csmemset(&distributed_client_builds[machine_index], 0, sizeof(distributed_client_builds[machine_index]));
+	distributed_machine_platforms[machine_index] = _platform_icon_none;
 	distributed_client_build_known[machine_index] = FALSE;
 	for (player_index = 0; player_index < MAXIMUM_TRACKED_PLAYERS; player_index++)
 		distributed_seen[machine_index][player_index] = FALSE;
@@ -3996,6 +3999,16 @@ void network_distributed_new_game(
 	distributed_identity_sent = FALSE;
 	csmemset(distributed_client_builds, 0, sizeof(distributed_client_builds));
 	csmemset(distributed_client_build_known, 0, sizeof(distributed_client_build_known));
+	csmemset(distributed_machine_platforms, 0, sizeof(distributed_machine_platforms));
+	if (network_game_distributed_client())
+	{
+		short local_machine_index = network_game_client_get_local_machine_index();
+
+		if (local_machine_index >= 0 && local_machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+			distributed_machine_platforms[local_machine_index] = (byte)platform_icon_local();
+	}
+	else
+		distributed_machine_platforms[0] = (byte)platform_icon_local();
 	distributed_build_sent = FALSE;
 	{
 		short machine_index;
@@ -4430,9 +4443,41 @@ void distributed_client_send_build(
 	distributed_build_text(message.build.repository, sizeof(message.build.repository), repository, FALSE);
 	distributed_build_text(message.build.version, sizeof(message.build.version), version, FALSE);
 	distributed_build_text(message.build.mods, sizeof(message.build.mods), mods, TRUE);
+	message.build.platform = (byte)platform_icon_local();
 	distributed_build_sent = TRUE;
 	distributed_send(&message, _distributed_message_client_build, 1, (word)sizeof(message),
 		_distributed_to_host_reliably);
+}
+
+static void distributed_platforms_send(
+	void)
+{
+	struct
+	{
+		struct distributed_message_header header;
+		struct distributed_platform_map platforms;
+	} message;
+	long machine_index;
+
+	/* The host is machine 0; a client reports its own platform with its build. */
+	distributed_machine_platforms[0] = (byte)platform_icon_local();
+	for (machine_index = 0; machine_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES; machine_index++)
+	{
+		if (distributed_machine_platforms[machine_index] >= NUMBER_OF_PLATFORM_ICON_KINDS)
+			distributed_machine_platforms[machine_index] = _platform_icon_none;
+	}
+	csmemset(&message, 0, sizeof(message));
+	csmemcpy(message.platforms.platform, distributed_machine_platforms, sizeof(message.platforms.platform));
+	distributed_send(&message, _distributed_message_platforms, 1, (word)sizeof(message),
+		_distributed_to_clients_reliably);
+}
+
+short network_distributed_machine_platform(
+	long machine_index)
+{
+	if (machine_index < 0 || machine_index >= HALO_PORT_MAXIMUM_NETWORK_MACHINES)
+		return _platform_icon_none;
+	return distributed_machine_platforms[machine_index];
 }
 
 boolean distributed_machine_client_build(
@@ -5111,6 +5156,7 @@ void network_distributed_handle_message(
 	case _distributed_message_client_ready: entry_size = 0; break;
 	case _distributed_message_client_identity: entry_size = sizeof(struct distributed_client_identity); break;
 	case _distributed_message_client_build: entry_size = sizeof(struct distributed_client_build); break;
+	case _distributed_message_platforms: entry_size = sizeof(struct distributed_platform_map); break;
 	case _distributed_message_damage_events:
 	case _distributed_message_hit_reports:
 	case _distributed_message_fire_origins: entry_size = network_damage_entry_size(header.type); break;
@@ -5137,6 +5183,7 @@ void network_distributed_handle_message(
 	case _distributed_message_chat_up:
 	case _distributed_message_chat_down:
 	case _distributed_message_chat_config:
+	case _distributed_message_platforms:
 		if (header.count < 1)
 			return;
 		break;
@@ -5358,6 +5405,8 @@ void network_distributed_handle_message(
 			distributed_build_text(kept->repository, sizeof(kept->repository), told.repository, FALSE);
 			distributed_build_text(kept->version, sizeof(kept->version), told.version, FALSE);
 			distributed_build_text(kept->mods, sizeof(kept->mods), told.mods, TRUE);
+			kept->platform = told.platform < NUMBER_OF_PLATFORM_ICON_KINDS ? told.platform : _platform_icon_none;
+			distributed_machine_platforms[machine_index] = kept->platform;
 			distributed_client_build_known[machine_index] = TRUE;
 			distributed_machine_player_names(machine_index, names, sizeof(names));
 			snprintf(mods, sizeof(mods), "%s", kept->mods);
@@ -5369,6 +5418,23 @@ void network_distributed_handle_message(
 			platform_log("network: machine %ld (%s) plays %s, from %s; mods: %s", machine_index,
 				names[0] ? names : "no player yet", kept->version[0] ? kept->version : "a build it does not name",
 				kept->repository[0] ? kept->repository : "a repository it does not name", mods[0] ? mods : "none");
+			distributed_platforms_send();
+		}
+		break;
+	case _distributed_message_platforms:
+		if (machine_index == NONE && header.count >= 1)
+		{
+			struct distributed_platform_map platforms;
+			long platform_index;
+
+			csmemcpy(&platforms, entries, sizeof(platforms));
+			for (platform_index = 0; platform_index < HALO_PORT_MAXIMUM_NETWORK_MACHINES; platform_index++)
+			{
+				byte platform = platforms.platform[platform_index];
+
+				distributed_machine_platforms[platform_index] =
+					platform < NUMBER_OF_PLATFORM_ICON_KINDS ? platform : _platform_icon_none;
+			}
 		}
 		break;
 	case _distributed_message_notice:

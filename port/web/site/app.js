@@ -124,7 +124,7 @@ function showUpdate(text, disabled) {
   updating = !!disabled;
   $('update-button').disabled = updating;
   $('update-button').textContent = updating ? 'Updating…' : 'Update';
-  $('update-text').hidden = !updateAvailable;
+  $('update-text').hidden = !updateAvailable || updating;
   $('update-text').textContent = text;
   $('play').textContent = updateAvailable ? 'Play anyways' : 'Play';
   updatePlay();
@@ -360,6 +360,7 @@ async function refreshCustomMaps() {
       (missing.length ? `; ${missing.join(', ')} missing: the maps cannot be played without them.` : ', ready.');
   }
   $('custom-status').textContent = text;
+  summarize('summary-custom', null, maps ? `${maps} map${maps === 1 ? '' : 's'}` : 'None yet');
   $('custom-remove').disabled = !(maps || resources.length);
   $('custom-export').disabled = !(maps || resources.length);
   await refreshStorage();
@@ -586,6 +587,7 @@ async function refreshProfiles() {
     `${found.length} tag profile${found.length === 1 ? '' : 's'}, ${multiplayer} multiplayer and ${campaign} campaign ` +
     `profile${campaign === 1 ? '' : 's'} in this browser.` : 'No tag profiles yet.';
   $('profiles-export').disabled = !found.length;
+  summarize('summary-profiles', null, found.length ? `${found.length} profile${found.length === 1 ? '' : 's'}` : 'None yet');
   await refreshStorage();
 }
 
@@ -832,10 +834,10 @@ function updatePlay() {
     gameElsewhere ? 'The game is already running in another tab of this browser: play there, or quit it or close ' +
       'that tab, and Play here turns on.' :
     !dataReady ? 'The game data is needed first.' :
-    updating ? 'Updating: Play turns on again once it is done.' :
+    updating ? '' :
     updateRequired ? 'A newer build is out: Update, and Play turns on.' : '';
-  summarize('summary-browser', checksPassed, checksPassed ? 'Runs the game' : 'Cannot run the game');
-  summarize('summary-data', dataReady, dataReady ? $('data-status').textContent : 'Needed first');
+  summarize('summary-browser', checksPassed, checksPassed ? 'Compatible' : 'Not compatible');
+  summarize('summary-data', dataReady, dataReady ? 'Ready' : 'Needed first');
 }
 
 // init.txt in the data folder: the console commands the game runs as it

@@ -416,7 +416,8 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
   align-items: flex-start;
   gap: 12px;
 }
-.launch-actions .play-row { display: flex; flex-flow: row wrap; align-items: center; gap: 12px; }
+.launch-actions .play-row { display: flex; flex-flow: row wrap; align-items: center; gap: 12px 24px; }
+#play-panel .community-stats { margin-top: 20px; max-width: 640px; }
 .android-download-link { display: none; }
 .launch-actions .data-link { color: #f5f8f5; font-size: 14px; text-decoration-color: #58735c; text-underline-offset: 4px; }
 .launch-actions .data-link span { color: #77cf45; padding-left: 5px; }
@@ -426,7 +427,9 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
 .launch-status-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
 .launch-status-heading h3 { margin: 0; font-size: 16px; font-weight: 900; }
 .launch-status-heading .eyebrow { color: #77cf45; }
-#play-panel .launch-status .rows { padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+#play-panel .launch-status .rows { padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
+#play-panel .launch-status a.row { color: inherit; text-decoration: none; }
+#play-panel .launch-status a.row:hover { border-color: var(--edge-bright); }
 #play-panel .launch-status .row { min-width: 0; align-content: start; }
 #play-panel .launch-status .row-value { text-align: left; text-transform: none; }
 #play-panel .launch-status .help { margin-top: 14px; color: #a9b7aa; }
@@ -440,6 +443,22 @@ button.danger:hover:not(:disabled) { border-color: var(--bad); box-shadow: none;
 }
 .story-heading h2 { padding: 10px 0 0; font-size: 30px; }
 .story-intro { max-width: 580px; margin: 0; color: #b1beb2; }
+.community-stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+}
+.community-stats[hidden] { display: none; }
+.community-stats div {
+  padding: 14px 16px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--edge-dim);
+  background: var(--row);
+}
+.community-stats strong { font-size: 26px; color: var(--edge-bright); font-variant-numeric: tabular-nums; }
+.community-stats span { color: var(--soft); font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; }
 .kanban-board {
   padding: 0 24px 24px;
   display: grid;

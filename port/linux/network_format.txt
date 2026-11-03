@@ -8,11 +8,14 @@ bound DISTRIBUTED_CLIENT_BUILD_NUMBER_SIZE 12
 bound DISTRIBUTED_CLIENT_BUILD_REPOSITORY_SIZE 144
 bound DISTRIBUTED_CLIENT_BUILD_VERSION_SIZE 64
 bound DISTRIBUTED_INPUT_HISTORY 4
+bound DISTRIBUTED_RECORDER_MACHINE HALO_PORT_MAXIMUM_NETWORK_MACHINES
 bound DISTRIBUTED_RELAYED_ACTION_MAXIMUM_SIZE 14 + 2 * (DISTRIBUTED_INPUT_HISTORY - 1)
 bound DISTRIBUTED_RELAYED_ACTION_MINIMUM_SIZE 14
 bound DISTRIBUTED_UNIT_STATE_MAXIMUM_SIZE 3 + 4 + (4 + 2) + (12 + 3 * 6) + 2 + 2 * 2 + 4 * 2 + 2 * NUMBER_OF_PLAYER_POWERUPS + 2 + 1
 bound DISTRIBUTED_UNIT_STATE_MINIMUM_SIZE 3
+bound DISTRIBUTED_VIEWING_MACHINES HALO_PORT_MAXIMUM_NETWORK_MACHINES + 1
 bound GAME_ALLEGIANCE_BITVECTOR_LONGS 4
+bound HALO_PORT_MAXIMUM_NETWORK_MACHINES 128
 bound HALO_PORT_MAXIMUM_NETWORK_PLAYERS 128
 bound LEVEL_NAME_BYTES 64
 bound MAP_SHARE_HASH_BYTES 32
@@ -81,6 +84,8 @@ enum _distributed_message_coop_sounds_retired 67
 enum _distributed_message_damage_animations 75
 enum _distributed_message_damage_events 10
 enum _distributed_message_fire_origins 93
+enum _distributed_message_floodfection_originals 164
+enum _distributed_message_game_privacy 166
 enum _distributed_message_game_state 7
 enum _distributed_message_hit_reports 11
 enum _distributed_message_inventories 4
@@ -97,6 +102,7 @@ enum _distributed_message_object_states 6
 enum _distributed_message_objects_synchronized 8
 enum _distributed_message_pickups 13
 enum _distributed_message_pings 19
+enum _distributed_message_platforms 96
 enum _distributed_message_player_inputs 14
 enum _distributed_message_player_prediction 1
 enum _distributed_message_player_statistics 3
@@ -106,6 +112,7 @@ enum _distributed_message_skulls_outbreak_burst 161
 enum _distributed_message_skulls_state 160
 enum _distributed_message_structure_bsp 65
 enum _distributed_message_tag_share 163
+enum _distributed_message_third_person_policy 165
 enum _distributed_message_unit_states 2
 enum _distributed_message_vehicle_prediction 12
 enum _distributed_message_voice_config 82
@@ -259,7 +266,7 @@ struct distributed_actor_state 8bd5e771659d
 struct distributed_actor_state_message 51a56e04a536
 struct distributed_chat_config dfa4e32efe1e
 struct distributed_chat_line cdab1468ffe0
-struct distributed_client_build 503e4474b798
+struct distributed_client_build 146c9669b9d9
 struct distributed_client_identity 4d9e62025616
 struct distributed_coop_device_group 4aa3499be2cc
 struct distributed_coop_device_groups_message b96ad0030ccc
@@ -306,6 +313,7 @@ struct distributed_object_state 1b656bbda892
 struct distributed_object_state_message 004c4b7aa530
 struct distributed_pickup 46e6f981ac40
 struct distributed_pings_message 35c6009dee29
+struct distributed_platform_map 00de0da504b4
 struct distributed_player_input a0cf65a1197c
 struct distributed_player_ping 377e0e3045f4
 struct distributed_player_statistics 2a44afb8f96c
@@ -318,4 +326,4 @@ struct distributed_voice_down e3751d692f16
 struct distributed_voice_up 3d74ee44e4cb
 struct distributed_votekick_request 7e29ffd54bd1
 struct distributed_votekick_status b94458cdc180
-struct game_variant_options 55d8c92cadd6
+struct game_variant_options 5160016d620e

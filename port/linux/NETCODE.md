@@ -329,6 +329,12 @@ game's flags also tell its clients whether the host is a dedicated server
 (`_network_game_cooperative_dedicated_bit`: its loading zones then ask for
 most of the living players).
 
+The client also appends an optional platform byte to its reliable build
+message (`_distributed_message_client_build`, `network_distributed.c`), and
+the host can send a reliable platform map (`_distributed_message_platforms`,
+machine index to platform) to every client. This is display metadata only;
+builds without it continue without platform indicators.
+
 `port/linux/network_format.txt` records the wire format of the current
 version (`tools/network_format.py`): `test_linux_port.py` fails when the
 sources' messages, kinds, bits, structs sent whole or the sizes of their

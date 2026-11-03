@@ -824,7 +824,8 @@ SCREENS["gameplay/community"] = {
          "Default: the OpenCE server. Custom: another\ncommunity server, at the address below.",
          None),
     ],
-    # (the social settings are the Social screen's SETTINGS: _social)
+    # (the social settings are opened directly by the Social screen's SETTINGS:
+    # _social; Chat's CHAT IDENTITY opens the account name and colour screen)
     "fields": [
         ("SERVER ADDRESS:", "port daily server edit", "server_address",
          "The custom server's address, https://... A types\nit, Enter keeps it; OK writes it."),
@@ -875,6 +876,10 @@ SCREENS["gameplay/community/social/chat"] = {
         ("REPORTED PLAYERS:", "social.show_reported", [("HIDE", "false"), ("SHOW", "true")],
          "The lines of players many others reported:\nhidden, or shown marked REPORTED.",
          None),
+    ],
+    "actions": [
+        ("CHAT IDENTITY:", "port social identity", "chat_identity",
+         "Set the name and colour other players see in chat.", []),
     ],
 }
 SCREENS["gameplay/community/social/friends"] = {
@@ -5134,14 +5139,16 @@ def _theater() -> list:
     return lines
 
 
-# ---------- Social (port/linux/game/social_menu.c): the main menu's Y (its
-# SETTINGS row the social settings' screens, SCREENS["gameplay/community/
-# social"]; YOUR CODE and NEW CODE under YOU), laid out
-# as the Map Manager is: on the left two thirds the rows of the list shown
-# (YOU, FRIENDS, FRIEND REQUESTS, ACTIVITY, RECENT PLAYERS, ADD FRIEND BY
-# CODE, BLOCKED & MUTED; a list of friends, a player's page and what can be
-# done about them, their matches), a row each with its name and state; on the
-# right third, in the lobby's frame, the row chosen's details
+# ---------- Social (port/linux/game/social_menu.c): opened by the main
+# menu's Y. The social settings screen is SCREENS["gameplay/community/
+# social"]. It is laid out as the Map Manager is: on the left two thirds
+# the rows of the list shown
+# (MY ACCOUNT, FRIENDLIST, ACTIVITY,
+# SETTINGS; ACCOUNT SUMMARY, SYNC ACCOUNT; YOUR CODE, FRIEND REQUESTS, ADD
+# FRIEND, FRIENDS, BLOCKED & MUTED; RECENT PLAYERS, MATCH HISTORY; CHAT NAME,
+# CHAT COLOR; a list of friends, a player's page and what can be done about
+# them, their matches), a row each with its name and state; on the right
+# third, in the lobby's frame, the row chosen's details
 # (menu_functions.c's "port social" functions); over both, last, the player's
 # card (social_card, drawn by social_menu.c while it is shown)
 

@@ -33,6 +33,8 @@ void social_chat_draw(void);
 /* social.chat: the box is shown in place of the upstream chat's lines, and
 the chat's keys open it (network_chat.c asks) */
 boolean social_chat_replaces_upstream(void);
+/* the main menu's chat box is on (social.enabled, social.chat, display.text_chat) */
+boolean social_chat_dock_shown(void);
 /* (network_chat.c, as its keys are pressed in a network game) the box opened
 to a channel (_social_chat_*), by a controller's port (NONE: the keyboard,
 which types) */

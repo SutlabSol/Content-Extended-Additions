@@ -19,6 +19,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/op_private_chat" x="54" y="163"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/op_private_anyone" x="54" y="193"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/op_show_reported" x="54" y="223"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/op_chat_identity" x="54" y="253"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -80,6 +81,14 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/show_reported_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="HIDE|SHOW" setting="social.show_reported" values="false|true" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
 		<on event="created" run="port setting load"/>
 	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/op_chat_identity" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="port social identity"/>
+		<on event="start" run="port social identity"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/chat_identity_label"/>
+	</widget>
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/chat_identity_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="a" run="port settings defaults"/>
 		<on event="start" run="port settings defaults"/>
@@ -97,6 +106,7 @@
 		<string text="PRIVATE CHATS:"/>
 		<string text="PRIVATE FROM:"/>
 		<string text="REPORTED PLAYERS:"/>
+		<string text="CHAT IDENTITY:"/>
 	</strings>
 	<strings name="main_menu/settings_select/player_setup/player_profile_edit/gameplay/community/social/chat/help_strings">
 		<string text=""/>
@@ -106,5 +116,6 @@
 		<string text="Private lines reach you, and you can send them.\nOff: no one's private line reaches you."/>
 		<string text="Private lines with any player, or with your\nfriends alone (both ways)."/>
 		<string text="The lines of players many others reported:\nhidden, or shown marked REPORTED."/>
+		<string text="Set the name and colour other players see in chat."/>
 	</strings>
 </menus>

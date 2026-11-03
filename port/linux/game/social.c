@@ -184,6 +184,10 @@ static struct
 	unsigned long hello_at;
 	char hello_name[SOCIAL_NAME_SIZE];
 	char code[SOCIAL_CODE_SIZE];
+	/* the name the account picked, and its colour (0xRRGGBB; NONE for none),
+	as the server last said them */
+	char account_name[SOCIAL_NAME_SIZE * 3];
+	long account_color;
 	/* the settings the server was last given (social_settings_text), and
 	when Settings last changed */
 	char hello_settings[64];
@@ -221,7 +225,7 @@ static struct
 	long totals[4];
 	struct social_record records[SOCIAL_PENDING_RECORDS];
 	char answer[SOCIAL_ANSWER_SIZE];
-} social = { 0, TRUE, 0, "", "", "", (unsigned long)-1 };
+} social = { 0, TRUE, 0, "", "", "", NONE, "", (unsigned long)-1 };
 
 /* ---------- the account */
 
@@ -240,6 +244,57 @@ char const *social_account_code(
 static void social_answer_text(char const *answer, char const *path, char *text, int size);
 static void social_answer_totals(char const *answer);
 
+/* the name and colour the account picked, from an answer that says them
+(prefix "account." in the account's answers, "" in the presence's) */
+static void social_name_take(
+	char const *answer,
+	char const *prefix)
+{
+	char path[32];
+	char color[16];
+
+	snprintf(path, sizeof(path), "%sdisplayName", prefix);
+	social_answer_text(answer, path, social.account_name, sizeof(social.account_name));
+	snprintf(path, sizeof(path), "%snameColor", prefix);
+	social_answer_text(answer, path, color, sizeof(color));
+	social.account_color = strlen(color) == 6 ? strtol(color, NULL, 16) : NONE;
+}
+
+void social_account_name(
+	char *name,
+	long size)
+{
+	if (social.account_name[0])
+		csstrncpy(name, social.account_name, size - 1);
+	else
+		social_player_name(name, size);
+}
+
+boolean social_account_name_picked(
+	void)
+{
+	return social.account_name[0] != 0;
+}
+
+boolean social_account_name_color(
+	real *red,
+	real *green,
+	real *blue)
+{
+	if (social.account_color == NONE)
+		return FALSE;
+	*red = ((social.account_color >> 16) & 0xFF) / 255.0f;
+	*green = ((social.account_color >> 8) & 0xFF) / 255.0f;
+	*blue = (social.account_color & 0xFF) / 255.0f;
+	return TRUE;
+}
+
+void social_account_name_take(
+	char const *answer)
+{
+	social_name_take(answer, "account.");
+}
+
 boolean social_account_code_take(
 	char const *answer)
 {
@@ -253,6 +308,7 @@ boolean social_account_code_take(
 	/* (an answer that joined another install's account has its totals and skulls) */
 	social_answer_totals(answer);
 	social_sync_answer(answer);
+	social_name_take(answer, "account.");
 	return TRUE;
 }
 
@@ -462,6 +518,7 @@ static void social_hello_update(
 			social_answer_text(social.answer, "account.code", code, sizeof(code));
 			social_answer_totals(social.answer);
 			social_sync_answer(social.answer);
+			social_name_take(social.answer, "account.");
 			if (code[0])
 			{
 				if (strcmp(code, social.code))
@@ -1349,6 +1406,8 @@ static void social_presence_update(
 			social.friends_online = social_answer_number(social.answer, "friendsOnline", social.friends_online);
 			social.requests_waiting = social_answer_number(social.answer, "requests", social.requests_waiting);
 			social_sync_answer(social.answer);
+			/* (another device may have picked it) */
+			social_name_take(social.answer, "");
 			{
 				char key[32];
 

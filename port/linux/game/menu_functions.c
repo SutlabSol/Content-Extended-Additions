@@ -14550,10 +14550,9 @@ static boolean social_screen_back(struct widget_instance *widget, boolean *widge
 }
 
 /* "port social open" (the main menu's Y), "port social moderation" (Chat's
-BLOCKED & MUTED) and "port social profile" (Social's MY PROFILE): the screen,
-over the one asking, at its first list, the players muted and blocked, or
-your own card; with Social off too, its SETTINGS alone, where it is turned
-on */
+BLOCKED & MUTED), "port social profile" (Social's MY PROFILE), or
+"port social identity" (Chat settings' CHAT IDENTITY): the screen, over the
+one asking, at its first list */
 static boolean social_screen_open(struct widget_instance *widget, short where, boolean *widget_deleted)
 {
 	social_menu_open_at(where);
@@ -15268,6 +15267,8 @@ static boolean news_open(struct widget_instance *widget, boolean *widget_deleted
 	return ui_widget_port_open(widget, NEWS_NAME, widget_deleted);
 }
 
+static void main_menu_centre(struct widget_instance *screen, struct widget_instance *list);
+
 /* "port news hint update" (the main menu's list): the hint that X opens the
 news, while there is news */
 static void news_hint_update(struct widget_instance *list)
@@ -15280,6 +15281,7 @@ static void news_hint_update(struct widget_instance *list)
 	/* (and that Y opens Social: always, its settings there) */
 	visible_set(named(screen, "social_hint", 0), TRUE);
 	visible_set(named(screen, "y_butn_social", 0), TRUE);
+	main_menu_centre(screen, list);
 }
 
 /* "port news init" */
@@ -15444,6 +15446,14 @@ enum
 	MENU_EVENT_BUTTON = 3,
 	/* the column drawn this lately: the main menu shown */
 	SOCIAL_HOME_SHOWN_MILLISECONDS = 250,
+	/* the two boxes' heights, and the column's, in the menus' units
+	(tools/port_settings.py's SOCIAL_HOME and SOCIAL_HOME_CHAT) */
+	SOCIAL_HOME_FRIENDS_UNITS = 110,
+	SOCIAL_HOME_CHAT_UNITS = 170,
+	SOCIAL_HOME_CHAT_GAP_UNITS = 116,
+	SOCIAL_HOME_COLUMN_UNITS = 286,
+	/* the items' shift to the middle with no column: (640 - 256) / 2 - 30 */
+	MAIN_MENU_CENTRE_SHIFT = 162,
 };
 
 static struct
@@ -15455,12 +15465,39 @@ static struct
 	unsigned long drawn_at;
 	struct widget_instance *screen;
 	rectangle2d chat;
+	/* the column's two halves as last drawn: each takes the whole column
+	while the other is off, and with neither the main menu is centred */
+	boolean friends_on;
+	boolean chat_on;
+	boolean laid;
 } social_home;
 
 static boolean social_home_shown(void)
 {
 	/* (signed: drawn_at, made odd, may be a millisecond ahead) */
 	return social_home.drawn_at && (long)(system_milliseconds() - social_home.drawn_at) < SOCIAL_HOME_SHOWN_MILLISECONDS;
+}
+
+/* with neither half of the social column on, the items, their hints and
+FORGE are centred, as they were before the column; else at the left, as the
+menus place them (tools/port_settings.py) */
+static void main_menu_centre(struct widget_instance *screen, struct widget_instance *list)
+{
+	short shift = (short)(social_home.laid && !social_home.friends_on && !social_home.chat_on ?
+		MAIN_MENU_CENTRE_SHIFT : 0);
+	struct widget_instance *widget;
+
+	list->horizontal_offset = shift;
+	if ((widget = named(screen, "main_menu_item_forge", 0)) != NULL)
+		widget->horizontal_offset = (short)(30 + shift);
+	if ((widget = named(screen, "social_hint", 0)) != NULL)
+		widget->horizontal_offset = (short)(167 + shift);
+	if ((widget = named(screen, "y_butn_social", 0)) != NULL)
+		widget->horizontal_offset = (short)(167 + shift);
+	if ((widget = named(screen, "news_hint", 0)) != NULL)
+		widget->horizontal_offset = (short)(80 + shift);
+	if ((widget = named(screen, "x_butn_news", 0)) != NULL)
+		widget->horizontal_offset = (short)(80 + shift);
 }
 
 /* A on a row, or a click: a friend's card (the Social screen over the main
@@ -15474,7 +15511,7 @@ static void social_home_pick(struct widget_instance *screen, short row, short po
 		social_menu_home_friend_open(row);
 		social_screen_open(screen, _social_menu_open_player, &deleted);
 	}
-	else
+	else if (social_home.chat_on)
 	{
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
 		social_chat_open_docked(port);
@@ -15562,7 +15599,7 @@ unsigned char menu_port_event_taken(void *instance, void *record)
 		return TRUE;
 	}
 	/* (the friends, then the chat) */
-	rows = (short)(social_menu_home_rows() + 1);
+	rows = (short)MAX(social_menu_home_rows() + (social_home.chat_on ? 1 : 0), 1);
 	social_home.chosen = (short)PIN(social_home.chosen, 0, rows - 1);
 	if (down)
 	{
@@ -15605,7 +15642,7 @@ unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer)
 	if (pointer->click_x >= social_home.chat.x0 && pointer->click_x < social_home.chat.x1 &&
 		pointer->click_y >= social_home.chat.y0 && pointer->click_y < social_home.chat.y1)
 	{
-		if (!social_enabled())
+		if (!social_enabled() || !social_home.chat_on)
 			return FALSE;
 		social_home.focused = TRUE;
 		social_home.chosen = social_menu_home_rows();
@@ -15635,16 +15672,37 @@ static void social_home_drawn(struct widget_instance *widget, rectangle2d const 
 {
 	long offset = halo_screen_ui_offset_current();
 
-	social_home.drawn_at = system_milliseconds() | 1;
+	rectangle2d place = *bounds;
+
+	social_home.friends_on = social_enabled() && config_boolean("social.friends");
+	social_home.chat_on = social_chat_dock_shown();
+	social_home.laid = TRUE;
+	if (social_home.friends_on || social_home.chat_on)
+		social_home.drawn_at = system_milliseconds() | 1;
+	else
+		social_home.focused = FALSE;
 	social_home.screen = screen_of(widget);
 	if (!chat)
 	{
-		social_menu_home_draw(bounds->x0, bounds->y0, bounds->x1, bounds->y1, social_home.focused,
-			social_home.chosen);
+		/* (the chat's box is SOCIAL_HOME_CHAT_TOP_UNITS below, and as tall as it) */
+		if (!social_home.friends_on)
+			memset(&place, 0, sizeof(place));
+		else if (!social_home.chat_on)
+			place.y1 = (short)(bounds->y0 + (long)(bounds->y1 - bounds->y0) * SOCIAL_HOME_COLUMN_UNITS / SOCIAL_HOME_FRIENDS_UNITS);
+		social_menu_home_draw(place.x0, place.y0, place.x1, place.y1, social_home.focused, social_home.chosen);
 		return;
 	}
-	social_home.chat = *bounds;
-	social_chat_draw_docked(bounds->x0, bounds->y0, bounds->x1, bounds->y1, (short)offset,
+	if (!social_home.chat_on)
+	{
+		memset(&social_home.chat, 0, sizeof(social_home.chat));
+		return;
+	}
+	if (!social_home.friends_on)
+	{
+		place.y0 = (short)(bounds->y0 - (long)(bounds->y1 - bounds->y0) * SOCIAL_HOME_CHAT_GAP_UNITS / SOCIAL_HOME_CHAT_UNITS);
+	}
+	social_home.chat = place;
+	social_chat_draw_docked(place.x0, place.y0, place.x1, place.y1, (short)offset,
 		social_home.focused && social_home.chosen >= social_menu_home_rows());
 }
 
@@ -17982,10 +18040,11 @@ boolean pc_menu_event_function_invoke(
 			return social_screen_back(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "port social open") || !strcmp(name, "port social moderation") ||
-			!strcmp(name, "port social profile"))
+			!strcmp(name, "port social profile") || !strcmp(name, "port social identity"))
 		{
 			return social_screen_open(widget, !strcmp(name, "port social moderation") ? _social_menu_open_moderation :
-				!strcmp(name, "port social profile") ? _social_menu_open_profile : _social_menu_open_home,
+				!strcmp(name, "port social profile") ? _social_menu_open_profile :
+				!strcmp(name, "port social identity") ? _social_menu_open_identity : _social_menu_open_home,
 				widget_deleted);
 		}
 		else if (!strcmp(name, "controls screen init") || !strcmp(name, "controls screen defaults"))
