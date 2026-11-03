@@ -37,6 +37,17 @@ void social_presence_counts(long *friends_online, long *requests_waiting);
 has not), "" for none */
 void social_player_name(char *name, long size);
 
+/* the name the account is known by in the chat on every device: the one it
+picked in Social (CHAT NAME), else player 1's profile's (as social_player_name) */
+void social_account_name(char *name, long size);
+/* whether the account picked one (else the profile's is used) */
+boolean social_account_name_picked(void);
+/* the colour the chat shows the name in (0 to 1 each): FALSE for none picked */
+boolean social_account_name_color(real *red, real *green, real *blue);
+/* the name and colour from an answer of the server's to POST /account/name
+({data: {account: {displayName, nameColor}}}) */
+void social_account_name_take(char const *answer);
+
 /* asks the community server for path as the account (the install's key, no
 profile's): a GET, or with body (JSON text) a POST. A ticket for
 community_net_poll, 0 when it cannot be asked */

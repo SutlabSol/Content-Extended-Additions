@@ -133,11 +133,9 @@ those not drawn let go; nothing in the OpenGL ES renderer's image (weak defaults
 void textures_hud_prepare(const long *assets, long count);
 void textures_hud_forget(void);
 
-#if defined(HALO_SWITCH) || defined(HALO_ANDROID) || defined(HALO_PS5)
 /* the deko3d and Vulkan renderers': an 8-bit RGBA PNG's pixels (malloc'd, red first,
 rows top down) and size; NULL if it could not be decoded */
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height);
-#endif
 /* Original HUD sheets lacking redraws, with their tag coordinates unchanged.
  * The cache owns the upscaled texture and invalidates it with the source. */
 long hud_hires_upscale_at(unsigned long address, long width, long height);

@@ -574,6 +574,7 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "network_votekick.h" /* port: port/linux/game/network_votekick.c */
 #include "network_voice.h" /* port: port/linux/game/network_voice.c */
+#include "platform_icons.h" /* port: port/linux/game/platform_icons.h */
 #include "network_chat.h" /* port: port/linux/game/network_chat.c */
 /* (network_server_manager_internal.h's: the host's game record) */
 struct network_game *network_game_server_get_game(struct network_game_server *server);
@@ -2687,6 +2688,45 @@ static void game_engine_rasterize_scoreboard(
 			icon.y1 = (short)(icon.y0 + size);
 			network_voice_draw_icon(&icon, network_voice_machine_muted(player->network_player_data.machine_index),
 				alpha);
+		}
+		/* port: a known network player's platform, beside its name */
+		if (network)
+		{
+			short platform = platform_icon_for_machine(player->network_player_data.machine_index);
+
+			if (platform != _platform_icon_none)
+			{
+				rectangle2d icon;
+				rectangle2d text;
+				rectangle2d ink;
+				rectangle2d cursor;
+				short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
+				short size;
+				short middle;
+				short name_end;
+				short voice_gap = network_voice_machine_speaking(player->network_player_data.machine_index) ||
+					network_voice_machine_muted(player->network_player_data.machine_index);
+
+				text.x0 = (short)(row_left + scoreboard_widths.place);
+				text.x1 = (short)(text.x0 + scoreboard_widths.name);
+				text.y0 = (short)(top + (head_rows + row) * line_height);
+				text.y1 = (short)(text.y0 + line_height);
+				draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
+				draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
+				middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
+				scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, head_rows + row, 1);
+				size = (short)((icon.y1 - icon.y0) * 2 / 3);
+				name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
+				if (name_end + 4 + (voice_gap ? size + 4 : 0) + size <= icon.x1)
+				{
+					icon.x0 = (short)(name_end + 4 + (voice_gap ? size + 4 : 0));
+					icon.x1 = (short)(icon.x0 + size);
+					icon.y0 = (short)(middle - size / 2);
+					icon.y1 = (short)(icon.y0 + size);
+					platform_icon_draw(platform, &icon,
+						((pixel32)(long)(255.0f * PIN(alpha, 0.0f, 1.0f) + 0.5f) << 24) | 0x00FFFFFF);
+				}
+			}
 		}
 		/* port: the player picked with the controller, lit */
 		if (picking && entry->player_index == scoreboard_pick.player_index)

@@ -48,6 +48,8 @@ community server's answers.
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
+#include "social_sync.h"
+#include "platform_icons.h"
 #include "../src/community_net.h"
 #include "../src/p2p.h"
 #include "../src/port_config.h"
@@ -91,10 +93,20 @@ again; the players muted and blocked asked for again after a failure */
 #define SOCIAL_MENU_KEYBOARD_CAPTION 8
 #define SOCIAL_MENU_TYPED_LENGTH 24
 
+/* a sync code (an account's, for another install to take) is asked for again
+this often while its screen is shown: the server drops it after 45 seconds
+without being asked */
+#define SOCIAL_MENU_SYNC_MILLISECONDS 15000
+#define SOCIAL_MENU_SYNC_ANSWER_SIZE 1024
+
 /* the lists (social_menu.h) */
 enum
 {
 	_list_home,
+	_list_account,
+	_list_friendlist,
+	_list_activity_menu,
+	_list_identity,
 	_list_friends,
 	_list_requests,
 	_list_activity,
@@ -104,6 +116,8 @@ enum
 	_list_matches,
 	_list_moderation,
 	_list_report,
+	_list_sync,
+	_list_sync_code,
 	NUMBER_OF_LISTS
 };
 
@@ -111,7 +125,13 @@ enum
 enum
 {
 	_row_note,
+	_row_my_account,
+	_row_friendlist_menu,
+	_row_activity_menu,
+	_row_settings_menu,
 	_row_you,
+	_row_name,
+	_row_name_color,
 	_row_friends,
 	_row_requests,
 	_row_activity,
@@ -142,7 +162,10 @@ enum
 	_row_moderated,
 	_row_reason,
 	_row_code,
-	_row_new_code,
+	_row_sync,
+	_row_sync_create,
+	_row_sync_input,
+	_row_sync_code,
 	_row_settings,
 };
 
@@ -169,6 +192,27 @@ enum
 {
 	_typing_none,
 	_typing_friend_code,
+	_typing_sync_code,
+	_typing_name,
+};
+
+/* the colours a chat name may be: its label and RRGGBB (the first, none:
+the line's own colour) */
+static struct
+{
+	char const *label;
+	char const *hex;
+} const social_menu_name_colors[] =
+{
+	{ "DEFAULT", "" },
+	{ "RED", "ff5a4f" },
+	{ "ORANGE", "ff9d3d" },
+	{ "YELLOW", "ffe14d" },
+	{ "GREEN", "6fe06f" },
+	{ "CYAN", "4fd8e8" },
+	{ "BLUE", "5b8cff" },
+	{ "PURPLE", "b07bff" },
+	{ "PINK", "ff7bc8" },
 };
 
 /* ---------- structures */
@@ -179,6 +223,7 @@ struct social_menu_presence
 	boolean online;
 	boolean host;
 	char state[16];
+	char platform[16];
 	char map[SOCIAL_MENU_LABEL_SIZE];
 	char gametype[SOCIAL_MENU_LABEL_SIZE];
 	char game[SOCIAL_MENU_LABEL_SIZE];
@@ -306,6 +351,14 @@ static struct
 	unsigned long message_time;
 	short confirming_kind;
 	unsigned long confirming_time;
+	/* the sync code: its request, the code the server gave, when it was last
+	asked for, and why it was not given */
+	int sync_ticket;
+	char sync_code[16];
+	unsigned long sync_at;
+	int sync_status;
+	boolean sync_joined;
+	char sync_answer[SOCIAL_MENU_SYNC_ANSWER_SIZE];
 	/* the keyboard */
 	short typing;
 	wchar_t typed[SOCIAL_MENU_TYPED_LENGTH + 1];
@@ -645,6 +698,7 @@ static void presence_read(
 	presence->online = json_boolean(document, token, "online");
 	presence->host = json_boolean(document, token, "host");
 	json_text(document, token, "state", presence->state, sizeof(presence->state));
+	json_text(document, token, "platform", presence->platform, sizeof(presence->platform));
 	json_text(document, token, "map", presence->map, sizeof(presence->map));
 	json_text(document, token, "gametype", presence->gametype, sizeof(presence->gametype));
 	json_text(document, token, "game", presence->game, sizeof(presence->game));
@@ -1074,6 +1128,69 @@ static void fetch(
 		social_menu.player_wanted = !social_menu.fetch_ticket;
 }
 
+/* the colour picked as an index into social_menu_name_colors (0: none) */
+static short name_color_index(
+	void)
+{
+	real red;
+	real green;
+	real blue;
+	short index;
+
+	if (!social_account_name_color(&red, &green, &blue))
+		return 0;
+	for (index = 1; index < (short)NUMBEROF(social_menu_name_colors); index++)
+	{
+		long value = strtol(social_menu_name_colors[index].hex, NULL, 16);
+
+		if ((long)(red * 255.0f + 0.5f) == ((value >> 16) & 0xFF) && (long)(green * 255.0f + 0.5f) == ((value >> 8) & 0xFF) &&
+			(long)(blue * 255.0f + 0.5f) == (value & 0xFF))
+		{
+			return index;
+		}
+	}
+	return 0;
+}
+
+/* POST /account/name: the chat name typed, or the colour (NULL for the
+other) */
+static void name_send(
+	char const *name,
+	char const *color)
+{
+	struct server_json json;
+
+	social_menu.action_from_chat = FALSE;
+	if (!social_menu_online())
+	{
+		message_set("The community server is not reached: Settings > Gameplay > Community's ONLINE.");
+		return;
+	}
+	if (social_menu.action_ticket)
+	{
+		message_set("Still waiting for the server: try again.");
+		return;
+	}
+	server_json_begin(&json);
+	server_json_object_begin(&json, NULL);
+	if (name)
+		server_json_string(&json, "name", name);
+	if (color)
+		server_json_string(&json, "color", color);
+	server_json_object_end(&json);
+	social_menu.action_ticket = social_send("/account/name", server_json_text(&json));
+	server_json_free(&json);
+	if (!social_menu.action_ticket)
+	{
+		message_set("The server could not be asked: try again.");
+		return;
+	}
+	social_menu.action_kind = name ? _row_name : _row_name_color;
+	snprintf(social_menu.action_name, sizeof(social_menu.action_name), "%s", name ? name : "");
+	social_menu.action_code[0] = 0;
+	message_set("Asking the server...");
+}
+
 /* an action: POST path of {code, ...}, said as done once answered */
 static void act_as(
 	short kind,
@@ -1140,9 +1257,33 @@ static void action_take(
 
 	if (!answered)
 		message_set("The server did not answer: try again.");
-	else if (status == 404 && social_menu.action_kind == _row_new_code)
+	else if (social_menu.action_kind == _row_sync_input && status != 200)
+	{
+		if (status == 404)
+			message_set("That code is not good: it expired, or its screen was closed.");
+		else if (status == 409)
+			message_set("This device is already synced, or its account already has devices.");
+		else if (status == 422 && strstr(answer, "same_account"))
+			message_set("That code is this account's own.");
+		else if (status == 422)
+			message_set("That is not a sync code (XXXX-XXXX).");
+		else if (status == 429)
+			message_set("Too many wrong codes: wait a minute.");
+		else
+			message_set("The server refused it (%d).", status);
+	}
+	else if ((social_menu.action_kind == _row_name || social_menu.action_kind == _row_name_color) && status != 200)
+	{
+		if (status == 404)
+			message_set("The community server cannot set a chat name yet: it needs updating.");
+		else if (status == 429)
+			message_set("You changed your name a moment ago: wait a few seconds.");
+		else
+			message_set("That name or colour is not allowed.");
+	}
+	else if (status == 404 && social_menu.action_kind == _row_code)
 		message_set("The community server cannot draw a new code yet: it needs updating.");
-	else if (status == 429 && social_menu.action_kind == _row_new_code)
+	else if (status == 429 && social_menu.action_kind == _row_code)
 		message_set("A new code was drawn a moment ago: wait a minute.");
 	else if (status == 404 && strstr(answer, "\"not_found\""))
 		message_set("The community server has no friends yet: it needs updating.");
@@ -1186,7 +1327,27 @@ static void action_take(
 		case _row_friend_remove:
 			message_set("%s is no longer your friend.", name);
 			break;
-		case _row_new_code:
+		case _row_sync_input:
+			social_account_code_take(answer);
+			social_sync_pull_soon();
+			social_menu.friends_had = FALSE;
+			social_menu.outgoing_count = 0;
+			message_set("Synced: this device is now part of account %s.", social_account_code());
+			break;
+		case _row_name:
+		case _row_name_color:
+			social_account_name_take(answer);
+			{
+				char chat_name[SOCIAL_MENU_NAME_SIZE];
+
+				social_account_name(chat_name, sizeof(chat_name));
+				if (social_menu.action_kind == _row_name)
+					message_set("Your chat name is %s.", chat_name);
+				else
+					message_set("Your name's colour is %s.", social_menu_name_colors[name_color_index()].label);
+			}
+			break;
+		case _row_code:
 			if (!social_account_code_take(answer))
 				message_set("The server did not say the new code: try again.");
 			else if (own_code_hidden())
@@ -1245,12 +1406,85 @@ static void action_take(
 
 static void social_menu_join_update(unsigned long now);
 
+/* the sync code shown (its screen open, the account online) is asked for
+every SOCIAL_MENU_SYNC_MILLISECONDS; with the screen left, the menu closed or
+the account offline it is cancelled, which the server also does by itself
+45 seconds after the last time it was asked for */
+static void sync_code_update(
+	unsigned long now)
+{
+	boolean shown = social_menu.open && social_menu.list == _list_sync_code && social_menu_online();
+
+	if (social_menu.sync_ticket)
+	{
+		int status = 0;
+		int result = community_net_poll(social_menu.sync_ticket, &status, social_menu.sync_answer,
+			sizeof(social_menu.sync_answer));
+
+		if (result == _community_net_waiting)
+			return;
+		social_menu.sync_ticket = 0;
+		if (!shown)
+			return;
+		social_menu.sync_status = result == _community_net_answered ? status : -1;
+		if (status == 200 && result == _community_net_answered)
+		{
+			struct server_json_document document;
+			char code[sizeof(social_menu.sync_code)];
+			boolean was_synced = social_sync_active();
+
+			code[0] = 0;
+			if (server_json_parse(&document, social_menu.sync_answer, (int)strlen(social_menu.sync_answer), 16))
+			{
+				int token = server_json_member(&document, 0, "data");
+
+				token = token >= 0 ? server_json_member(&document, token, "code") : -1;
+				if (token < 0 || !server_json_get_string(&document, token, code, sizeof(code)))
+					code[0] = 0;
+				server_json_document_free(&document);
+			}
+			social_sync_answer(social_menu.sync_answer);
+			if (social_sync_active() && !was_synced)
+				social_menu.sync_joined = TRUE;
+			snprintf(social_menu.sync_code, sizeof(social_menu.sync_code), "%s", code);
+		}
+		else
+			social_menu.sync_code[0] = 0;
+		return;
+	}
+	if (!shown)
+	{
+		if (social_menu.sync_code[0] || social_menu.sync_at)
+		{
+			community_net_forget(social_send("/account/sync/cancel", "{}"));
+			social_menu.sync_code[0] = 0;
+			social_menu.sync_at = 0;
+		}
+		return;
+	}
+	if (!social_menu.sync_at || now - social_menu.sync_at >= SOCIAL_MENU_SYNC_MILLISECONDS)
+	{
+		struct server_json json;
+
+		server_json_begin(&json);
+		server_json_object_begin(&json, NULL);
+		if (social_menu.sync_code[0])
+			server_json_string(&json, "code", social_menu.sync_code);
+		social_sync_skulls_write(&json, "skulls");
+		server_json_object_end(&json);
+		social_menu.sync_ticket = social_send("/account/sync/code", server_json_text(&json));
+		server_json_free(&json);
+		social_menu.sync_at = now ? now : 1;
+	}
+}
+
 void social_menu_update(
 	void)
 {
 	unsigned long now = system_milliseconds();
 
 	social_menu_join_update(now);
+	sync_code_update(now);
 	if (!social_menu_online())
 		return;
 	if (social_menu.fetch_ticket)
@@ -1371,23 +1605,36 @@ static void rows_build(
 	switch (social_menu.list)
 	{
 	case _list_home:
-		/* (Social off, or Online: its settings alone, where it is turned on) */
 		if (social_enabled())
 		{
-			row_add(_row_you, 0);
-			row_add(_row_code, 0);
-			row_add(_row_new_code, 0);
-			row_add(_row_friends, 0);
-			row_add(_row_requests, 0);
-			row_add(_row_activity, 0);
-			row_add(_row_recent, 0);
-			row_add(_row_add_friend, 0);
-			row_add(_row_moderation, 0);
+			row_add(_row_my_account, 0);
+			row_add(_row_friendlist_menu, 0);
+			row_add(_row_activity_menu, 0);
+			row_add(_row_settings_menu, 0);
 		}
-		row_add(_row_settings, 0);
+		else
+			row_add(_row_settings, 0);
+		break;
+	case _list_account:
+		row_add(_row_you, 0);
+		row_add(_row_sync, 0);
+		break;
+	case _list_friendlist:
+		row_add(_row_code, 0);
+		row_add(_row_requests, 0);
+		row_add(_row_add_friend, 0);
+		row_add(_row_friends, 0);
+		row_add(_row_moderation, 0);
+		break;
+	case _list_activity_menu:
+		row_add(_row_recent, 0);
+		row_add(_row_activity, 0);
+		break;
+	case _list_identity:
+		row_add(_row_name, 0);
+		row_add(_row_name_color, 0);
 		break;
 	case _list_friends:
-		row_add(_row_add_friend, 0);
 		for (index = 0; index < social_menu.friend_count; index++)
 		{
 			row_add(_row_friend, index);
@@ -1456,6 +1703,13 @@ static void rows_build(
 		if (!social_menu.moderated_count)
 			note_add(social_menu.moderation_had, FALSE);
 		break;
+	case _list_sync:
+		row_add(_row_sync_create, 0);
+		row_add(_row_sync_input, 0);
+		break;
+	case _list_sync_code:
+		row_add(_row_sync_code, 0);
+		break;
 	case _list_report:
 		for (index = 0; index < (short)NUMBEROF(social_menu_reasons); index++)
 			row_add(_row_reason, index);
@@ -1479,7 +1733,7 @@ static void list_open(
 	social_menu.first = 0;
 	social_menu.chosen = 0;
 	social_menu.confirming_kind = NONE;
-	if (list == _list_friends || list == _list_requests)
+	if (list == _list_friendlist || list == _list_friends || list == _list_requests)
 		fetch(_fetch_friends);
 	else if (list == _list_activity)
 	{
@@ -1544,11 +1798,16 @@ void social_menu_open(
 		player_open(social_menu.opening_code, social_menu.opening_name);
 		social_menu.depth = 0;
 	}
+	else if (social_menu.opening == _social_menu_open_identity)
+	{
+		list_open(_list_identity);
+		social_menu.depth = 0;
+	}
 	else if (social_menu.opening == _social_menu_open_profile && social_account_code()[0])
 	{
 		char me[SOCIAL_MENU_NAME_SIZE];
 
-		social_player_name(me, sizeof(me));
+		social_account_name(me, sizeof(me));
 		player_open(social_account_code(), me);
 		social_menu.depth = 0;
 	}
@@ -1565,7 +1824,7 @@ void social_menu_close(
 }
 
 static void keyboard_open(
-	void)
+	short typing)
 {
 	csmemset(social_menu.typed, 0, sizeof(social_menu.typed));
 	virtual_keyboard_allow_any_name();
@@ -1574,7 +1833,7 @@ static void keyboard_open(
 		message_set("The keyboard did not open.");
 		return;
 	}
-	social_menu.typing = _typing_friend_code;
+	social_menu.typing = typing;
 }
 
 void social_menu_poll(
@@ -1585,14 +1844,34 @@ void social_menu_poll(
 	/* (a friend's code typed, once the keyboard has closed) */
 	if (social_menu.typing != _typing_none && !virtual_keyboard_active())
 	{
+		short wanted = social_menu.typing;
+
 		social_menu.typing = _typing_none;
 		if (virtual_keyboard_last_exit_saved_text())
 		{
 			char code[SOCIAL_MENU_TYPED_LENGTH * 3 + 1];
 
 			utf8_from_wide(social_menu.typed, code, sizeof(code));
-			code_normalize(code);
-			if (code[0])
+			if (wanted == _typing_name)
+			{
+				/* (a name, not a code: as typed, its ends trimmed) */
+				char *start = code;
+				size_t length;
+
+				while (*start == ' ')
+					start++;
+				length = strlen(start);
+				while (length && start[length - 1] == ' ')
+					start[--length] = 0;
+				if (start[0])
+					name_send(start, NULL);
+				code[0] = 0;
+			}
+			else
+				code_normalize(code);
+			if (code[0] && wanted == _typing_sync_code)
+				act(_row_sync_input, "/account/sync/redeem", code, code, NULL, NULL);
+			else if (code[0])
 				act(_row_add_friend, "/friends", code, code, NULL, NULL);
 		}
 	}
@@ -1605,7 +1884,8 @@ void social_menu_poll(
 		social_menu.confirming_kind = NONE;
 	/* (what the lists shown want: the friends again a while after, the
 	player asked for) */
-	if (social_menu.list == _list_home || social_menu.list == _list_friends || social_menu.list == _list_requests ||
+	if (social_menu.list == _list_home || social_menu.list == _list_friendlist ||
+		social_menu.list == _list_friends || social_menu.list == _list_requests ||
 		((social_menu.list == _list_card || social_menu.list == _list_player) &&
 			!strcmp(social_menu.player.relation, "friends")))
 	{
@@ -1702,6 +1982,13 @@ static void presence_state(
 		snprintf(text, (size_t)size, "IN MENUS");
 	else
 		snprintf(text, (size_t)size, "ONLINE");
+	if (presence->online)
+	{
+		char const *platform = platform_icon_label(presence->platform);
+
+		if (platform)
+			text_add(text, size, " | %s", platform);
+	}
 }
 
 /* what a player is doing, as a line of the details */
@@ -2319,6 +2606,7 @@ enum
 {
 	SOCIAL_HOME_PADDING = 6,
 	SOCIAL_HOME_DOT = 5,
+	SOCIAL_HOME_PLATFORM_ICON = 14,
 	SOCIAL_HOME_ROWS = 16,
 };
 
@@ -2501,7 +2789,7 @@ void social_menu_home_draw(
 			"NO FRIENDS YET";
 		char const *second = !social_enabled() ? "Y: Social, then SETTINGS" :
 			social_menu.friends_had && config_boolean("social.friends") ?
-			"Y: Social, then ADD FRIEND BY CODE" : "";
+			"Y: Social, then ADD FRIEND" : "";
 
 		card_color(&color, 0.6f, 0.66f, 0.75f);
 		campaign_score_panel_text(panel, first, NULL, left, right, y + line, 1.0f, _campaign_score_text_center, &color);
@@ -2525,17 +2813,30 @@ void social_menu_home_draw(
 	{
 		struct social_menu_person const *friend = &social_menu.friends[index];
 		real top = y + social_home.count * social_home.row_height;
+		short platform = friend->presence.online ? platform_icon_for_name(friend->presence.platform) : _platform_icon_none;
+		real name_left = left + SOCIAL_HOME_DOT + 5.0f;
 
 		social_home.tops[social_home.count++] = (short)(y0 + top);
 		if (focused && index == chosen)
 			campaign_score_panel_quad(panel, left - 2.0f, top - 1.0f, right + 2.0f, top + line + 2.0f, 0x802896FF);
 		campaign_score_panel_quad(panel, left, top + (line - SOCIAL_HOME_DOT) / 2.0f, left + SOCIAL_HOME_DOT,
 			top + (line + SOCIAL_HOME_DOT) / 2.0f, home_dot_color(&friend->presence));
+		if (platform != _platform_icon_none)
+		{
+			rectangle2d icon;
+
+			icon.x0 = (short)(x0 + name_left);
+			icon.y0 = (short)(y0 + top + (line - SOCIAL_HOME_PLATFORM_ICON) / 2.0f);
+			icon.x1 = (short)(icon.x0 + SOCIAL_HOME_PLATFORM_ICON);
+			icon.y1 = (short)(icon.y0 + SOCIAL_HOME_PLATFORM_ICON);
+			platform_icon_draw(platform, &icon, 0xFFFFFFFF);
+			name_left += SOCIAL_HOME_PLATFORM_ICON + 4.0f;
+		}
 		if (friend->presence.online)
 			card_color(&color, 0.95f, 0.95f, 0.95f);
 		else
 			card_color(&color, 0.6f, 0.6f, 0.6f);
-		campaign_score_panel_text(panel, friend->name, NULL, left + SOCIAL_HOME_DOT + 5.0f, right, top, 1.0f,
+		campaign_score_panel_text(panel, friend->name, NULL, name_left, right, top, 1.0f,
 			_campaign_score_text_left, &color);
 		presence_state(&friend->presence, other, sizeof(other));
 		card_color(&color, 0.55f, 0.72f, 1.0f);
@@ -2574,20 +2875,52 @@ void social_menu_row(
 		snprintf(name, (size_t)name_size, "%s", entry->value == _note_loading ? "ASKING THE SERVER..." :
 			entry->value == _note_offline ? "OFFLINE" : entry->value == _note_failed ? "NOT ANSWERED" : "NONE YET");
 		break;
+	case _row_my_account:
+		snprintf(name, (size_t)name_size, "MY ACCOUNT");
+		break;
+	case _row_friendlist_menu:
+		snprintf(name, (size_t)name_size, "FRIENDLIST");
+		break;
+	case _row_activity_menu:
+		snprintf(name, (size_t)name_size, "ACTIVITY");
+		break;
+	case _row_settings_menu:
+		snprintf(name, (size_t)name_size, "SETTINGS");
+		break;
 	case _row_you:
-		{
-			char me[SOCIAL_MENU_NAME_SIZE];
-
-			social_player_name(me, sizeof(me));
-			snprintf(name, (size_t)name_size, "YOU: %s", me[0] ? me : "?");
-		}
+		snprintf(name, (size_t)name_size, "ACCOUNT SUMMARY");
+		social_account_name(state, state_size);
+		break;
+	case _row_name:
+		snprintf(name, (size_t)name_size, "CHAT NAME");
+		social_account_name(state, state_size);
+		break;
+	case _row_name_color:
+		snprintf(name, (size_t)name_size, "CHAT COLOR");
+		snprintf(state, (size_t)state_size, "%s", social_menu_name_colors[name_color_index()].label);
 		break;
 	case _row_code:
 		snprintf(name, (size_t)name_size, "YOUR CODE");
 		snprintf(state, (size_t)state_size, "%s", own_code());
 		break;
-	case _row_new_code:
-		snprintf(name, (size_t)name_size, "NEW CODE");
+	case _row_sync:
+		snprintf(name, (size_t)name_size, "SYNC ACCOUNT");
+		if (social_sync_active())
+			snprintf(state, (size_t)state_size, "SYNCED");
+		break;
+	case _row_sync_create:
+		snprintf(name, (size_t)name_size, "CREATE CODE");
+		break;
+	case _row_sync_input:
+		snprintf(name, (size_t)name_size, "INPUT CODE");
+		break;
+	case _row_sync_code:
+		snprintf(name, (size_t)name_size, "SYNC CODE");
+		if (!social_menu_online())
+			snprintf(state, (size_t)state_size, "OFFLINE");
+		else
+			snprintf(state, (size_t)state_size, "%s", social_menu.sync_code[0] ? social_menu.sync_code :
+				social_menu.sync_status && social_menu.sync_status != 200 ? "NOT GIVEN" : "ASKING...");
 		break;
 	case _row_settings:
 		snprintf(name, (size_t)name_size, "SETTINGS");
@@ -2607,13 +2940,13 @@ void social_menu_row(
 			snprintf(state, (size_t)state_size, "%ld NEW", requests);
 		break;
 	case _row_activity:
-		snprintf(name, (size_t)name_size, "ACTIVITY");
+		snprintf(name, (size_t)name_size, "MATCH HISTORY");
 		break;
 	case _row_recent:
 		snprintf(name, (size_t)name_size, "RECENT PLAYERS");
 		break;
 	case _row_add_friend:
-		snprintf(name, (size_t)name_size, "ADD FRIEND BY CODE");
+		snprintf(name, (size_t)name_size, "ADD FRIEND");
 		break;
 	case _row_moderation:
 		snprintf(name, (size_t)name_size, "BLOCKED & MUTED");
@@ -2798,27 +3131,73 @@ void social_menu_details(
 			social_menu.list == _list_moderation ? "No one is muted or blocked.\nA player's MUTE and BLOCK are\nin their page." :
 			"None yet.");
 		break;
+	case _row_my_account:
+		snprintf(title, (size_t)title_size, "MY ACCOUNT");
+		text_add(text, text_size, "Your account summary and the code\nto sync it to another device.");
+		break;
+	case _row_friendlist_menu:
+		snprintf(title, (size_t)title_size, "FRIENDLIST");
+		text_add(text, text_size, "Your code, friend requests, friends,\nand the players you muted or\nblocked.");
+		break;
+	case _row_activity_menu:
+		snprintf(title, (size_t)title_size, "ACTIVITY");
+		text_add(text, text_size, "Players you recently met and your\nfriends' match history.");
+		break;
+	case _row_settings_menu:
+		snprintf(title, (size_t)title_size, "SETTINGS");
+		text_add(text, text_size, "Social, Record Matches, Chat, and\nFriends settings.");
+		break;
 	case _row_you:
 		{
 			char me[SOCIAL_MENU_NAME_SIZE];
 
-			social_player_name(me, sizeof(me));
+			social_account_name(me, sizeof(me));
 			snprintf(title, (size_t)title_size, "%s", me[0] ? me : "YOU");
 			text_add(text, text_size, "Your code: %s\n\nFriends add you by it. A shows\nyour records: totals, matches\nand "
 				"medals.", own_code());
 		}
 		break;
+	case _row_name:
+		snprintf(title, (size_t)title_size, "CHAT NAME");
+		text_add(text, text_size, "The name the chat shows for you,\nthe same on every device and\nplatform of this account. "
+			"A types\na new one (up to 20 characters);\nuntil you do, your profile's name is\nused.");
+		break;
+	case _row_name_color:
+		snprintf(title, (size_t)title_size, "CHAT COLOR");
+		text_add(text, text_size, "The colour of your name in the\nchat, for everyone who sees it.\nA picks the next one.");
+		break;
 	case _row_code:
 		snprintf(title, (size_t)title_size, "YOUR CODE");
 		text_add(text, text_size, "%s\n\nGive it to friends: they add you\nby it. ", own_code());
 		text_add(text, text_size, config_boolean("social.friend_requests") ? "Friend invites are open to\nanyone, so "
-			"it is shown." : own_code_hidden() ? "Hidden, as only those with it can\nask to be your friend: A shows "
-			"it." : "Only those with it can ask to be\nyour friend: A hides it.");
+			"it is shown. A twice draws a new\ncode; the old one stops working." :
+			own_code_hidden() ? "Hidden: A shows it. A twice draws\na new code; the old one stops\nworking." :
+			"Only those with it can ask to\nbe your friend. A twice draws a\nnew code; the old one stops\nworking.");
 		break;
-	case _row_new_code:
-		snprintf(title, (size_t)title_size, "NEW CODE");
-		text_add(text, text_size, "A new code in place of yours (A\ntwice): the old one no longer\nfinds you. Your friends "
-			"and\nrequests stay.");
+	case _row_sync:
+		snprintf(title, (size_t)title_size, "SYNC ACCOUNT");
+		text_add(text, text_size, "Use this account on another\ndevice: its friends, records,\nmedals, leaderboard "
+			"scores and\nskulls. Profiles, controls and\ncampaign progress stay on each\ndevice.%s", social_sync_active() ?
+			"\n\nThis account is synced." : "");
+		break;
+	case _row_sync_create:
+		snprintf(title, (size_t)title_size, "CREATE CODE");
+		text_add(text, text_size, "A code for your other device's\nINPUT CODE. It works while its\nscreen is open and you are "
+			"online.");
+		break;
+	case _row_sync_input:
+		snprintf(title, (size_t)title_size, "INPUT CODE");
+		text_add(text, text_size, "Type the code another device\nshows, to bring this device into\nthat account. This "
+			"device's own\nfriends and records are added to\nit. It cannot be undone.");
+		break;
+	case _row_sync_code:
+		snprintf(title, (size_t)title_size, "SYNC CODE");
+		if (social_menu.sync_joined)
+			text_add(text, text_size, "A device joined this account.\nYour skulls are shared now.");
+		else
+			text_add(text, text_size, "%s\n\nType it on the other device (SYNC\nACCOUNT, INPUT CODE). It stops "
+				"working when you leave this screen or go offline.", social_menu.sync_code[0] ? social_menu.sync_code :
+				"...");
 		break;
 	case _row_settings:
 		snprintf(title, (size_t)title_size, "SETTINGS");
@@ -2839,7 +3218,7 @@ void social_menu_details(
 			(int)social_menu.incoming_count, (int)social_menu.outgoing_count);
 		break;
 	case _row_activity:
-		snprintf(title, (size_t)title_size, "ACTIVITY");
+		snprintf(title, (size_t)title_size, "MATCH HISTORY");
 		text_add(text, text_size, "Your friends' latest matches and\nlevels.");
 		break;
 	case _row_recent:
@@ -2991,20 +3370,61 @@ short social_menu_choose(
 		social_menu.confirming_kind = NONE;
 	switch (entry->kind)
 	{
+	case _row_my_account:
+		list_open(_list_account);
+		break;
+	case _row_friendlist_menu:
+		list_open(_list_friendlist);
+		break;
+	case _row_activity_menu:
+		list_open(_list_activity_menu);
+		break;
+	case _row_settings_menu:
+		return _social_menu_settings;
 	case _row_you:
 		player_open(social_account_code(), NULL);
 		break;
-	case _row_code:
-		if (config_boolean("social.friend_requests"))
-			message_set("Friend invites are open to anyone: your code is shown.");
-		else
-			social_menu.code_shown = !social_menu.code_shown;
+	case _row_name:
+		keyboard_open(_typing_name);
 		break;
-	case _row_new_code:
+	case _row_name_color:
+		name_send(NULL, social_menu_name_colors[(name_color_index() + 1) % NUMBEROF(social_menu_name_colors)].hex);
+		break;
+	case _row_code:
+		if (!config_boolean("social.friend_requests"))
+			social_menu.code_shown = TRUE;
 		if (!social_menu_online())
 			message_set("The community server is not reached.");
-		else if (confirmed(_row_new_code, "draw a new code"))
-			act(_row_new_code, "/account/code", "", NULL, NULL, NULL);
+		else
+		{
+			if (confirmed(_row_code, "draw a new code"))
+				act(_row_code, "/account/code", "", NULL, NULL, NULL);
+		}
+		break;
+	case _row_sync:
+		list_open(_list_sync);
+		break;
+	case _row_sync_create:
+		if (!social_menu_online())
+			message_set("The community server is not reached.");
+		else
+		{
+			social_menu.sync_code[0] = 0;
+			social_menu.sync_status = 0;
+			social_menu.sync_joined = FALSE;
+			social_menu.sync_at = 0;
+			list_open(_list_sync_code);
+		}
+		break;
+	case _row_sync_input:
+		if (!social_menu_online())
+		{
+			message_set("The community server is not reached.");
+			break;
+		}
+		keyboard_open(_typing_sync_code);
+		return social_menu.typing != _typing_none ? _social_menu_typing : _social_menu_stays;
+	case _row_sync_code:
 		break;
 	case _row_settings:
 		return _social_menu_settings;
@@ -3029,7 +3449,7 @@ short social_menu_choose(
 			message_set("The community server is not reached.");
 			break;
 		}
-		keyboard_open();
+		keyboard_open(_typing_friend_code);
 		return social_menu.typing != _typing_none ? _social_menu_typing : _social_menu_stays;
 	case _row_friend:
 		player_open(social_menu.friends[entry->value].code, social_menu.friends[entry->value].name);

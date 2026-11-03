@@ -14,12 +14,17 @@ the install's account (social.h).
 The lists, each opened from the one before (B goes back, from the first
 away), as the Map Manager's are (map_manager.h): menu_functions.c's "port
 social" functions show their rows and the row chosen's details.
-	HOME          YOU, FRIENDS, REQUESTS, ACTIVITY, RECENT PLAYERS,
-	              ADD FRIEND, BLOCKED & MUTED
+	HOME          MY ACCOUNT, FRIENDLIST, ACTIVITY, SETTINGS (the social
+	              settings screen)
+	ACCOUNT       ACCOUNT SUMMARY, SYNC ACCOUNT
+	FRIENDLIST    YOUR CODE, FRIEND REQUESTS, ADD FRIEND, FRIENDS,
+	              BLOCKED & MUTED
+	ACTIVITY      RECENT PLAYERS, MATCH HISTORY
+	IDENTITY      CHAT NAME, CHAT COLOR (opened from Chat settings)
 	FRIENDS       ADD FRIEND, then the friends, online first (a JOIN GAME
 	              under each whose game may be joined)
 	REQUESTS      those that asked to be friends, then those asked
-	ACTIVITY      the friends' latest matches and levels
+	MATCH HISTORY the friends' latest matches and levels
 	RECENT        the players of the chat (this game's room, and those
 	              written to)
 	CARD          one player's card, drawn where the rows are (as the
@@ -65,6 +70,8 @@ enum
 	_social_menu_open_moderation,
 	/* (Settings > Gameplay > Community > Social's MY PROFILE: your card) */
 	_social_menu_open_profile,
+	/* Chat settings' CHAT IDENTITY: chat name and colour */
+	_social_menu_open_identity,
 	/* (the main menu's social column: a friend's card,
 	social_menu_home_friend_open) */
 	_social_menu_open_player,

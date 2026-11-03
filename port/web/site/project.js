@@ -528,8 +528,26 @@
     if (location.hash === '#downloads' || location.hash === '#downloads-panel') loadReleases();
   }
 
+  // The community server's figures; the strip stays hidden when it can't be reached.
+  async function loadCommunityStats() {
+    try {
+      const answer = await fetch('https://oceapi.watanoge.com/status', { cache: 'no-store' });
+      const community = (await answer.json())?.data?.community;
+      if (!community) return;
+      const format = (value) => Number(value || 0).toLocaleString();
+      document.getElementById('community-registered').textContent = format(community.registered);
+      document.getElementById('community-online').textContent = format(community.online);
+      document.getElementById('community-hours').textContent = format(community.playedHours);
+      document.getElementById('community-stats').hidden = false;
+    } catch (error) {
+      // offline or blocked: nothing to show
+    }
+  }
+
   renderRoadmap();
   renderFeatures();
+  loadCommunityStats();
+  setInterval(() => { if (!document.hidden) loadCommunityStats(); }, 60000);
   const featureCarousel = document.getElementById('feature-carousel');
   document.getElementById('feature-carousel-close').addEventListener('click', () => featureCarousel.close());
   document.getElementById('feature-carousel-previous').addEventListener('click', () => moveFeatureCarousel(-1));

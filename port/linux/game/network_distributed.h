@@ -156,6 +156,9 @@ enum
 	stream */
 	_distributed_message_map_vote = 94,
 	_distributed_message_map_vote_choice = 95,
+	/* the host's platform of each machine, to every client, reliably:
+	client builds without one have no platform icon */
+	_distributed_message_platforms = 96,
 
 	/* a modded co-op game's skulls to be found (port/linux/game/skulls.c):
 	the host's skulls dropped, taken, unlocked and lost, to every client,
@@ -212,7 +215,15 @@ struct distributed_client_build
 	char repository[DISTRIBUTED_CLIENT_BUILD_REPOSITORY_SIZE];
 	char version[DISTRIBUTED_CLIENT_BUILD_VERSION_SIZE];
 	char mods[DISTRIBUTED_CLIENT_BUILD_MODS_SIZE];
+	byte platform;
 };
+
+struct distributed_platform_map
+{
+	byte platform[HALO_PORT_MAXIMUM_NETWORK_MACHINES];
+};
+
+short network_distributed_machine_platform(long machine_index);
 
 /* where a message goes */
 enum

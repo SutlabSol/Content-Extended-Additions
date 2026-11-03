@@ -17,8 +17,16 @@ the community server as the install's account (social.c; api-opence's
   the host lets them.
 - A line heard both ways (a fork player's, said both ways) is shown once:
   the second, the same player's same text within SOCIAL_CHAT_SAME_MILLISECONDS,
-  marks the first as heard both ways. Each line shows where it came from: U
-  (the upstream chat), F (the fork's), U+F.
+  marks the first as heard both ways. A MATCH or TEAM line shows where it
+  came from: U (the upstream chat), F (the fork's), U+F; a GLOBAL or PRIVATE
+  one is the fork's alone, and says nothing. Locally sent lines merge even
+  when the upstream profile name and the fork account name differ, and
+  whichever echo arrives first.
+- A line's name is the one its account picked (Social's CHAT NAME, the same
+  on every device) in the colour it picked (NAME COLOR), else its profile's.
+- A GLOBAL or PRIVATE line may be SOCIAL_CHAT_SAID_SIZE - 1 characters; a MATCH
+  or TEAM one the upstream chat's (SOCIAL_CHAT_UPSTREAM_SAID_SIZE - 1), which
+  its 64-byte lines hold. The text is drawn at SOCIAL_CHAT_TEXT_SCALE.
 - A network game's room is a key every machine in it makes alike: a hash of
   the game's name, its map and its random seed (network_game), which the
   host sends every client.
@@ -123,11 +131,17 @@ long halo_screen_width(void);
 
 /* ---------- constants */
 
+/* the chat's text drawn at this part of the font's size, to fit more of it */
+#define SOCIAL_CHAT_TEXT_SCALE 0.85f
+
 enum
 {
 	/* a line's text, with its end: the upstream chat's (a line said both
 	ways is the same both ways); one of the fork's heard, longer */
-	SOCIAL_CHAT_SAID_SIZE = 64,
+	SOCIAL_CHAT_SAID_SIZE = 128,
+	/* ... a MATCH or TEAM line stays the upstream chat's size: it goes to the
+	game's other machines in its 64-byte lines (network_chat.c) */
+	SOCIAL_CHAT_UPSTREAM_SAID_SIZE = 64,
 	SOCIAL_CHAT_TEXT_SIZE = 204,
 	SOCIAL_CHAT_NAME_SIZE = 33,
 	SOCIAL_CHAT_CODE_SIZE = 16,
@@ -251,6 +265,9 @@ struct social_chat_line
 	boolean reported;
 	/* one of this machine's, shown as it went, that the server refused */
 	boolean failed;
+	/* the colour its player picked for their name (0x1000000 | 0xRRGGBB; 0:
+	none) */
+	long name_color;
 	/* (system_milliseconds; 0: an old line, the history's, never shown as new) */
 	unsigned long time;
 };
@@ -447,6 +464,12 @@ static boolean social_chat_shown(
 	return social_chat_replaces_upstream() && social_chat_setting("display.text_chat", &read_at, &shown);
 }
 
+boolean social_chat_dock_shown(
+	void)
+{
+	return social_enabled() && social_chat_shown();
+}
+
 static boolean social_chat_global_heard(
 	void)
 {
@@ -588,13 +611,23 @@ static boolean social_chat_names_equal(
 	return !*a && !*b;
 }
 
+/* how long a line to a channel may be (its end included): the fork's alone
+(GLOBAL, PRIVATE) longer than one that goes through the upstream chat */
+static long social_chat_said_limit(
+	short channel)
+{
+	return channel == _social_chat_global || channel == _social_chat_private ?
+		SOCIAL_CHAT_SAID_SIZE : SOCIAL_CHAT_UPSTREAM_SAID_SIZE;
+}
+
 static void social_chat_append(
 	char *text,
 	char const *more)
 {
 	long length = (long)strlen(text);
+	long limit = social_chat_said_limit(social_chat.channel);
 
-	while (*more && length < SOCIAL_CHAT_SAID_SIZE - 1)
+	while (*more && length < limit - 1)
 	{
 		if (*more >= ' ' && *more <= '~' && *more != '|')
 			text[length++] = *more;
@@ -613,13 +646,17 @@ static struct social_chat_line *social_chat_line_at(
 	return back >= 0 && back < social_chat.line_count ? &social_chat.lines[index] : NULL;
 }
 
+static boolean social_chat_name_is_local(
+	wchar_t const *name);
+
 /* the same line heard the other way lately (its player's name and text, a
 channel that is the same both ways), NULL for none */
 static struct social_chat_line *social_chat_same_line(
 	wchar_t const *name,
 	short channel,
 	char const *text,
-	byte source_bit)
+	byte source_bit,
+	boolean local_name)
 {
 	unsigned long now = system_milliseconds();
 	short back;
@@ -631,7 +668,10 @@ static struct social_chat_line *social_chat_same_line(
 		if (!line->time || now - line->time > SOCIAL_CHAT_SAME_MILLISECONDS)
 			break;
 		if (!line->notice && !TEST_FLAG(line->sources, source_bit) && line->channel == channel &&
-			!strncmp(line->text, text, SOCIAL_CHAT_SAID_SIZE - 1) && social_chat_names_equal(line->name, name))
+			!strncmp(line->text, text, SOCIAL_CHAT_SAID_SIZE - 1) &&
+			(social_chat_names_equal(line->name, name) ||
+				(local_name && (line->mine || (TEST_FLAG(line->sources, _social_chat_upstream_bit) &&
+					social_chat_name_is_local(line->name))))))
 		{
 			return line;
 		}
@@ -699,7 +739,8 @@ void social_chat_upstream_line(
 		if (social_chat_names_equal(social_chat.unheard[index], name))
 			return;
 	}
-	line = social_chat_same_line(name, channel, text, _social_chat_upstream_bit);
+	line = social_chat_same_line(name, channel, text, _social_chat_upstream_bit,
+		social_chat_name_is_local(name));
 	if (line)
 	{
 		SET_FLAG(line->sources, _social_chat_upstream_bit, TRUE);
@@ -1030,6 +1071,8 @@ static void social_chat_take(
 	char from[SOCIAL_CHAT_CODE_SIZE];
 	char to[SOCIAL_CHAT_CODE_SIZE];
 	char to_name[SOCIAL_CHAT_NAME_SIZE * 3];
+	char name_color_text[16];
+	long name_color = 0;
 	wchar_t wide_name[SOCIAL_CHAT_NAME_SIZE];
 	short channel;
 	boolean mine;
@@ -1045,6 +1088,7 @@ static void social_chat_take(
 	social_chat_string(document, token, "from", from, sizeof(from));
 	social_chat_string(document, token, "to", to, sizeof(to));
 	social_chat_string(document, token, "toName", to_name, sizeof(to_name));
+	social_chat_string(document, token, "nameColor", name_color_text, sizeof(name_color_text));
 	if (!strcmp(channel_name, "match"))
 		channel = _social_chat_match;
 	else if (!strcmp(channel_name, "team"))
@@ -1061,6 +1105,8 @@ static void social_chat_take(
 	if (old)
 		return;
 	mine = from[0] && !strcmp(from, social_account_code());
+	if (strlen(name_color_text) == 6)
+		name_color = 0x1000000 | strtol(name_color_text, NULL, 16);
 	social_chat_wide_from_utf8(name, wide_name, NUMBEROF(wide_name));
 	if (channel == _social_chat_private)
 	{
@@ -1075,9 +1121,11 @@ static void social_chat_take(
 		char cleaned[SOCIAL_CHAT_TEXT_SIZE];
 
 		social_chat_clean(cleaned, text, SOCIAL_CHAT_TEXT_SIZE);
-		if (!old && (line = social_chat_same_line(wide_name, channel, cleaned, _social_chat_fork_bit)) != NULL)
+		if (!old && (line = social_chat_same_line(wide_name, channel, cleaned, _social_chat_fork_bit, mine)) != NULL)
 		{
 			SET_FLAG(line->sources, _social_chat_fork_bit, TRUE);
+			if (!line->name_color)
+				line->name_color = name_color;
 			return;
 		}
 	}
@@ -1089,6 +1137,7 @@ static void social_chat_take(
 	social_chat_clean(line->text, text, SOCIAL_CHAT_TEXT_SIZE);
 	line->channel = channel;
 	line->mine = mine;
+	line->name_color = name_color;
 	line->reported = reported != 0;
 	if (!mine)
 		csstrncpy(line->code, from, SOCIAL_CHAT_CODE_SIZE - 1);
@@ -1219,14 +1268,18 @@ static void social_chat_say(
 {
 	char text[SOCIAL_CHAT_SAID_SIZE];
 	char name[64];
+	wchar_t wide_name[SOCIAL_CHAT_NAME_SIZE];
 	byte sources = 0;
 	short team = social_chat_team();
 	struct social_chat_peer const *peer = social_chat_peer_picked();
 	boolean fork = social_chat_online() && social_account_code()[0];
 	struct social_chat_line *line;
 	short index;
+	real red;
+	real green;
+	real blue;
 
-	social_chat_clean(text, typed, sizeof(text));
+	social_chat_clean(text, typed, social_chat_said_limit(channel));
 	for (index = 0; text[index] == ' '; index++)
 		;
 	if (!text[index])
@@ -1294,11 +1347,24 @@ static void social_chat_say(
 	host marks it; sent the upstream way alone, that echo is the line) */
 	if (TEST_FLAG(sources, _social_chat_fork_bit))
 	{
-		line = social_chat_line_new(system_milliseconds());
-		social_player_name(name, sizeof(name));
-		social_chat_wide_from_utf8(name, line->name, NUMBEROF(line->name));
-		csstrncpy(line->text, text, SOCIAL_CHAT_TEXT_SIZE - 1);
-		line->channel = channel;
+		social_account_name(name, sizeof(name));
+		social_chat_wide_from_utf8(name, wide_name, NUMBEROF(wide_name));
+		line = social_chat_same_line(wide_name, channel, text, _social_chat_fork_bit, TRUE);
+		if (!line)
+		{
+			line = social_chat_line_new(system_milliseconds());
+			ustrncpy(line->name, wide_name, SOCIAL_CHAT_NAME_SIZE - 1);
+			csstrncpy(line->text, text, SOCIAL_CHAT_TEXT_SIZE - 1);
+			line->channel = channel;
+		}
+		else
+		{
+			ustrncpy(line->name, wide_name, SOCIAL_CHAT_NAME_SIZE - 1);
+			SET_FLAG(line->sources, _social_chat_fork_bit, TRUE);
+		}
+		if (social_account_name_color(&red, &green, &blue))
+			line->name_color = 0x1000000 | ((long)(red * 255.0f + 0.5f) << 16) | ((long)(green * 255.0f + 0.5f) << 8) |
+				(long)(blue * 255.0f + 0.5f);
 		line->mine = TRUE;
 		line->color = _social_chat_color_mine;
 		SET_FLAG(line->sources, _social_chat_fork_bit, TRUE);
@@ -2241,7 +2307,11 @@ void social_chat_update(
 		social_chat_close();
 	/* (a channel this game has not, as the game changes) */
 	if (social_chat.open)
+	{
 		social_chat.channel = social_chat_channel_usable(social_chat.channel);
+		/* (a line typed for GLOBAL, longer than a MATCH line may be: cut to it) */
+		social_chat.typed[social_chat_said_limit(social_chat.channel) - 1] = 0;
+	}
 }
 
 /* ---------- drawing */
@@ -2258,7 +2328,8 @@ static boolean social_chat_font(
 	if (*font_index == NONE)
 		return FALSE;
 	font = font_definition_get(*font_index);
-	*line_height = (short)(font->ascending_height + font->descending_height + font->leading_height);
+	*line_height = (short)((font->ascending_height + font->descending_height + font->leading_height) *
+		SOCIAL_CHAT_TEXT_SCALE + 0.5f);
 	return *line_height > 0;
 }
 
@@ -2319,7 +2390,7 @@ static short social_chat_width(
 	measure.x1 = SHORT_MAX;
 	measure.y1 = SHORT_MAX;
 	draw_unicode_string_compute_bounds(&measure, part, &text_bounds, &cursor_bounds);
-	return cursor_bounds.x0;
+	return (short)(cursor_bounds.x0 * SOCIAL_CHAT_TEXT_SCALE + 0.5f);
 }
 
 /* how many characters of text from start fit width, broken at a space where
@@ -2363,17 +2434,25 @@ static void social_chat_text(
 	real_argb_color const *color,
 	wchar_t const *text)
 {
-	rectangle2d shadow = *bounds;
+	rectangle2d scaled = *bounds;
+	rectangle2d shadow;
 	real_argb_color black;
 
+	/* (the text's scale shrinks its clip rectangle too: widened to the box's) */
+	scaled.x1 = (short)(bounds->x0 + (bounds->x1 - bounds->x0) / SOCIAL_CHAT_TEXT_SCALE + 0.5f);
+	bounds = &scaled;
+	shadow = *bounds;
 	black.alpha = color->alpha * 0.6f;
 	black.red = black.green = black.blue = 0.0f;
 	offset_rectangle2d(&shadow, 1, 1);
 	rasterizer_text_set_shadow_color(0x00000001);
+	rasterizer_text_set_scale(SOCIAL_CHAT_TEXT_SCALE, (real)shadow.x0, (real)shadow.y0);
 	draw_string_set_draw_mode(font_index, NONE, 0 /* left */, 0, &black);
 	rasterizer_draw_unicode_string(&shadow, NULL, NULL, 0, text);
+	rasterizer_text_set_scale(SOCIAL_CHAT_TEXT_SCALE, (real)bounds->x0, (real)bounds->y0);
 	draw_string_set_draw_mode(font_index, NONE, 0 /* left */, 0, color);
 	rasterizer_draw_unicode_string(bounds, NULL, NULL, 0, text);
+	rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
 	rasterizer_text_set_shadow_color(0);
 }
 
@@ -2381,12 +2460,16 @@ static void social_chat_text(
 static void social_chat_head(
 	struct social_chat_line const *line,
 	wchar_t *head,
-	long count)
+	long count,
+	short *name_start,
+	short *name_length)
 {
 	wchar_t source[8];
 	long length;
 
 	head[0] = 0;
+	if (name_start)
+		*name_start = *name_length = 0;
 	if (line->notice)
 		return;
 	if (line->reported)
@@ -2401,7 +2484,9 @@ static void social_chat_head(
 	ustrncat(head, social_chat_channel_tags[line->channel], count - 1 - length);
 	head[count - 1] = 0;
 	length = ustrlen(head);
-	if (length < count - 1)
+	/* (where a line came from is said for a match's alone: the global and
+	private lines are all the fork's) */
+	if ((line->channel == _social_chat_match || line->channel == _social_chat_team) && length < count - 1)
 	{
 		head[length++] = '[';
 		head[length] = 0;
@@ -2415,7 +2500,11 @@ static void social_chat_head(
 		}
 	}
 	length = ustrlen(head);
+	if (name_start)
+		*name_start = (short)length;
 	ustrncat(head, line->name, count - 1 - length);
+	if (name_length)
+		*name_length = (short)(ustrlen(head) - length);
 	/* (a private line: who it went to, when it was this one's) */
 	if (line->channel == _social_chat_private && line->mine && line->peer_name[0])
 	{
@@ -2441,7 +2530,7 @@ static short social_chat_line_rows(
 	short rows = 0;
 	short start = 0;
 
-	social_chat_head(line, head, head_count);
+	social_chat_head(line, head, head_count, NULL, NULL);
 	social_chat_wide_from_ascii(line->text, text, text_count);
 	head_width = social_chat_width(head, NONE);
 	while (text[start] && rows < SOCIAL_CHAT_LINE_ROWS)
@@ -2476,8 +2565,10 @@ static short social_chat_line_draw(
 	short head_width;
 	short rows = 0;
 	short start = 0;
+	short name_start;
+	short name_length;
 
-	social_chat_head(line, head, NUMBEROF(head));
+	social_chat_head(line, head, NUMBEROF(head), &name_start, &name_length);
 	social_chat_wide_from_ascii(line->text, text, NUMBEROF(text));
 	social_chat_color(line->color, alpha, &head_color);
 	social_chat_color(line->notice ? _social_chat_color_notice : _social_chat_color_none, alpha, &text_color);
@@ -2504,7 +2595,38 @@ static short social_chat_line_draw(
 	bounds.x1 = (short)(left + width);
 	bounds.y0 = top;
 	bounds.y1 = (short)(top + line_height);
-	if (head[0])
+	if (head[0] && line->name_color && name_length)
+	{
+		/* (the name in the colour its player picked, the rest of the head in the line's) */
+		wchar_t piece[SOCIAL_CHAT_NAME_SIZE * 2 + 24];
+		real_argb_color name_color = head_color;
+		short from[3];
+		short to[3];
+		short index;
+
+		name_color.red = ((line->name_color >> 16) & 0xFF) / 255.0f;
+		name_color.green = ((line->name_color >> 8) & 0xFF) / 255.0f;
+		name_color.blue = (line->name_color & 0xFF) / 255.0f;
+		from[0] = 0;
+		to[0] = name_start;
+		from[1] = name_start;
+		to[1] = (short)(name_start + name_length);
+		from[2] = to[1];
+		to[2] = (short)ustrlen(head);
+		for (index = 0; index < 3; index++)
+		{
+			short length = (short)(to[index] - from[index]);
+
+			if (length <= 0)
+				continue;
+			ustrncpy(piece, head + from[index], length);
+			piece[length] = 0;
+			bounds.x0 = (short)(left + (from[index] ? social_chat_width(head, from[index]) : 0));
+			social_chat_text(font_index, &bounds, index == 1 ? &name_color : &head_color, piece);
+		}
+		bounds.x0 = left;
+	}
+	else if (head[0])
 		social_chat_text(font_index, &bounds, &head_color, head);
 	while (text[start] && rows < SOCIAL_CHAT_LINE_ROWS)
 	{
@@ -2676,16 +2798,21 @@ static short social_chat_open_draw(
 		{
 			typed[length] = '_';
 			typed[length + 1] = 0;
+			length++;
 		}
-		ustrncpy(text, L"> ", NUMBEROF(text) - 1);
-		text[NUMBEROF(text) - 1] = 0;
-		while (start < length && social_chat_width(typed + start, NONE) > width - line_height * 2)
-			start++;
-		ustrncat(text, typed + start, NUMBEROF(text) - 1 - ustrlen(text));
 		bounds.x0 = left;
 		bounds.x1 = (short)(left + width);
 		bounds.y0 = top;
 		bounds.y1 = (short)(top + line_height);
+		for (;;)
+		{
+			ustrncpy(text, L"> ", NUMBEROF(text) - 1);
+			text[NUMBEROF(text) - 1] = 0;
+			ustrncat(text, typed + start, NUMBEROF(text) - 1 - ustrlen(text));
+			if (start >= length || social_chat_width(text, NONE) <= width - 4)
+				break;
+			start++;
+		}
 		social_chat_text(font_index, &bounds, social_chat.open ? &white : &grey, text);
 		top = (short)(top + line_height);
 	}
