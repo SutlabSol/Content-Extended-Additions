@@ -2,7 +2,10 @@
 
 (() => {
   const androidBrowser = /android/i.test(navigator.userAgent);
+  const nonDesktopDevice = /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent) ||
+    window.matchMedia('(pointer: coarse)').matches;
   document.body.classList.toggle('android-device', androidBrowser);
+  document.body.classList.toggle('non-desktop-device', nonDesktopDevice);
 
   const REPOSITORY = 'Watanoge/halo-content-evolved';
   const RELEASES_PAGE = `https://github.com/${REPOSITORY}/releases`;

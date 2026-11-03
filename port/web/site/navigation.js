@@ -29,9 +29,9 @@
   const mobile = window.matchMedia('(max-width: 760px)');
 
   function currentPage() {
-    if (document.body.classList.contains('android-device')) return 'home';
     const requested = location.hash.slice(1);
-    return aliases[requested] || (pages.includes(requested) ? requested : 'home');
+    const page = aliases[requested] || (pages.includes(requested) ? requested : 'home');
+    return document.body.classList.contains('non-desktop-device') && page === 'game-data' ? 'home' : page;
   }
 
   function closeMenu(returnFocus = false) {
@@ -47,11 +47,16 @@
     const page = currentPage();
     for (const view of document.querySelectorAll('[data-page-view]')) view.hidden = view.dataset.pageView !== page;
     for (const link of nav.querySelectorAll('[data-page-link]')) {
+      link.hidden = document.body.classList.contains('non-desktop-device') && link.dataset.pageLink === 'game-data';
       if (link.dataset.pageLink === page) link.setAttribute('aria-current', 'page');
       else link.removeAttribute('aria-current');
     }
     const requested = location.hash.slice(1);
-    if (!requested || aliases[requested]) history.replaceState(null, '', `${location.pathname}${location.search}#${page}`);
+    const blockedGameData = document.body.classList.contains('non-desktop-device') &&
+      (requested === 'game-data' || aliases[requested] === 'game-data');
+    if (!requested || aliases[requested] || blockedGameData) {
+      history.replaceState(null, '', `${location.pathname}${location.search}#${page}`);
+    }
     document.title = `Halo Content Evolved | ${titles[page]}`;
     window.scrollTo(0, 0);
     closeMenu();

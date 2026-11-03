@@ -1166,10 +1166,21 @@ document.addEventListener('visibilitychange', async () => {
 // ---------- start
 
 (async () => {
-  if (androidBrowser) return;
-  await isolate();
   await loadStamp();
   await watchGameElsewhere();
+  if (androidBrowser) {
+    $('checks-note').textContent = 'The web edition needs desktop browser memory. Download the Android app to play.';
+    $('checks-note').hidden = false;
+    if (navigator.storage && navigator.storage.getDirectory) {
+      await refreshData();
+      await refreshCustomMaps();
+      await refreshMods();
+      await refreshProfiles();
+    }
+    checkForUpdate();
+    return;
+  }
+  await isolate();
   checksPassed = await runChecks();
   if (!checksPassed) {
     $('checks-note').textContent = 'Desktop Chrome, Edge and Firefox run the game; Safari 17 or later may.';
