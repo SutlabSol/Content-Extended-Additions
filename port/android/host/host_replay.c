@@ -38,7 +38,9 @@ void host_replay_store_free(void)
 
 	for (index = 0; index < store.chunk_count; index++)
 		free(store.chunks[index]);
-	free(store.chunks);
+	/* (the game's free, which this file is built with on the web, takes no NULL) */
+	if (store.chunks)
+		free(store.chunks);
 	memset(&store, 0, sizeof(store));
 }
 

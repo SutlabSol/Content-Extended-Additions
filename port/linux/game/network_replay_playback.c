@@ -132,6 +132,11 @@ port/android/guest/runtime/guest_host.h) */
 int host_replay_store_append(unsigned int data, unsigned int size);
 unsigned int host_replay_store_read(unsigned int offset, unsigned int destination, unsigned int size);
 void host_replay_store_free(void);
+/* port: the builds with no host (Linux, Windows, web: 32-bit, the game's
+addresses are the process's) keep them in this unit */
+#ifndef HALO_GUEST
+#include "../../android/host/host_replay.c"
+#endif
 
 /* the touch controls (port/linux/src/touch_input.c): whether they show, and
 the replay's buttons for them to press, each TOUCH_TARGET_FIELDS ints (x0,
@@ -578,7 +583,7 @@ static struct
 	/* where in the records the window starts, and how much of them it has */
 	long window_start;
 	long window_length;
-} playback = { NULL, 0, 0, 0, FALSE, FALSE, FALSE, 0, FALSE, FALSE, NONE };
+} playback = { NULL, 0, 0, 0, 0, FALSE, FALSE, FALSE, 0, FALSE, FALSE, NONE };
 
 static unsigned long replay_get_long(
 	byte const *source)
@@ -1139,8 +1144,8 @@ boolean network_replay_explore(
 	game.difficulty = _game_difficulty_level_normal;
 	game.random_seed = system_milliseconds();
 	/* (no records: a byte, for network_replay_playing) */
-	playback.data = (byte *)malloc(1);
-	if (!playback.data)
+	playback.window = (byte *)malloc(1);
+	if (!playback.window)
 	{
 		snprintf(why, (size_t)why_size, "There is no memory for it.");
 		return FALSE;

@@ -53,9 +53,10 @@ above it is reached through registers. Its hosts load it here always. */
 #define HALO_GUEST_IMAGE_BASE 0x3c000000u
 #endif
 /* the most the image may take from there (the loader refuses a larger one:
-host_image_validate); on AArch64 it ends at 0x40000000, below Custom
-Edition's tag data */
-#define HALO_GUEST_IMAGE_RESERVE 0x04000000u
+host_image_validate); on AArch64 it ends at 0x40400000, below Custom
+Edition's tag data (the Vulkan image, 66 MB with its three command streams,
+ends by 0x40280000) */
+#define HALO_GUEST_IMAGE_RESERVE 0x04400000u
 
 /* Custom Edition's tag cache (port/linux/game/cache_file_formats.h's
 	CUSTOM_EDITION_TAG_CACHE_ADDRESS and _BYTES), which the guest reserves at
