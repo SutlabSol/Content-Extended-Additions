@@ -723,6 +723,10 @@ unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigne
 	*width = *height = 0;
 	return png_decode(png, size, width, height);
 }
+void hud_hires_png_pixels_free(unsigned char *pixels)
+{
+	free(pixels);
+}
 unsigned int hud_hires_png_texture(const void *png, unsigned long size, unsigned long *levels)
 {
 	unsigned long width = 0, height = 0;

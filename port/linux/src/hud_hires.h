@@ -136,6 +136,8 @@ void textures_hud_forget(void);
 /* the deko3d and Vulkan renderers': an 8-bit RGBA PNG's pixels (malloc'd, red first,
 rows top down) and size; NULL if it could not be decoded */
 unsigned char *hud_hires_png_pixels(const void *png, unsigned long size, unsigned long *width, unsigned long *height);
+/* (what hud_hires_png_pixels made, freed by the allocator that made it: the game's sources redefine free) */
+void hud_hires_png_pixels_free(unsigned char *pixels);
 /* Original HUD sheets lacking redraws, with their tag coordinates unchanged.
  * The cache owns the upscaled texture and invalidates it with the source. */
 long hud_hires_upscale_at(unsigned long address, long width, long height);

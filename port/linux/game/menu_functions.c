@@ -138,6 +138,7 @@ their handlers open opens.
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
+#include "platform_icons.h"
 #include "social_sync.h"
 #include "map_pictures.h"
 #include "randomizer.h"
@@ -16174,6 +16175,24 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	if (widget->name && (!strcmp(widget->name, "social_home") || !strcmp(widget->name, "social_home_chat")))
 	{
 		social_home_drawn(widget, bounds, widget->name[11] == '_');
+		return;
+	}
+	/* (a friend's platform, an icon at the left of its state) */
+	if (widget->name && !strcmp(widget->name, "social_state"))
+	{
+		short platform = social_menu_row_platform(social_row_place(social_row(widget)));
+
+		if (platform != _platform_icon_none)
+		{
+			rectangle2d icon;
+			short size = (short)((bounds->y1 - bounds->y0) * 4 / 5);
+
+			icon.x0 = bounds->x0;
+			icon.x1 = (short)(icon.x0 + size);
+			icon.y0 = (short)((bounds->y0 + bounds->y1 - size) / 2);
+			icon.y1 = (short)(icon.y0 + size);
+			platform_icon_draw(platform, &icon, 0xFFFFFFFF);
+		}
 		return;
 	}
 	/* (the Social screen's player card, over its rows: social_menu.c) */

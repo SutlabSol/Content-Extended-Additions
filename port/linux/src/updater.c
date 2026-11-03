@@ -64,7 +64,7 @@ worker) */
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-#define UPDATE_REPOSITORY "Watanoge/open-ce-ultimate-campaign"
+#define UPDATE_REPOSITORY "Watanoge/halo-content-evolved"
 #ifdef _WIN32
 #define PATH_SEPARATOR "\\"
 #else

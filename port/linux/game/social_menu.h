@@ -110,6 +110,8 @@ short *social_menu_chosen(void);
 
 /* a row's name and state (UTF-8 text) */
 void social_menu_row(short row, char *name, long name_size, char *state, long state_size);
+/* the platform icon (platform_icons.h) of a friend's row, none for any other */
+short social_menu_row_platform(short row);
 
 /* the row chosen's details: its title and its text, the last thing done
 first */

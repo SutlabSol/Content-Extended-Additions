@@ -57,10 +57,10 @@ char const *community_net_platform(void)
 {
 #if defined(HALO_WEB)
 	return "web";
-#elif defined(HALO_ANDROID)
-	return "android";
 #elif defined(HALO_SWITCH)
 	return "switch";
+#elif defined(HALO_ANDROID)
+	return "android";
 #elif defined(HALO_PS5)
 	return "ps5";
 #elif defined(_WIN32)

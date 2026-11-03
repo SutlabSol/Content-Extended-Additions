@@ -1948,7 +1948,7 @@ short *social_menu_chosen(
 
 /* a player's state in a row: IN MENUS, LOBBY 3/16, SLAYER 3/16, PRIVATE
 MATCH, SOLO, OFFLINE... (ONLINE when its activity is hidden) */
-static void presence_state(
+static void presence_state_plain(
 	struct social_menu_presence const *presence,
 	char *text,
 	long size)
@@ -1982,6 +1982,15 @@ static void presence_state(
 		snprintf(text, (size_t)size, "IN MENUS");
 	else
 		snprintf(text, (size_t)size, "ONLINE");
+}
+
+/* (and where it is said in words, the platform after it) */
+static void presence_state(
+	struct social_menu_presence const *presence,
+	char *text,
+	long size)
+{
+	presence_state_plain(presence, text, size);
 	if (presence->online)
 	{
 		char const *platform = platform_icon_label(presence->platform);
@@ -2844,6 +2853,18 @@ void social_menu_home_draw(
 	}
 }
 
+short social_menu_row_platform(
+	short row)
+{
+	struct social_menu_row const *entry = row_get(row);
+	struct social_menu_presence const *presence;
+
+	if (!entry || entry->kind != _row_friend)
+		return _platform_icon_none;
+	presence = &social_menu.friends[entry->value].presence;
+	return presence->online ? platform_icon_for_name(presence->platform) : _platform_icon_none;
+}
+
 void social_menu_row(
 	short row,
 	char *name,
@@ -2955,7 +2976,8 @@ void social_menu_row(
 		break;
 	case _row_friend:
 		snprintf(name, (size_t)name_size, "%s", social_menu.friends[entry->value].name);
-		presence_state(&social_menu.friends[entry->value].presence, state, state_size);
+		/* (its platform is the icon beside it: social_menu_row_platform) */
+		presence_state_plain(&social_menu.friends[entry->value].presence, state, state_size);
 		break;
 	case _row_friend_join:
 		{

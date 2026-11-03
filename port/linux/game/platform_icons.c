@@ -11,6 +11,7 @@ tools/embed_assets.py and drawn as ordinary game bitmaps on every renderer.
 #include "interface/interface.h"
 #include "interface/ui_widget.h"
 #include "rasterizer/rasterizer.h"
+#include "rasterizer/xbox/rasterizer_xbox_hardware_bitmaps.h"
 
 #include "platform_icons.h"
 #include "network_distributed.h"
@@ -96,15 +97,21 @@ static void platform_icon_bitmaps_load(
 		{
 			platform_log("platform icons: icon %d is %lux%lu, not 128x128",
 				(int)image->kind, width, height);
-			free(pixels);
+			hud_hires_png_pixels_free(pixels);
 			continue;
 		}
 		bitmap = bitmap_2d_new((short)width, (short)height, 0, 11);
+		/* (the hardware texture first, then its texels, as every other bitmap the port fills) */
+		if (bitmap && !rasterizer_bitmap_new(bitmap))
+		{
+			bitmap_delete(bitmap);
+			bitmap = NULL;
+		}
 		if (!bitmap || !bitmap->base_address)
 		{
 			platform_log("platform icons: could not allocate icon %d", (int)image->kind);
 			bitmap_delete(bitmap);
-			free(pixels);
+			hud_hires_png_pixels_free(pixels);
 			continue;
 		}
 		for (pixel_index = 0; pixel_index < width * height; pixel_index++)
@@ -115,13 +122,8 @@ static void platform_icon_bitmaps_load(
 
 			((pixel32 *)bitmap->base_address)[pixel_index] = color;
 		}
-		free(pixels);
-		if (!rasterizer_bitmap_new(bitmap))
-		{
-			platform_log("platform icons: could not upload icon %d", (int)image->kind);
-			bitmap_delete(bitmap);
-			continue;
-		}
+		hud_hires_png_pixels_free(pixels);
+		rasterizer_bitmap_changed(bitmap);
 		platform_icon_bitmaps[image->kind] = bitmap;
 	}
 }

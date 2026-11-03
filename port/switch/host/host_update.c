@@ -71,7 +71,7 @@ time; update.auto off asks nothing.
 #define HALO_BUILD_FLAVOR "release"
 #endif
 
-#define UPDATE_REPOSITORY "Watanoge/open-ce-ultimate-campaign"
+#define UPDATE_REPOSITORY "Watanoge/halo-content-evolved"
 /* the shared shader keys, and their SHA-1 (sha1sum's line, or just the hash) */
 #define KEYS_URL "https://raw.githubusercontent.com/" UPDATE_REPOSITORY "/main/keys.dkk"
 #define KEYS_SHA1_URL "https://raw.githubusercontent.com/" UPDATE_REPOSITORY "/main/keys.sha1"
