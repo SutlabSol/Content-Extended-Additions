@@ -56,11 +56,15 @@
               <h2 id="play-title">Halo Content Evolved</h2>
               <p class="launch-description">A feature-rich Halo CE project, playable here with your own Xbox disc image.</p>
               <div class="button-bar launch-actions">
-                <button id="play" class="primary play" disabled>Play</button>
+                <div class="play-row">
+                  <button id="update-button" class="primary play" hidden>Update</button>
+                  <button id="play" class="primary play" disabled>Play</button>
+                </div>
                 <a class="data-link" href="#data-panel">Set up game data <span aria-hidden="true">→</span></a>
                 <a class="data-link" href="#downloads">Downloads <span aria-hidden="true">→</span></a>
                 <a class="button primary android-download-link" href="https://github.com/Watanoge/halo-content-evolved/releases/latest" target="_blank" rel="noopener">Download latest release <span aria-hidden="true">↗</span></a>
               </div>
+              <p id="update-text" class="help note" role="status" hidden></p>
               <p id="play-note" class="help note"></p>
             </div>
             <img class="game-art" src="icons/icon-512.png" alt="Halo Content Evolved emblem" width="192" height="192">
@@ -349,11 +353,6 @@
       <button id="fatal-reload" class="primary">Reload</button>
     </div>
   </div>
-</div>
-
-<div id="update" class="banner" role="status" hidden>
-  <span id="update-text">A new build is out.</span>
-  <button id="update-button">Update</button>
 </div>
 
 <dialog id="download-modal" class="download-modal" aria-labelledby="download-modal-title">

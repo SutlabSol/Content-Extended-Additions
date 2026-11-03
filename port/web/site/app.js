@@ -112,13 +112,34 @@ async function loadStamp() {
   $('about-network').textContent = stamp.network_version != null ? String(stamp.network_version) : '–';
 }
 
+// a newer official build than this one (both numbered) must be updated to
+// before playing; a different build of the same number (or a local build)
+// is an update that is optional
+let updateAvailable = false;
+let updateRequired = false;
+let updating = false;
+
+function showUpdate(text, disabled) {
+  $('update-button').hidden = !updateAvailable;
+  updating = !!disabled;
+  $('update-button').disabled = updating;
+  $('update-button').textContent = updating ? 'Updating…' : 'Update';
+  $('update-text').hidden = !updateAvailable;
+  $('update-text').textContent = text;
+  $('play').textContent = updateAvailable ? 'Play anyways' : 'Play';
+  updatePlay();
+}
+
 async function checkForUpdate() {
   if (!navigator.serviceWorker || !navigator.serviceWorker.controller || !stamp.version) return;
   try {
     const latest = await (await fetch('version.json?latest', { cache: 'no-store' })).json();
     if (latest.version && latest.version !== stamp.version) {
-      $('update-text').textContent = latest.build ? `Build ${latest.build} is out.` : 'A new build is out.';
-      $('update').hidden = false;
+      const newer = Number(latest.build) > Number(stamp.build);
+      updateAvailable = true;
+      updateRequired = newer;
+      showUpdate(newer ? `Build ${latest.build} is out: update to play.` : latest.build ?
+        `An update of build ${latest.build} is out.` : 'An update is out.');
     }
   } catch {
     // offline: the build there is plays
@@ -126,11 +147,10 @@ async function checkForUpdate() {
 }
 
 $('update-button').addEventListener('click', () => {
-  $('update-button').disabled = true;
-  $('update-text').textContent = 'Updating…';
+  showUpdate('Updating…', true);
   navigator.serviceWorker.addEventListener('message', (event) => {
     if (event.data === 'updated') location.reload();
-    else if (event.data === 'update-failed') $('update-text').textContent = 'The update could not be downloaded.';
+    else if (event.data === 'update-failed') showUpdate('The update could not be downloaded.', false);
   });
   navigator.serviceWorker.controller.postMessage('update');
 });
@@ -762,7 +782,7 @@ let gameStopped = false;
 let wakeLock = null;
 
 function canPlay() {
-  return checksPassed && dataReady && !gameStarted && !gameElsewhere;
+  return checksPassed && dataReady && !gameStarted && !gameElsewhere && !updateRequired && !updating;
 }
 
 // The game in another tab of this browser (the site's other pages share its
@@ -811,7 +831,9 @@ function updatePlay() {
   $('play-note').textContent = !checksPassed ? 'This browser cannot run the game: see This browser, below.' :
     gameElsewhere ? 'The game is already running in another tab of this browser: play there, or quit it or close ' +
       'that tab, and Play here turns on.' :
-    !dataReady ? 'The game data is needed first.' : '';
+    !dataReady ? 'The game data is needed first.' :
+    updating ? 'Updating: Play turns on again once it is done.' :
+    updateRequired ? 'A newer build is out: Update, and Play turns on.' : '';
   summarize('summary-browser', checksPassed, checksPassed ? 'Runs the game' : 'Cannot run the game');
   summarize('summary-data', dataReady, dataReady ? $('data-status').textContent : 'Needed first');
 }
@@ -998,7 +1020,6 @@ async function play() {
   gameStarted = true;
   watchFrames();
   $('launcher').hidden = true;
-  $('update').hidden = true;
   $('game').hidden = false;
   const canvas = $('canvas');
   canvas.focus();

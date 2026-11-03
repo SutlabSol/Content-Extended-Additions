@@ -48,6 +48,7 @@ community server's answers.
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
+#include "social_sync.h"
 #include "../src/community_net.h"
 #include "../src/p2p.h"
 #include "../src/port_config.h"
@@ -91,6 +92,12 @@ again; the players muted and blocked asked for again after a failure */
 #define SOCIAL_MENU_KEYBOARD_CAPTION 8
 #define SOCIAL_MENU_TYPED_LENGTH 24
 
+/* a sync code (an account's, for another install to take) is asked for again
+this often while its screen is shown: the server drops it after 45 seconds
+without being asked */
+#define SOCIAL_MENU_SYNC_MILLISECONDS 15000
+#define SOCIAL_MENU_SYNC_ANSWER_SIZE 1024
+
 /* the lists (social_menu.h) */
 enum
 {
@@ -104,6 +111,8 @@ enum
 	_list_matches,
 	_list_moderation,
 	_list_report,
+	_list_sync,
+	_list_sync_code,
 	NUMBER_OF_LISTS
 };
 
@@ -143,6 +152,10 @@ enum
 	_row_reason,
 	_row_code,
 	_row_new_code,
+	_row_sync,
+	_row_sync_create,
+	_row_sync_input,
+	_row_sync_code,
 	_row_settings,
 };
 
@@ -169,6 +182,7 @@ enum
 {
 	_typing_none,
 	_typing_friend_code,
+	_typing_sync_code,
 };
 
 /* ---------- structures */
@@ -306,6 +320,14 @@ static struct
 	unsigned long message_time;
 	short confirming_kind;
 	unsigned long confirming_time;
+	/* the sync code: its request, the code the server gave, when it was last
+	asked for, and why it was not given */
+	int sync_ticket;
+	char sync_code[16];
+	unsigned long sync_at;
+	int sync_status;
+	boolean sync_joined;
+	char sync_answer[SOCIAL_MENU_SYNC_ANSWER_SIZE];
 	/* the keyboard */
 	short typing;
 	wchar_t typed[SOCIAL_MENU_TYPED_LENGTH + 1];
@@ -1140,6 +1162,21 @@ static void action_take(
 
 	if (!answered)
 		message_set("The server did not answer: try again.");
+	else if (social_menu.action_kind == _row_sync_input && status != 200)
+	{
+		if (status == 404)
+			message_set("That code is not good: it expired, or its screen was closed.");
+		else if (status == 409)
+			message_set("This device is already synced, or its account already has devices.");
+		else if (status == 422 && strstr(answer, "same_account"))
+			message_set("That code is this account's own.");
+		else if (status == 422)
+			message_set("That is not a sync code (XXXX-XXXX).");
+		else if (status == 429)
+			message_set("Too many wrong codes: wait a minute.");
+		else
+			message_set("The server refused it (%d).", status);
+	}
 	else if (status == 404 && social_menu.action_kind == _row_new_code)
 		message_set("The community server cannot draw a new code yet: it needs updating.");
 	else if (status == 429 && social_menu.action_kind == _row_new_code)
@@ -1185,6 +1222,13 @@ static void action_take(
 			break;
 		case _row_friend_remove:
 			message_set("%s is no longer your friend.", name);
+			break;
+		case _row_sync_input:
+			social_account_code_take(answer);
+			social_sync_pull_soon();
+			social_menu.friends_had = FALSE;
+			social_menu.outgoing_count = 0;
+			message_set("Synced: this device is now part of account %s.", social_account_code());
 			break;
 		case _row_new_code:
 			if (!social_account_code_take(answer))
@@ -1245,12 +1289,85 @@ static void action_take(
 
 static void social_menu_join_update(unsigned long now);
 
+/* the sync code shown (its screen open, the account online) is asked for
+every SOCIAL_MENU_SYNC_MILLISECONDS; with the screen left, the menu closed or
+the account offline it is cancelled, which the server also does by itself
+45 seconds after the last time it was asked for */
+static void sync_code_update(
+	unsigned long now)
+{
+	boolean shown = social_menu.open && social_menu.list == _list_sync_code && social_menu_online();
+
+	if (social_menu.sync_ticket)
+	{
+		int status = 0;
+		int result = community_net_poll(social_menu.sync_ticket, &status, social_menu.sync_answer,
+			sizeof(social_menu.sync_answer));
+
+		if (result == _community_net_waiting)
+			return;
+		social_menu.sync_ticket = 0;
+		if (!shown)
+			return;
+		social_menu.sync_status = result == _community_net_answered ? status : -1;
+		if (status == 200 && result == _community_net_answered)
+		{
+			struct server_json_document document;
+			char code[sizeof(social_menu.sync_code)];
+			boolean was_synced = social_sync_active();
+
+			code[0] = 0;
+			if (server_json_parse(&document, social_menu.sync_answer, (int)strlen(social_menu.sync_answer), 16))
+			{
+				int token = server_json_member(&document, 0, "data");
+
+				token = token >= 0 ? server_json_member(&document, token, "code") : -1;
+				if (token < 0 || !server_json_get_string(&document, token, code, sizeof(code)))
+					code[0] = 0;
+				server_json_document_free(&document);
+			}
+			social_sync_answer(social_menu.sync_answer);
+			if (social_sync_active() && !was_synced)
+				social_menu.sync_joined = TRUE;
+			snprintf(social_menu.sync_code, sizeof(social_menu.sync_code), "%s", code);
+		}
+		else
+			social_menu.sync_code[0] = 0;
+		return;
+	}
+	if (!shown)
+	{
+		if (social_menu.sync_code[0] || social_menu.sync_at)
+		{
+			community_net_forget(social_send("/account/sync/cancel", "{}"));
+			social_menu.sync_code[0] = 0;
+			social_menu.sync_at = 0;
+		}
+		return;
+	}
+	if (!social_menu.sync_at || now - social_menu.sync_at >= SOCIAL_MENU_SYNC_MILLISECONDS)
+	{
+		struct server_json json;
+
+		server_json_begin(&json);
+		server_json_object_begin(&json, NULL);
+		if (social_menu.sync_code[0])
+			server_json_string(&json, "code", social_menu.sync_code);
+		social_sync_skulls_write(&json, "skulls");
+		server_json_object_end(&json);
+		social_menu.sync_ticket = social_send("/account/sync/code", server_json_text(&json));
+		server_json_free(&json);
+		social_menu.sync_at = now ? now : 1;
+	}
+}
+
 void social_menu_update(
 	void)
 {
 	unsigned long now = system_milliseconds();
 
 	social_menu_join_update(now);
+	sync_code_update(now);
 	if (!social_menu_online())
 		return;
 	if (social_menu.fetch_ticket)
@@ -1383,6 +1500,7 @@ static void rows_build(
 			row_add(_row_recent, 0);
 			row_add(_row_add_friend, 0);
 			row_add(_row_moderation, 0);
+			row_add(_row_sync, 0);
 		}
 		row_add(_row_settings, 0);
 		break;
@@ -1455,6 +1573,13 @@ static void rows_build(
 			row_add(_row_moderated, index);
 		if (!social_menu.moderated_count)
 			note_add(social_menu.moderation_had, FALSE);
+		break;
+	case _list_sync:
+		row_add(_row_sync_create, 0);
+		row_add(_row_sync_input, 0);
+		break;
+	case _list_sync_code:
+		row_add(_row_sync_code, 0);
 		break;
 	case _list_report:
 		for (index = 0; index < (short)NUMBEROF(social_menu_reasons); index++)
@@ -1565,7 +1690,7 @@ void social_menu_close(
 }
 
 static void keyboard_open(
-	void)
+	short typing)
 {
 	csmemset(social_menu.typed, 0, sizeof(social_menu.typed));
 	virtual_keyboard_allow_any_name();
@@ -1574,7 +1699,7 @@ static void keyboard_open(
 		message_set("The keyboard did not open.");
 		return;
 	}
-	social_menu.typing = _typing_friend_code;
+	social_menu.typing = typing;
 }
 
 void social_menu_poll(
@@ -1585,6 +1710,8 @@ void social_menu_poll(
 	/* (a friend's code typed, once the keyboard has closed) */
 	if (social_menu.typing != _typing_none && !virtual_keyboard_active())
 	{
+		short wanted = social_menu.typing;
+
 		social_menu.typing = _typing_none;
 		if (virtual_keyboard_last_exit_saved_text())
 		{
@@ -1592,7 +1719,9 @@ void social_menu_poll(
 
 			utf8_from_wide(social_menu.typed, code, sizeof(code));
 			code_normalize(code);
-			if (code[0])
+			if (code[0] && wanted == _typing_sync_code)
+				act(_row_sync_input, "/account/sync/redeem", code, code, NULL, NULL);
+			else if (code[0])
 				act(_row_add_friend, "/friends", code, code, NULL, NULL);
 		}
 	}
@@ -2589,6 +2718,25 @@ void social_menu_row(
 	case _row_new_code:
 		snprintf(name, (size_t)name_size, "NEW CODE");
 		break;
+	case _row_sync:
+		snprintf(name, (size_t)name_size, "SYNC ACCOUNT");
+		if (social_sync_active())
+			snprintf(state, (size_t)state_size, "SYNCED");
+		break;
+	case _row_sync_create:
+		snprintf(name, (size_t)name_size, "CREATE CODE");
+		break;
+	case _row_sync_input:
+		snprintf(name, (size_t)name_size, "INPUT CODE");
+		break;
+	case _row_sync_code:
+		snprintf(name, (size_t)name_size, "SYNC CODE");
+		if (!social_menu_online())
+			snprintf(state, (size_t)state_size, "OFFLINE");
+		else
+			snprintf(state, (size_t)state_size, "%s", social_menu.sync_code[0] ? social_menu.sync_code :
+				social_menu.sync_status && social_menu.sync_status != 200 ? "NOT GIVEN" : "ASKING...");
+		break;
 	case _row_settings:
 		snprintf(name, (size_t)name_size, "SETTINGS");
 		if (!social_enabled())
@@ -2820,6 +2968,31 @@ void social_menu_details(
 		text_add(text, text_size, "A new code in place of yours (A\ntwice): the old one no longer\nfinds you. Your friends "
 			"and\nrequests stay.");
 		break;
+	case _row_sync:
+		snprintf(title, (size_t)title_size, "SYNC ACCOUNT");
+		text_add(text, text_size, "Use this account on another\ndevice: its friends, records,\nmedals, leaderboard "
+			"scores and\nskulls. Profiles, controls and\ncampaign progress stay on each\ndevice.%s", social_sync_active() ?
+			"\n\nThis account is synced." : "");
+		break;
+	case _row_sync_create:
+		snprintf(title, (size_t)title_size, "CREATE CODE");
+		text_add(text, text_size, "A code for your other device's\nINPUT CODE. It works while its\nscreen is open and you are "
+			"online.");
+		break;
+	case _row_sync_input:
+		snprintf(title, (size_t)title_size, "INPUT CODE");
+		text_add(text, text_size, "Type the code another device\nshows, to bring this device into\nthat account. This "
+			"device's own\nfriends and records are added to\nit. It cannot be undone.");
+		break;
+	case _row_sync_code:
+		snprintf(title, (size_t)title_size, "SYNC CODE");
+		if (social_menu.sync_joined)
+			text_add(text, text_size, "A device joined this account.\nYour skulls are shared now.");
+		else
+			text_add(text, text_size, "%s\n\nType it on the other device (SYNC\nACCOUNT, INPUT CODE). It stops "
+				"working when you leave this screen or go offline.", social_menu.sync_code[0] ? social_menu.sync_code :
+				"...");
+		break;
 	case _row_settings:
 		snprintf(title, (size_t)title_size, "SETTINGS");
 		text_add(text, text_size, "Social on or off, your records,\nthe fork's chat, and your friend\nlist: what others "
@@ -3006,6 +3179,31 @@ short social_menu_choose(
 		else if (confirmed(_row_new_code, "draw a new code"))
 			act(_row_new_code, "/account/code", "", NULL, NULL, NULL);
 		break;
+	case _row_sync:
+		list_open(_list_sync);
+		break;
+	case _row_sync_create:
+		if (!social_menu_online())
+			message_set("The community server is not reached.");
+		else
+		{
+			social_menu.sync_code[0] = 0;
+			social_menu.sync_status = 0;
+			social_menu.sync_joined = FALSE;
+			social_menu.sync_at = 0;
+			list_open(_list_sync_code);
+		}
+		break;
+	case _row_sync_input:
+		if (!social_menu_online())
+		{
+			message_set("The community server is not reached.");
+			break;
+		}
+		keyboard_open(_typing_sync_code);
+		return social_menu.typing != _typing_none ? _social_menu_typing : _social_menu_stays;
+	case _row_sync_code:
+		break;
 	case _row_settings:
 		return _social_menu_settings;
 	case _row_friends:
@@ -3029,7 +3227,7 @@ short social_menu_choose(
 			message_set("The community server is not reached.");
 			break;
 		}
-		keyboard_open();
+		keyboard_open(_typing_friend_code);
 		return social_menu.typing != _typing_none ? _social_menu_typing : _social_menu_stays;
 	case _row_friend:
 		player_open(social_menu.friends[entry->value].code, social_menu.friends[entry->value].name);

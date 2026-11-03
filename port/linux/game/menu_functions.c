@@ -138,6 +138,7 @@ their handlers open opens.
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
+#include "social_sync.h"
 #include "map_pictures.h"
 #include "randomizer.h"
 #include "firing_range.h"
@@ -3424,6 +3425,7 @@ static void skulls_reset_progress(struct widget_instance *widget)
 		return;
 	}
 	platform_log("menus: skull progress reset");
+	social_sync_skulls_reset();
 	skulls_reset_state = _skulls_reset_done;
 	/* (the question asked again before the skulls screen, not now) */
 	skulls_setup.asked = TRUE;

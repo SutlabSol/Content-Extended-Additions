@@ -1709,6 +1709,34 @@ The game keeps its key in `player.key` and the passes in
 machine's: whoever has it joins as the account. Refer to
 `docs/master_protocol.md`, "Player keys, links and passes".
 
+### Sync account
+
+Social > SYNC ACCOUNT makes another device part of the same social account.
+On the device that has the account, CREATE CODE shows a code. On the other,
+INPUT CODE takes it. The code works only while the CREATE CODE screen is open
+and its device is online: the screen asks the server for it again every 15
+seconds, and the server drops a code that was not asked for in 45 seconds. A
+code works once.
+
+The device that inputs the code joins the account of the code: its friends
+(those of both devices), its totals, match history and medals (the device's
+own add to them, and its next matches count for the account), its
+leaderboard records (a profile of the same name on both devices becomes one
+player, with the better score of each level and day), and its skulls. The
+skulls are shared while the devices are online: the skulls unlocked (a skull
+unlocked on one is unlocked on all) and the unlock style
+(`game.skulls_unlock_mode`, `game.skulls_all_unlocked`,
+`game.skulls_instant_unlock`, `game.skulls_lose_on_death`). Resetting the
+skulls' progress on one device resets it on the others. Profiles,
+controller layouts, campaign progress and every other setting stay on each
+device.
+
+Both devices show online while either plays, and share the same friend code.
+A device that joined an account cannot join another, and there is no way yet
+to leave one. The server's side is `database/halo_sync.js`
+(`POST /account/sync/code`, `/account/sync/cancel`, `/account/sync/redeem`
+and `/account/skulls`).
+
 ## Dedicated server
 
 `halo --server` (or `server.enabled = true`) runs the game as a host with no

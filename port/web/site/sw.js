@@ -13,7 +13,8 @@ The site's service worker:
   its files; they are fetched together into a cache of their own, and a new
   build replaces them as a whole only when the page asks (once the player
   agrees). version.json?latest always asks the network, so that the page can
-  tell a new build is out;
+  tell a new build is out. Stylesheets are the exception: always the
+  network's, the cached one only when it cannot be reached;
 - it takes the game's wasm, most of a build, from the copy version.json
   names (jsDelivr's, of the commit the deployment pushed it in:
   .github/workflows/build.yml's pages job), checked against its SHA-256,
@@ -123,11 +124,44 @@ async function cachedResponse(request) {
   return response;
 }
 
+// a stylesheet is the site's, not the build's: it is taken from the network
+// every time (and kept for when there is none), so that a build not yet
+// updated to still looks as the newest does and a fix to it reaches the page
+// without the Update button, which a broken style may hide
+async function freshStyle(request) {
+  try {
+    const response = await fetch(request, { cache: 'no-store' });
+    if (!response.ok) return null;
+    const version = await activeVersion();
+    if (version) await (await caches.open(CACHE_PREFIX + version)).put(request, response.clone());
+    return response;
+  } catch {
+    return null;
+  }
+}
+
+// a build whose page has the floating update bar (before the Update button
+// beside Play) cannot be updated once the bar is hidden: as the page loads
+// anew, the latest build is taken, once
+async function leaveBannerBuild() {
+  try {
+    const page = await cachedResponse(new Request('./'));
+    if (page && (await page.text()).includes('class="banner"')) await installVersion(await networkVersion());
+  } catch {
+    // offline: the build there plays
+  }
+}
+
 async function respond(request) {
   const url = new URL(request.url);
   if (url.pathname.endsWith('/version.json') && url.searchParams.has('latest')) {
     return isolated(await fetch('version.json', { cache: 'no-store' }));
   }
+  if (url.pathname.endsWith('.css')) {
+    const fresh = await freshStyle(request);
+    if (fresh) return isolated(fresh);
+  }
+  if (request.mode === 'navigate') await leaveBannerBuild();
   const cached = await cachedResponse(request);
   if (cached) return isolated(cached);
   try {

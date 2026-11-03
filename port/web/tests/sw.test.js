@@ -181,3 +181,21 @@ test('a copy elsewhere than https is never fetched', async () => {
   assert.strictEqual(await sw.mirroredWasm(stamp), null);
   assert.deepStrictEqual(fetched, []);
 });
+
+test("a stylesheet is the network's, not the build's, and the cached one only when it cannot be had", async () => {
+  serve('ssss', { 'index.html': '<page s>', 'style.css': 'old style' });
+  await sw.installVersion(JSON.parse(served['version.json']));
+  served['style.css'] = 'new style';
+  assert.strictEqual(await (await sw.respond(new Request(ORIGIN + '/style.css'))).text(), 'new style');
+  delete served['style.css'];
+  assert.strictEqual(await (await sw.respond(new Request(ORIGIN + '/style.css'))).text(), 'new style');
+});
+
+test('a build whose page has the update bar is replaced as its page loads', async () => {
+  serve('bar1', { 'index.html': '<div class="banner">', 'halo.js': 'js bar1' });
+  await sw.installVersion(JSON.parse(served['version.json']));
+  serve('bar2', { 'index.html': '<page bar2>', 'halo.js': 'js bar2' });
+  const page = await sw.respond(Object.defineProperty(new Request(ORIGIN + '/'), 'mode', { value: 'navigate' }));
+  assert.strictEqual(await page.text(), '<page bar2>');
+  assert.strictEqual(await sw.activeVersion(), 'bar2');
+});

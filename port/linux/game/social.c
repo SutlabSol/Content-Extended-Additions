@@ -74,6 +74,7 @@ the players and their records social_menu.c's.
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
+#include "social_sync.h"
 #include "../src/community_net.h"
 #include "../src/port_config.h"
 #include "../src/posix.h"
@@ -237,6 +238,7 @@ char const *social_account_code(
 }
 
 static void social_answer_text(char const *answer, char const *path, char *text, int size);
+static void social_answer_totals(char const *answer);
 
 boolean social_account_code_take(
 	char const *answer)
@@ -248,6 +250,9 @@ boolean social_account_code_take(
 		return FALSE;
 	platform_log("social: the account's code is now %s", code);
 	csstrncpy(social.code, code, sizeof(social.code) - 1);
+	/* (an answer that joined another install's account has its totals and skulls) */
+	social_answer_totals(answer);
+	social_sync_answer(answer);
 	return TRUE;
 }
 
@@ -456,6 +461,7 @@ static void social_hello_update(
 
 			social_answer_text(social.answer, "account.code", code, sizeof(code));
 			social_answer_totals(social.answer);
+			social_sync_answer(social.answer);
 			if (code[0])
 			{
 				if (strcmp(code, social.code))
@@ -1342,6 +1348,7 @@ static void social_presence_update(
 		{
 			social.friends_online = social_answer_number(social.answer, "friendsOnline", social.friends_online);
 			social.requests_waiting = social_answer_number(social.answer, "requests", social.requests_waiting);
+			social_sync_answer(social.answer);
 			{
 				char key[32];
 
@@ -1391,6 +1398,7 @@ void social_update(
 		social_hello_update(now);
 		social_records_update(now);
 		social_presence_update(now);
+		social_sync_update(now);
 	}
 	social_chat_update();
 	social_menu_update();
