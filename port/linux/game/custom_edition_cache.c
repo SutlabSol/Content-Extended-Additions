@@ -1386,9 +1386,9 @@ boolean custom_edition_structure_bsp_reference_valid(
 {
 	struct custom_edition_cache_globals *globals = &custom_edition_cache_globals;
 	unsigned long address = (unsigned long)reference->base_address;
-	/* (where the tag cache is: the address cache_files.c has already moved
-	there where it is not where the map was linked, PORT_WINDOW_REBASE) */
-	unsigned long base = (unsigned long)globals->tag_cache;
+	/* (where the tag cache is: the reference was moved there with the rest
+	of the tags' addresses, halo_port_window.h) */
+	unsigned long base = (unsigned long)(uintptr_t)globals->tag_cache;
 	unsigned long top = base + globals->tag_cache_bytes;
 
 	/* (in the map's cache data, read to the top of its tag cache, above its

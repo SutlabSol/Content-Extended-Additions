@@ -2,7 +2,6 @@
 # port/android/guest/runtime/guest_host.h, defined in port/android/host's
 # host_main.c and host_touch.c), beyond host_imports.list's.
 host_android_path
-host_android_chip_family
 host_gesture_insets
 host_folder_pick_begin
 host_folder_pick_result
@@ -18,5 +17,14 @@ host_touch_devices
 # a replay's buttons on the screen, for the overlay to press (host_touch.c;
 # touch_input.c, port/linux/game/network_replay_playback.c)
 host_touch_targets
-# the Theater's EXPORT REPLAYS (port/android/host/host_main.c; port/linux/game/menu_functions.c)
+# the phone's GPU family, for the GL ES renderer's fixes (host_render_policy.c; guest_render_policy.c)
+host_android_chip_family
+# the Theater's EXPORT and IMPORT (port/android/host/host_main.c; port/linux/game/menu_functions.c)
 host_android_export_replays
+host_android_import_replays
+# the Mods screen's IMPORT (port/android/host/host_main.c; port/linux/game/menu_functions.c)
+host_android_import_mods
+# Video Setup's IMPORT DRIVER (port/android/host/host_main.c; port/linux/game/menu_functions.c)
+host_android_import_vk_drivers
+# the map lists' IMPORT (port/android/host/host_main.c; port/linux/game/menu_functions.c)
+host_android_import_maps

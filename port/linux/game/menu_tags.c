@@ -407,7 +407,11 @@ static char const *const port_function_names[] =
 	"skulls death lose", "skulls death keep", "skulls death back", "skulls random roll",
 	/* (the main menu's Mods: menu_functions.c) */
 	"port mods init", "port mods close", "port mods toggle", "port mods move up", "port mods move down",
-	"port mods save", "port mods accept",
+	"port mods save", "port mods accept", "port mods delete", "port mods import",
+	/* (Video Setup's IMPORT DRIVER, Android's: menu_functions.c) */
+	"port vk driver import",
+	/* (the map lists' IMPORT, Android's: menu_functions.c) */
+	"port map import",
 	/* (Settings > Gameplay > Tag Injector: menu_functions.c) */
 	"port tags init", "port tags close", "port tags choose", "port tags left", "port tags right", "port tags back",
 	"port tags new profile", "port tags profile button",
@@ -438,7 +442,7 @@ static char const *const port_function_names[] =
 	"port news init", "port news close", "port news up", "port news down", "port news newer", "port news older",
 	"port news open",
 	/* (the main menu's Theater: menu_functions.c) */
-	"port theater record", "port theater export", "port theater watch", "port theater delete",
+	"port theater record", "port theater export", "port theater import", "port theater watch", "port theater delete",
 	/* (the Map Manager, and the map lists' MANAGE MAP: menu_functions.c, map_manager.c) */
 	"port maps init", "port maps close", "port maps choose", "port maps back", "port map manage",
 	/* (Social: the main menu's Y, and Chat's BLOCKED & MUTED: menu_functions.c, social_menu.c) */

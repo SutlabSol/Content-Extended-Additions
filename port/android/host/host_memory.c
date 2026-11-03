@@ -257,10 +257,10 @@ static struct pool *pool_new(void)
 		}
 		if (!address)
 			return NULL;
-		/* (never in Custom Edition's tag cache range: where the Java
-		runtime holds part of it the tag cache goes elsewhere, and the guest
-		then takes any address in the range for one of its maps' to move,
-		halo_port_window.h's PORT_CUSTOM_EDITION_SHIFT) */
+		/* (clear of Custom Edition's tag cache's own address, as the window
+		and the image are: where the tag cache cannot be had there and goes
+		elsewhere, an address in that range is always one its maps were
+		written with, to be moved, port/linux/include/halo_port_window.h) */
 		if (crosses_custom_edition(address, POOL_SIZE))
 		{
 			minimum = HALO_GUEST_CUSTOM_EDITION_END;

@@ -1155,38 +1155,39 @@ static enum cache_file_status load_fail(
 	return status;
 }
 
-/* `address`, a runtime address of the tags in `tag_cache`, as they were
-linked (from CUSTOM_EDITION_TAG_CACHE_ADDRESS). Where the platform could not
-put the tag cache there (on Android, where the Java runtime holds it:
-port/linux/src/xbox_memory.c), the validator moves the tags' addresses to
-where it is as it checks them (port/linux/game/tag_validate.c), and the
-helpers below are asked of them after that too. The two ranges never
-overlap */
-static uint32_t linked_address(
-	uint8_t const *tag_cache,
+/* the offset in the tag cache of the runtime address `address`, when
+`size` bytes there lie within the bytes in use */
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
+/* how far the tag cache is from CUSTOM_EDITION_TAG_CACHE_ADDRESS
+(port/linux/include/halo_port_window.h: port/linux/src/xbox_memory.c) */
+extern unsigned long platform_custom_edition_shift;
+#endif
+
+/* an address in the tag cache as its map was written for: the game moves
+the tag directory's (cache_files.c) and the structure BSPs' to where the tag
+cache is, once the map has loaded, and the walks below take either */
+static uint32_t tag_cache_written_address(
 	uint32_t address)
 {
-	uintptr_t base = (uintptr_t)tag_cache;
+#if defined(HALO_ANDROID) || defined(HALO_MOVABLE_WINDOW)
+	uint32_t shift = (uint32_t)platform_custom_edition_shift;
 
-	if (base != CUSTOM_EDITION_TAG_CACHE_ADDRESS && address >= base &&
-		address - base < CUSTOM_EDITION_TAG_CACHE_BYTES)
+	if (shift && address - (CUSTOM_EDITION_TAG_CACHE_ADDRESS + shift) < CUSTOM_EDITION_TAG_CACHE_BYTES)
 	{
-		return (uint32_t)(address - base) + CUSTOM_EDITION_TAG_CACHE_ADDRESS;
+		return address - shift;
 	}
+#endif
 
 	return address;
 }
 
-/* the offset in the tag cache of the runtime address `address` (as linked,
-or moved: linked_address), when `size` bytes there lie within the bytes in
-use */
 static int tag_cache_offset(
 	struct load_state const *state,
 	uint32_t address,
 	uint32_t size,
 	uint32_t *offset)
 {
-	address = linked_address(state->tag_cache, address);
+	address = tag_cache_written_address(address);
 	if (address < CUSTOM_EDITION_TAG_CACHE_ADDRESS ||
 		!range_fits(address - CUSTOM_EDITION_TAG_CACHE_ADDRESS, size, state->used_bytes))
 	{
@@ -1755,8 +1756,10 @@ static int loaded_block_get(
 	int32_t *count,
 	uint32_t *offset)
 {
-	uint32_t block_address = read_u32(block + TAG_BLOCK_ADDRESS_OFFSET);
+	/* (either as the map was written for or moved: tag_cache_written_address) */
+	uint32_t block_address = tag_cache_written_address(read_u32(block + TAG_BLOCK_ADDRESS_OFFSET));
 
+	address = tag_cache_written_address(address);
 	*count = read_s32(block + TAG_BLOCK_COUNT_OFFSET);
 	*offset = block_address - address;
 
@@ -2833,24 +2836,12 @@ void *custom_edition_cache_block_element(
 	struct load_state state;
 	int32_t element_count;
 	uint32_t elements_offset;
-	uint32_t base = CUSTOM_EDITION_TAG_CACHE_ADDRESS;
 
 	loaded_state_initialize(&state, tag_cache, loaded_bytes);
 	if ((uint8_t const *)block < tag_cache ||
-		!range_fits((uint32_t)((uint8_t const *)block - tag_cache), TAG_BLOCK_BYTES, loaded_bytes))
-	{
-		return NULL;
-	}
-	/* (its elements counted from where the tag cache is, once the validator
-	moved its address there: linked_address) */
-	{
-		uint32_t address = read_u32((uint8_t const *)block + TAG_BLOCK_ADDRESS_OFFSET);
-
-		if (linked_address(tag_cache, address) != address)
-			base = (uint32_t)(uintptr_t)tag_cache;
-	}
-	if (element_bytes == 0 ||
-		!loaded_block_get(block, base, loaded_bytes, element_bytes, &element_count, &elements_offset) ||
+		!range_fits((uint32_t)((uint8_t const *)block - tag_cache), TAG_BLOCK_BYTES, loaded_bytes) ||
+		element_bytes == 0 ||
+		!loaded_block_get(block, CUSTOM_EDITION_TAG_CACHE_ADDRESS, loaded_bytes, element_bytes, &element_count, &elements_offset) ||
 		element_index < 0 ||
 		element_index >= element_count)
 	{

@@ -66,3 +66,8 @@ host_errno
 host_https_request
 # the server browser's master servers (port/linux/src/master_list.c)
 host_https_get
+# a replay's records kept in the host's memory, outside the guest's
+# (port/android/host/host_replay.c; port/linux/game/network_replay_playback.c)
+host_replay_store_append
+host_replay_store_read
+host_replay_store_free
