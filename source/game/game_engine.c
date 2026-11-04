@@ -1733,8 +1733,9 @@ enum
 	/* the rows' widths (in the scoreboard's text, before it is scaled):
 	place, name, score, ping (the last as wide as "Ping" or three digits,
 	so that the columns centred are their text centred) */
-	SCOREBOARD_PLACE_WIDTH = 55,
-	SCOREBOARD_NAME_WIDTH = 185,
+	SCOREBOARD_PLACE_WIDTH = 45,
+	SCOREBOARD_ICON_PREFIX_WIDTH = 44,
+	SCOREBOARD_NAME_WIDTH = 195,
 	SCOREBOARD_SCORE_WIDTH = 95,
 	SCOREBOARD_PING_WIDTH = 40,
 	SCOREBOARD_COLUMN_WIDTH = SCOREBOARD_PLACE_WIDTH + SCOREBOARD_NAME_WIDTH + SCOREBOARD_SCORE_WIDTH + SCOREBOARD_PING_WIDTH,
@@ -1891,10 +1892,10 @@ static void scoreboard_draw_row(
 	if (firefight_active())
 	{
 		tab_stops[0] = left;
-		tab_stops[1] = (short)(left + 45);
-		tab_stops[2] = (short)(left + 215);
-		tab_stops[3] = (short)(left + 305);
-		tab_stops[4] = (short)(left + 375);
+		tab_stops[1] = (short)(left + 45 + SCOREBOARD_ICON_PREFIX_WIDTH);
+		tab_stops[2] = (short)(left + 235);
+		tab_stops[3] = (short)(left + 315);
+		tab_stops[4] = (short)(left + 380);
 		tab_stops[5] = (short)(left + 445);
 		tab_stops[6] = (short)(left + 510);
 		tab_count = 7;
@@ -1902,8 +1903,8 @@ static void scoreboard_draw_row(
 	else
 	{
 		tab_stops[0] = left;
-		tab_stops[1] = (short)(left + scoreboard_widths.place);
-		tab_stops[2] = (short)(tab_stops[1] + scoreboard_widths.name);
+		tab_stops[1] = (short)(left + scoreboard_widths.place + SCOREBOARD_ICON_PREFIX_WIDTH);
+		tab_stops[2] = (short)(left + scoreboard_widths.place + scoreboard_widths.name);
 		tab_stops[3] = (short)(tab_stops[2] + scoreboard_widths.score);
 		tab_count = 4;
 	}
@@ -2752,15 +2753,17 @@ static void game_engine_rasterize_scoreboard(
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		row_color = firefight_active() ? &team_colors[0] :
 			(has_teams ? &team_colors[PIN(player->team_index, 0, 1)] : &color);
-		/* port: right of the player's name: voice icon, platform icon, Service Rank Badge, and Player Emblem */
+		/* port: [Rank] [Medal] Name [Platform icon] */
 		{
 			rectangle2d icon_col;
+			rectangle2d prefix_rect;
 			rectangle2d text;
 			rectangle2d ink;
 			rectangle2d cursor;
 			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
-			short name_col_left = firefight_active() ? (short)(row_left + 45) : (short)(row_left + scoreboard_widths.place);
-			short name_col_width = firefight_active() ? 170 : scoreboard_widths.name;
+			short prefix_left = firefight_active() ? (short)(row_left + 45) : (short)(row_left + scoreboard_widths.place);
+			short name_col_left = (short)(prefix_left + SCOREBOARD_ICON_PREFIX_WIDTH);
+			short name_col_width = firefight_active() ? (235 - 45 - SCOREBOARD_ICON_PREFIX_WIDTH) : (short)(scoreboard_widths.name - SCOREBOARD_ICON_PREFIX_WIDTH);
 			short size;
 			short middle;
 			short cur_x;
@@ -2772,9 +2775,34 @@ static void game_engine_rasterize_scoreboard(
 			draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
 			draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
 			middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
+			scoreboard_rectangle(&prefix_rect, bounds.x0, top, line_height, prefix_left, SCOREBOARD_ICON_PREFIX_WIDTH, head_rows + row, 1);
 			scoreboard_rectangle(&icon_col, bounds.x0, top, line_height, text.x0, name_col_width, head_rows + row, 1);
 			size = (short)((icon_col.y1 - icon_col.y0) * 2 / 3);
 			cur_x = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE + 4);
+
+#if OPENCE_ENABLE_SERVICE_RANK
+			{
+				struct firefight_mcc_rank_info rk;
+				struct firefight_emblem_info emb;
+				short badge_sz = (short)MAX(12, (prefix_rect.y1 - prefix_rect.y0) - 2);
+				short badge_y = (short)(middle - badge_sz / 2);
+
+				get_player_mcc_rank_and_emblem(entry->player_index, &rk, &emb);
+				firefight_draw_mcc_rank_icon(
+					prefix_rect.x0,
+					badge_y,
+					badge_sz,
+					rk.tour_number,
+					rk.rank_in_tour,
+					alpha);
+				firefight_draw_player_emblem(
+					(short)(prefix_rect.x0 + badge_sz + 2),
+					badge_y,
+					badge_sz,
+					&emb,
+					alpha);
+			}
+#endif
 
 			if (network && (network_voice_machine_speaking(player->network_player_data.machine_index) ||
 				network_voice_machine_muted(player->network_player_data.machine_index)))
@@ -2806,37 +2834,6 @@ static void game_engine_rasterize_scoreboard(
 					cur_x = (short)(cur_x + size + 4);
 				}
 			}
-#if OPENCE_ENABLE_SERVICE_RANK
-			{
-				struct firefight_mcc_rank_info rk;
-				struct firefight_emblem_info emb;
-				short badge_sz = (short)MAX(12, (icon_col.y1 - icon_col.y0) - 2);
-				short badge_y = (short)(middle - badge_sz / 2);
-
-				get_player_mcc_rank_and_emblem(entry->player_index, &rk, &emb);
-				if (cur_x + badge_sz <= icon_col.x1)
-				{
-					firefight_draw_mcc_rank_icon(
-						cur_x,
-						badge_y,
-						badge_sz,
-						rk.tour_number,
-						rk.rank_in_tour,
-						alpha);
-					cur_x = (short)(cur_x + badge_sz + 3);
-				}
-				if (cur_x + badge_sz <= icon_col.x1)
-				{
-					firefight_draw_player_emblem(
-						cur_x,
-						badge_y,
-						badge_sz,
-						&emb,
-						alpha);
-					cur_x = (short)(cur_x + badge_sz + 3);
-				}
-			}
-#endif
 		}
 		/* port: the player picked with the controller, lit */
 		if (picking && entry->player_index == scoreboard_pick.player_index)

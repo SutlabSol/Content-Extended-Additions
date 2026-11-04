@@ -792,7 +792,13 @@ void social_extensions_row_details(
 	if (!title || title_size <= 0 || !text || text_size <= 0)
 		return;
 
-	if (row_kind == _social_ext_row_emblem || list_kind == _social_ext_list_emblem)
+	if (list_kind == _social_ext_list_emblem)
+	{
+		snprintf(title, (size_t)title_size, "EMBLEM PREVIEW");
+		text[0] = '\0';
+		return;
+	}
+	if (row_kind == _social_ext_row_emblem)
 	{
 		struct firefight_emblem_info emb;
 		struct firefight_mcc_rank_info rk;
@@ -804,27 +810,25 @@ void social_extensions_row_details(
 		bg = (short)PIN(emb.background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
 		np = (short)PIN(emb.nameplate, 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
 
-		snprintf(title, (size_t)title_size, "EMBLEM & NAMEPLATE");
-		/* Leave 9 blank lines at top of social_details_text for the rendered Live Emblem Preview + Nameplate box */
+		snprintf(title, (size_t)title_size, "CUSTOMISE EMBLEM");
 		snprintf(
 			text,
 			(size_t)text_size,
-			"\n\n\n\n\n\n\n\n\n"
 			"Emblem: %s (%s)\n"
 			"Background: %s\n"
 			"Nameplate: %s\n"
 			"Rank: %s (T%d R%d)\n\n"
-			"%s",
+			"Customise your foreground emblem,\n"
+			"background shape, primary/secondary\n"
+			"colours, and MCC nameplate.\n\n"
+			"Press A to customise your emblem.",
 			s_emblem_fg_names[fg],
 			emb.secondary_layer ? "Full" : "Primary",
 			s_emblem_bg_names[bg],
 			s_mcc_nameplate_names[np],
 			rk.rank_name,
 			(int)rk.tour_number,
-			(int)rk.rank_in_tour,
-			list_kind == _social_ext_list_emblem ?
-				"Press A or LEFT/RIGHT to cycle." :
-				"Press A to customise your emblem.");
+			(int)rk.rank_in_tour);
 		return;
 	}
 	if (row_kind == _social_ext_row_service_record)
@@ -1246,10 +1250,11 @@ void social_extensions_draw_details_overlay(
 	short box_w, cx, emb_sz, box_x0, box_y0, box_x1, box_y1;
 	short np_x0, np_y0, np_x1, np_y1, rk_sz;
 
+	(void)row_kind;
 	(void)value;
 	if (!bounds)
 		return;
-	if (list_kind != _social_ext_list_emblem && row_kind != _social_ext_row_emblem)
+	if (list_kind != _social_ext_list_emblem)
 		return;
 
 	firefight_stats_get_emblem(NONE, &emb);
