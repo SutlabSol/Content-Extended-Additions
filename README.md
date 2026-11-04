@@ -152,7 +152,7 @@ press **DELETE** on the load screen, then the preset twice (or X twice on
 it with a controller).
 
 On the first start (or the first time the randomizer is turned on, with
-the daily challenge off), the game builds `maps/watanoge_randomizer.pack`
+the daily challenge off), the game builds `tag_pack/watanoge_randomizer.pack`
 (about 500 MB) from your maps, once, which randomized levels copy their
 enemies and weapons from. The other tag packs (the skulls', the game
 modes', the Tag Injector's weapon HUDs) are smaller and built the same way

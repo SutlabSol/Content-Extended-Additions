@@ -43,8 +43,10 @@ window.HaloNet = (() => {
   const MAXIMUM_PEERS = 15;
   const MAXIMUM_MESSAGE = 64 * 1024;
   const MAXIMUM_FRAME = 70000;
-  // (a channel that holds this much unsent drops the datagrams sent to it)
-  const DATAGRAM_BUFFERED_LIMIT = 1 << 20;
+  // (a channel that holds this much unsent drops the datagrams sent to it:
+  // a game's datagrams are stale soon, and a long queue of them is seconds
+  // of lag, a ping of 999+, rather than a few lost)
+  const DATAGRAM_BUFFERED_LIMIT = 64 * 1024;
   const EVERYONE = 0xffffffff;
 
   const encoder = new TextEncoder();

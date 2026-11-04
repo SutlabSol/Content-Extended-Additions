@@ -72,7 +72,22 @@ The chosen line's player's card: the Social screen set to open at it
 (social_menu.h), and where it opens (_social_menu_open_*; NONE: none, a
 notice's or an upstream player's not of the fork's chat) */
 boolean social_chat_dock_pick_step(short step);
+/* (menu_functions.c's lobby) whether a docked chat's line is chosen */
+boolean social_chat_dock_picked(void);
 short social_chat_dock_pick_open(void);
+/* (menu_functions.c's lobby) a lobby player's row picked: the chat's
+player's menu for them (their account's, if a line of the chat names them
+with one), opened on the port's controller (NONE: the keys), its top at top
+(the screen's); and the host's own on them: FLAG(SOCIAL_CHAT_LOBBY_*_BIT). FALSE when
+there is nothing to do */
+enum
+{
+	SOCIAL_CHAT_LOBBY_KICK_BIT = 0,
+	SOCIAL_CHAT_LOBBY_REMOVE_BOT_BIT,
+	SOCIAL_CHAT_LOBBY_BOT_BIT,
+};
+boolean social_chat_lobby_player_menu(wchar_t const *name, long machine_index, unsigned long actions, short port,
+	short top);
 /* (a controller's Right) the chosen line's player's menu (as a name
 clicked: send a private line, add, profile, mute, report), the box opened
 for it alone by this port and closed with it; FALSE for none (a notice, your

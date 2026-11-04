@@ -389,6 +389,86 @@ int host_sdl_gamepad_type(uint32_t gamepad)
 	return object ? SDL_GetGamepadType(object) : SDL_GAMEPAD_TYPE_UNKNOWN;
 }
 
+/* ---------- gyroscope aiming (SDL's gamepad sensors)
+A controller with a gyroscope SDL reads (a DualSense, a DualShock 4, a
+Switch Pro Controller, a Joy-Con), whatever the platform: the turn since the
+last ask, in radians, yaw to the player's right and pitch up, from the
+sensor's rate times the time since then. SDL's axes are the Switch's (+x to
+the controller's right, +y up, +z toward the player), so the turn is as the
+Switch host's: yaw -y, pitch -x. A rate quieter than the sensor's noise at
+rest is dropped, and so is a gap long enough that one reading would spin
+the view (the sensor was not being asked) */
+#define SDL_GYRO_NOISE 0.01f
+#define SDL_GYRO_LONGEST_GAP_NS 100000000ULL
+#define SDL_GYRO_PADS 8
+
+static struct
+{
+	SDL_Gamepad *pad;
+	Uint64 asked_at;
+} sdl_gyro_pads[SDL_GYRO_PADS];
+
+static void sdl_gamepad_gyro_turn(SDL_Gamepad *pad, float *yaw, float *pitch)
+{
+	float rate[3];
+	Uint64 now = SDL_GetTicksNS();
+	int slot;
+	int found = -1;
+	int empty = -1;
+
+	*yaw = 0.0f;
+	*pitch = 0.0f;
+	if (!pad || !SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO))
+		return;
+	for (slot = 0; slot < SDL_GYRO_PADS; slot++)
+	{
+		if (sdl_gyro_pads[slot].pad == pad)
+			found = slot;
+		else if (!sdl_gyro_pads[slot].pad && empty < 0)
+			empty = slot;
+	}
+	if (found < 0)
+	{
+		found = empty >= 0 ? empty : 0;
+		sdl_gyro_pads[found].pad = pad;
+		sdl_gyro_pads[found].asked_at = 0;
+	}
+	if (!SDL_GamepadSensorEnabled(pad, SDL_SENSOR_GYRO))
+	{
+		SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_GYRO, true);
+		sdl_gyro_pads[found].asked_at = 0;
+		return;
+	}
+	if (!SDL_GetGamepadSensorData(pad, SDL_SENSOR_GYRO, rate, 3))
+	{
+		sdl_gyro_pads[found].asked_at = 0;
+		return;
+	}
+	if (sdl_gyro_pads[found].asked_at && now > sdl_gyro_pads[found].asked_at &&
+		now - sdl_gyro_pads[found].asked_at <= SDL_GYRO_LONGEST_GAP_NS)
+	{
+		float seconds = (float)(now - sdl_gyro_pads[found].asked_at) * 1.0e-9f;
+		float x = rate[0] < SDL_GYRO_NOISE && rate[0] > -SDL_GYRO_NOISE ? 0.0f : rate[0];
+		float y = rate[1] < SDL_GYRO_NOISE && rate[1] > -SDL_GYRO_NOISE ? 0.0f : rate[1];
+
+		*yaw = -y * seconds;
+		*pitch = -x * seconds;
+	}
+	sdl_gyro_pads[found].asked_at = now;
+}
+
+void host_sdl_gamepad_gyro(uint32_t gamepad, float *yaw, float *pitch)
+{
+	float turn_yaw;
+	float turn_pitch;
+
+	sdl_gamepad_gyro_turn(host_sdl_handle_get(gamepad, _handle_gamepad), &turn_yaw, &turn_pitch);
+	if (yaw)
+		*yaw = turn_yaw;
+	if (pitch)
+		*pitch = turn_pitch;
+}
+
 int host_sdl_rumble_gamepad(uint32_t gamepad, uint32_t low, uint32_t high, uint32_t milliseconds)
 {
 	SDL_Gamepad *object = host_sdl_handle_get(gamepad, _handle_gamepad);

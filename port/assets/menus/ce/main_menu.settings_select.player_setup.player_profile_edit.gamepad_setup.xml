@@ -20,7 +20,7 @@
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_vibration" x="54" y="181"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_ingame_help" x="54" y="208"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_layout" x="54" y="235"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_gyro" x="54" y="262" platform="android switch ps5"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_gyro" x="54" y="262"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -90,7 +90,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/layout_label" type="text" controller="1" width="512" height="22" string_list="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/labels" string_index="6" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_gyro" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF" platform="android switch ps5">
+	<widget name="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/op_gyro" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/gyro/gyro_aim_screen"/>
 		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/gamepad_setup/gyro/gyro_aim_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
@@ -127,6 +127,6 @@
 		<string text="Rumble the controller."/>
 		<string text="Show the game's hints about its controls."/>
 		<string text="See what each button does in each layout,\nand choose one."/>
-		<string text="Turn the view with the gyroscope,\nas well as the stick."/>
+		<string text="Turn the view with the gyroscope (a phone's,\nor a controller's that has one), with the stick."/>
 	</strings>
 </menus>

@@ -36,14 +36,16 @@ up from still (the Switch's are buttons: playback_free_camera_rise),
 sliding along walls rather than through them (playback_free_camera_move);
 a tripod, placed where behind's would be when it is chosen, tracking the
 player (playback_free_camera_track) as it moves until the right stick takes
-the aim (R3 or D-pad Up tracks again, or stops; D-pad Down or L3 puts it
-behind the player again, tracking them, as when it was chosen), and zooming on them
+the aim (R3 or D-pad Down tracks again, or stops; L3 puts it behind the
+player again, tracking them, as when it was chosen), and zooming on them
 as they go further until it first moves (playback_free_camera_zoom); or a
 cinematic one, the free camera with no controls: placed and tracking as it,
 and placed behind the player again whenever the level hides them from it
 for CINEMATIC_HIDDEN_TIME (playback_cinematic_sight), at once in the
 CINEMATIC_SPAWN_TIME after they spawn. D-pad
-Up turns behind with the player again too, as R3 does.
+Down turns behind with the player again too, as R3 does. D-pad Up (or T on
+the keyboard) writes in the fork's chat (social_chat.c), shown over the
+playback; the controls are not heard while it is typed in.
 Through the eyes, the aim turns smoothly between the facings the replay
 has of the player (playback_index_facings, playback_eyes_aim) and the host's
 corrections of where they are are glided over (playback_eyes_glide): a
@@ -117,6 +119,7 @@ the way put back (playback_seek_chase); back, once it is let go.
 #include "tag_multiplayer.h"
 #include "halo_skulls.h"
 #include "halo_port_limits.h"
+#include "social_chat.h"
 
 #include <math.h>
 #include <pthread.h>
@@ -2035,7 +2038,10 @@ boolean network_replay_playback_idle(
 	/* (the pause menu: Start puts it up, the game stopped, and takes it
 	down again, the game at its speed; B in it leaves the replay. Nothing
 	else while it is up: its end waits too, its seconds again from the
-	resume) */
+	resume. The fork's chat typed in, or just closed: none of the controls,
+	the replay going on) */
+	if (social_chat_typing() || social_chat_busy())
+		goto playback_end;
 	if (playback_pressed(_gamepad_binary_button_start))
 	{
 		/* (a skip or a scrub ended where the playback is, which resumes at
@@ -2100,21 +2106,25 @@ boolean network_replay_playback_idle(
 			playback.behind_zoom = 1.0f;
 		}
 	}
-	/* (the right stick's click, or D-pad Up: behind turns with the player
+	/* (D-pad Up, the arrow up and T: the fork's chat written in, its
+	keyboard the controller's, or the keys': social_chat.c) */
+	if (playback_pressed(_gamepad_binary_button_dpad_up))
+		social_chat_open_docked(0);
+	/* (the right stick's click, or D-pad Down: behind turns with the player
 	again, at its zoom; the free camera tracks them from where it is, or
 	holds its aim. Both asked, so each one's press is seen) */
-	if (playback_pressed(_gamepad_binary_button_right_thumb) | playback_pressed(_gamepad_binary_button_dpad_up))
+	if (playback_pressed(_gamepad_binary_button_right_thumb) | playback_pressed(_gamepad_binary_button_dpad_down))
 	{
 		if (playback.view == _replay_view_behind)
 			playback.behind_orbiting = FALSE;
 		else if (playback.view == _replay_view_free && !playback.free_placing)
 			playback.free_tracking = !playback.free_tracking;
 	}
-	/* (D-pad Down, or L3: the free camera placed behind the player again, as when
-	it is chosen, and left there tracking them, whether it tracked them or
-	held its aim; once a press, the next heard no sooner than
+	/* (L3: the free camera placed behind the player again, as when it is
+	chosen, and left there tracking them, whether it tracked them or held its
+	aim; once a press, the next heard no sooner than
 	REPLAY_CAMERA_RESET_MILLISECONDS after) */
-	if ((playback_pressed(_gamepad_binary_button_dpad_down) | playback_pressed(_gamepad_binary_button_left_thumb)) &&
+	if (playback_pressed(_gamepad_binary_button_left_thumb) &&
 		playback.view == _replay_view_free && !playback.free_placing &&
 		now - playback.free_reset_at >= REPLAY_CAMERA_RESET_MILLISECONDS)
 	{
@@ -2139,6 +2149,7 @@ boolean network_replay_playback_idle(
 	/* (B: the lines over the screen hidden, or shown again) */
 	if (playback_pressed(FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b))
 		playback.hidden = !playback.hidden;
+playback_end:
 	/* (its end: the file's, or the game's) */
 	if (!playback.ended && (playback.next >= playback.size ||
 		network_game_client_port_in_postgame(client)))
@@ -3142,6 +3153,10 @@ static void playback_key_label(
 		break;
 	case FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y: snprintf(key, sizeof(key), "V"); break;
 	case _gamepad_binary_button_right_thumb: snprintf(key, sizeof(key), "R"); break;
+	/* (the fork's chat: T, as everywhere; and the arrow down the camera's
+	reset, the right stick's click's other key) */
+	case _gamepad_binary_button_dpad_up: snprintf(key, sizeof(key), "T"); break;
+	case _gamepad_binary_button_dpad_down: usnprintf(label, size, L"DOWN"); return;
 	case _gamepad_binary_button_start: halo_binding_shown_name("controls.pause", key, sizeof(key)); break;
 	case _gamepad_binary_button_back: halo_binding_shown_name("controls.scoreboard", key, sizeof(key)); break;
 	default: usnprintf(label, size, L"?"); return;
@@ -3632,6 +3647,7 @@ void network_replay_playback_draw(
 			FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_x }, L"PLAYER" },
 		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_y, NONE }, L"VIEW" },
 		{ { _gamepad_binary_button_right_thumb, NONE }, L"RESET" },
+		{ { _gamepad_binary_button_dpad_up, NONE }, L"CHAT" },
 		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_white,
 			FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_black }, L"SPEED" },
 		{ { _gamepad_binary_button_dpad_left, NONE }, L"SEEK" },
@@ -3659,13 +3675,13 @@ void network_replay_playback_draw(
 	static struct playback_hint const free_camera_hints[] = {
 		{ { _replay_hint_stick_left, NONE }, L"MOVE" },
 		{ { _replay_hint_stick_right, NONE }, L"AIM" },
-		{ { _gamepad_binary_button_right_thumb, _gamepad_binary_button_dpad_up }, L"TRACK" },
-		{ { _gamepad_binary_button_left_thumb, _gamepad_binary_button_dpad_down }, L"FOLLOW PLAYER" },
+		{ { _gamepad_binary_button_right_thumb, _gamepad_binary_button_dpad_down }, L"TRACK" },
+		{ { _gamepad_binary_button_left_thumb, NONE }, L"FOLLOW PLAYER" },
 	};
 	static struct playback_hint const behind_camera_hints[] = {
 		{ { _replay_hint_stick_left, NONE }, L"ZOOM" },
 		{ { _replay_hint_stick_right, NONE }, L"ORBIT" },
-		{ { _gamepad_binary_button_right_thumb, _gamepad_binary_button_dpad_up }, L"RESET" },
+		{ { _gamepad_binary_button_right_thumb, _gamepad_binary_button_dpad_down }, L"RESET" },
 	};
 	static struct playback_hint const touch_show[] = {
 		{ { FIRST_GAMEPAD_ANALOG_BUTTON + _gamepad_analog_button_b, NONE }, L"SHOW" },

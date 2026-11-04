@@ -102,12 +102,13 @@ enum
 #define PLATFORM_HOST _platform_android
 #endif
 
-/* the gyroscope's rows: Android's (the phone's, and the Switch's controllers),
-and the PS5's (the DualSense's) */
+/* the gyroscope's rows: every platform's (the phone's on Android, a
+controller's with one everywhere: the Switch's, the DualSense, a DualShock
+4, a Switch Pro Controller on a PC), and the PS5's (the DualSense's) */
 #ifdef HALO_PS5
 #define PLATFORM_GYRO _platform_ps5
 #else
-#define PLATFORM_GYRO _platform_android
+#define PLATFORM_GYRO _platform_all
 #endif
 
 struct config_setting
@@ -980,14 +981,23 @@ static const struct config_setting config_settings[] =
 		"\"auto\" small where the texture cache is as small as the Xbox's (the\n"
 		"web build's), else full. Bitmaps without mipmaps (a HUD's) are drawn\n"
 		"as they are." },
+	{ "bots.enabled", _config_boolean, "true", "HALO_BOTS_ENABLED", _environment_value, _platform_all,
+		"Whether bots join the games hosted here at all: false keeps them out\n"
+		"without bots.count's number being lost (Server Setup > BOTS > BOTS: OFF)." },
 	{ "bots.count", _config_integer, "0", "HALO_BOTS", _environment_value, _platform_all,
 		"Computer players (bots) in a Slayer, Capture the Flag or King of the Hill\n"
-		"game hosted here, local (split screen), system link or a private\n"
-		"internet one (not a public one, which the server browser lists): 0 to\n"
-		"127 (the most players a game holds but the host's) join its lobby with\n"
-		"the players, as far as the game has room. In a\n"
-		"game, the console's add_bot and drop_bot (add_bot_red, drop_bot_blue...)\n"
-		"add or take one. 0: none, as in the stock game." },
+		"game hosted here, local (split screen), system link or internet (public\n"
+		"or private): 0 to 127 (the most players a game holds but the host's)\n"
+		"join its lobby with the players, as far as the game has room. Their\n"
+		"names begin with [BOT]. In a game, the console's add_bot and drop_bot\n"
+		"(add_bot_red, drop_bot_blue...) add or take one. 0: none, as in the\n"
+		"stock game." },
+	{ "bots.keep_min", _config_boolean, "true", "HALO_BOTS_KEEP_MIN", _environment_value, _platform_all,
+		"In a system link or internet game hosted here: a player who joins takes\n"
+		"a bot's place (20 bots, one joins: 19 bots and the player), and a bot\n"
+		"takes theirs again when they leave, in the lobby and in the game. One\n"
+		"player's place is kept free for them to join into. false: the bots stay\n"
+		"as many as bots.count while the game has room." },
 	{ "bots.skill", _config_string, "\"distributed\"", "HALO_BOT_SKILL", _environment_value, _platform_all,
 		"How well the bots play: \"recruit\", \"easy\", \"normal\", \"heroic\",\n"
 		"\"veteran\" or \"legendary\" (how soon they react, how well they aim,\n"
@@ -1931,16 +1941,17 @@ static const struct config_setting config_settings[] =
 		"Megabytes a recording keeps in memory, 4 to 1024: two halves, each\n"
 		"written out as a part when it fills." },
 #endif
-#if defined(HALO_ANDROID) || defined(HALO_PS5)
-	/* (the phone's gyroscope on Android, the controller's on the Switch and
-	the PS5) */
+	/* (the phone's gyroscope on Android, the controller's on the Switch, the
+	PS5 and with one that has it anywhere) */
 	{ "input.gyro_aim", _config_string, "\"false\"", "HALO_GYRO_AIM", _environment_value, PLATFORM_GYRO,
 #ifdef HALO_PS5
 		"Aim with the DualSense's gyroscope, each local player with their own.\n"
 #else
 		"Aim with the gyroscope: the phone's on Android; on the Switch the\n"
 		"controller's, each local player from their own (a Pro Controller, the\n"
-		"console held in the hands, or one Joy-Con; of two, the right one).\n"
+		"console held in the hands, or one Joy-Con; of two, the right one);\n"
+		"elsewhere a controller's that has one (a DualSense, a DualShock 4, a\n"
+		"Switch Pro Controller), each local player from their own.\n"
 #endif
 		"\"false\" is the stick only, \"true\" adds the turn to the view. \"zoom\" is\n"
 		"the same as \"true\" with input.gyro_zoom_only. Settings > Gamepads >\n"
@@ -1966,7 +1977,6 @@ static const struct config_setting config_settings[] =
 		_environment_value, PLATFORM_GYRO,
 		"Invert the gyroscope's pitch. false: tilting the phone or controller up\n"
 		"looks up. true: tilting it up looks down. The stick's invert is its own." },
-#endif
 #if defined(HALO_ANDROID) && !defined(HALO_SWITCH)
 	/* (the phone's: sdl_platform.c's platform_resolution_scale. The screen's
 	own by default) */

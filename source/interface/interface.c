@@ -413,6 +413,12 @@ void interface_draw_fullscreen_overlays(
 	render_debug_profile();
 	/* port: the fork's chat box (port/linux/game/social_chat.c) */
 	social_chat_draw();
+	/* port: the tag packs being written (port/linux/game/tag_pack.c) */
+	{
+		extern void tag_pack_draw(void);
+
+		tag_pack_draw();
+	}
 	/* port: the overlay menu, over everything (port/linux/game/overlay_menu.c) */
 	overlay_menu_draw();
 

@@ -1624,6 +1624,9 @@ static void network_game_server_port_bots(
 	long team_counts[NUMBER_OF_MULTIPLAYER_TEAMS] = { 0, 0 };
 	long human_team = NONE;
 	long wanted = 0;
+	long humans = 0;
+	long remote_humans = 0;
+	long room;
 	long slot;
 	long bot_index;
 	boolean changed = FALSE;
@@ -1646,16 +1649,30 @@ static void network_game_server_port_bots(
 			continue;
 		if (bots_machine_is_bot(player->machine_index))
 			slot_of_bot[BOTS_INDEX(player->machine_index)] = slot;
-		else if (VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS))
+		else
 		{
-			team_counts[player->team_index]++;
-			if (human_team == NONE)
-				human_team = player->team_index;
+			humans++;
+			if (!network_game_player_is_local(player))
+				remote_humans++;
+			if (VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS))
+			{
+				team_counts[player->team_index]++;
+				if (human_team == NONE)
+					human_team = player->team_index;
+			}
 		}
 	}
 	/* (no bots before a player is in: the lobby's own first player) */
 	if (human_team == NONE)
 		wanted = 0;
+	/* (bots.keep_min: each player who joined from another machine in a
+	bot's place, and a player's place kept free to join into) */
+	if (bots_keep_player_count())
+	{
+		wanted = MAX(wanted - remote_humans, 0);
+		room = server->game.maximum_players - humans - 1;
+		wanted = PIN(wanted, 0, MAX(room, 0));
+	}
 
 	/* those not wanted leave (the last first) */
 	for (bot_index = BOTS_MAXIMUM - 1; bot_index >= wanted; bot_index--)
@@ -1689,7 +1706,8 @@ static void network_game_server_port_bots(
 			/* (no room, or a machine that joined holds its index: the game is
 			full) */
 			if (server->game.player_count >= server->game.maximum_players ||
-				network_game_server_port_machine_joined(BOTS_MACHINE(bot_index)))
+				network_game_server_port_machine_joined(BOTS_MACHINE(bot_index)) ||
+				(bots_keep_player_count() && server->game.player_count >= server->game.maximum_players - 1))
 			{
 				break;
 			}
@@ -1742,7 +1760,7 @@ static struct network_game_server *network_game_server_port_bot_game(
 	}
 	if (!bots_game_allowed())
 	{
-		snprintf(said, said_size, "bots play only in local, system link and private internet games, not public ones");
+		snprintf(said, said_size, "only the game's host adds and drops bots");
 		return NULL;
 	}
 	if (server->game.variant.game_engine_index != game_engine_slayer &&
@@ -1887,6 +1905,74 @@ boolean network_game_server_port_bot_drop(
 	return TRUE;
 }
 
+/* port: bots.keep_min in a game in progress (the lobby's: network_game_server_port_bots):
+a player who joined from another machine takes a bot's place, one from the
+team with more players, and a bot takes the place of one who left, on the
+team with fewer; a player's place kept free to join into. One a second */
+#define NETWORK_GAME_SERVER_PORT_BOTS_INGAME_MILLISECONDS 1000
+
+static void network_game_server_port_bots_ingame(
+	struct network_game_server *server)
+{
+	static unsigned long checked_at;
+	long team_counts[NUMBER_OF_MULTIPLAYER_TEAMS] = { 0, 0 };
+	long bots = 0;
+	long humans = 0;
+	long remote_humans = 0;
+	long wanted;
+	long slot;
+	long team_index = NONE;
+	char said[128];
+	unsigned long now = system_milliseconds();
+
+	if (server->state != _network_game_server_state_ingame || !bots_game_allowed() || !bots_keep_player_count())
+		return;
+	if (server->game.variant.game_engine_index != game_engine_slayer &&
+		server->game.variant.game_engine_index != game_engine_ctf &&
+		server->game.variant.game_engine_index != game_engine_king)
+	{
+		return;
+	}
+	if (checked_at && now - checked_at < NETWORK_GAME_SERVER_PORT_BOTS_INGAME_MILLISECONDS)
+		return;
+	checked_at = now;
+	for (slot = 0; slot < MAXIMUM_NETWORK_PLAYER_COUNT; slot++)
+	{
+		struct network_player *player = &server->game.players[slot];
+
+		if (!network_player_is_valid(player))
+			continue;
+		if (bots_machine_is_bot(player->machine_index))
+			bots++;
+		else
+		{
+			humans++;
+			if (!network_game_player_is_local(player))
+				remote_humans++;
+		}
+		if (VALID_INDEX(player->team_index, NUMBER_OF_MULTIPLAYER_TEAMS))
+			team_counts[player->team_index]++;
+	}
+	wanted = MAX(PIN(bots_wanted_count(), 0, BOTS_MAXIMUM) - remote_humans, 0);
+	wanted = PIN(wanted, 0, MAX(server->game.maximum_players - humans - 1, 0));
+	if (bots > wanted)
+	{
+		if (game_engine_has_teams())
+			team_index = team_counts[1] > team_counts[0] ? 1 : 0;
+		/* (none of that team's a bot: any team's) */
+		if (!network_game_server_port_bot_drop(team_index, said, (long)sizeof(said)) && team_index != NONE)
+			network_game_server_port_bot_drop(team_index ? 0 : 1, said, (long)sizeof(said));
+		network_event("bots: a player's place (keep_min): %s", said);
+	}
+	else if (bots < wanted && server->game.player_count < server->game.maximum_players - 1)
+	{
+		if (game_engine_has_teams())
+			team_index = team_counts[1] < team_counts[0] ? 1 : 0;
+		network_game_server_port_bot_add(team_index, said, (long)sizeof(said));
+		network_event("bots: a player's place (keep_min): %s", said);
+	}
+}
+
 boolean network_game_server_idle(
 	struct network_game_server *server)
 {
@@ -1903,8 +1989,10 @@ boolean network_game_server_idle(
 		}
 	}
 
-	/* port: the bots of a local game (port/linux/game/bots.c) */
+	/* port: the bots of a game hosted here (port/linux/game/bots.c), in its
+	lobby, and bots.keep_min's in the game */
 	network_game_server_port_bots(server);
+	network_game_server_port_bots_ingame(server);
 	/* (what Discord shows of a game hosted for internet play, and the
 	server browser's listing) */
 	p2p_set_game_player_counts(server->game.player_count, server->game.maximum_players);

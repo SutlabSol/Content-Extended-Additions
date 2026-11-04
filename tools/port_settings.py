@@ -60,6 +60,14 @@ PLAY = "main_menu/play"
 # and renderer sit between it and them (ce_menus.py's CHILD_OFFSETS)
 SOCIAL_HOME = (316, 160, 304, 110)
 SOCIAL_HOME_CHAT = (316, 276, 304, 170)
+# the lobby (_lobby): two columns, the game at the top left (LOBBY_PANEL:
+# left, top, width, height: its map's picture and name, the gametype and the
+# players), the players' rows under it (LOBBY_ROWS: left, top, width, row
+# height, row step), and the fork's chat box docked the whole height at the
+# right (LOBBY_CHAT; menu_functions.c's lobby_chat_drawn, as the main menu's)
+LOBBY_PANEL = (20, 75, 310, 92)
+LOBBY_ROWS = (20, 172, 310, 20, 21)
+LOBBY_CHAT = (342, 75, 278, 330)
 MAIN_MENU_LOGO_TOP = -44
 # the Theater (port/linux/REPLAY.md): the replays a host records, its rows
 # (_theater)
@@ -450,12 +458,14 @@ SCREENS = {
 }
 
 # Gyro Aim is its own screen, opened from Gamepads: the controller's gyroscope
-# on the Switch and the PS5, the phone's on Android. The other platforms do not show the
-# row, and it takes the place after the last row, so they have no gap.
+# on the Switch and the PS5, the phone's on Android, and on every platform a
+# controller's that has one (xinput_sdl.c's pad_gyro). It takes the place
+# after the last row.
 _gamepads = SCREENS["gamepad_setup"]
 _gamepads["categories"] = [
     ("GYRO AIM:", "gamepad_setup/gyro",
-     "Turn the view with the gyroscope,\nas well as the stick.", "android switch ps5"),
+     "Turn the view with the gyroscope (a phone's,\nor a controller's that has one), with the stick.",
+     None),
 ]
 SCREENS["gamepad_setup/gyro"] = {
     "screen": "gyro_aim_screen", "header": _gamepads["header"], "spacing": 30,
@@ -3224,8 +3234,9 @@ def _server_settings() -> list:
     whether the server browser lists it (PUBLIC or PRIVATE: an internet
     game's)"""
     base = f"{MT}/server_settings"
-    # (twelve rows: closer together, the help lower)
-    spec = {"screen": "server_settings_screen", "spacing": 24, "help_top": 366,
+    # (the hub's few rows, and its sections' (eight at most), well apart, the
+    # help lower: menu_functions.c's SERVER_SETTINGS_ROW_SPACING packs them)
+    spec = {"screen": "server_settings_screen", "spacing": SERVER_SETTINGS_ROW_SPACING, "help_top": 366,
             "header": ("header_server_settings", f"{base}/header_server_settings")}
     rows, extra = [], []
     extra += _value_row(base, "server_name", 0, "ss edit server name")
@@ -3288,8 +3299,9 @@ def _server_settings() -> list:
                                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                              ("text_y", 4)], [])
     rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE - 1))
-    # BOTS (a LOCAL game's: bots.c), in MAP SHARING's place (BOTS_SETUP),
-    # its value what the screen chose: "4, DISTRIBUTED, EVEN", or NONE
+    # BOTS (any hosted game's: bots.c), in MAP SHARING's place (BOTS_SETUP)
+    # in a LOCAL game, under it otherwise (the rows packed); its value what
+    # the screen chose: "4, DISTRIBUTED, EVEN", or OFF
     # (menu_functions.c's server_settings_update), as the gametype's rows'
     key = BOTS_SETUP[0]
     target = f"{base}/{key}/{key}_screen"
@@ -3413,14 +3425,18 @@ def _server_settings() -> list:
                      [f'<on event="a" run="ss start game" open="{MT}/lobby/lobby_screen"/>',
                       f'<on event="start" run="ss start game" open="{MT}/lobby/lobby_screen"/>',
                       '<on event="left_mouse" run="mouse emit accept event"/>'])
-    extra += _strings(f"{base}/labels", ["GAME NAME:", "MAXIMUM PLAYERS:", "INVITE LINK:", "GAME TYPE:",
-                                         "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
-                                         "TEAMPLAY OPTIONS:", "LISTING:",
-                                         *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:",
-                                         f"{MAP_SHARE_SETUP[1]}:",
-                                         *(f"{title}:" for _, title, _ in CAMPAIGN_SETUP_SCREENS),
-                                         f"{BOTS_SETUP[1]}:", f"{TAG_PROFILE_SETUP[1]}:", "FLOODFECTION SETTINGS:"])
-    extra += _strings(f"{base}/help_strings", [
+    labels = ["GAME NAME:", "MAXIMUM PLAYERS:", "INVITE LINK:", "GAME TYPE:",
+              "PLAYER OPTIONS:", "ITEM OPTIONS:", "VEHICLE OPTIONS:", "INDICATOR OPTIONS:",
+              "TEAMPLAY OPTIONS:", "LISTING:",
+              *(f"{title}:" for _, title, _, _ in COOP_SETUP_SCREENS), "PASSWORD:",
+              f"{MAP_SHARE_SETUP[1]}:",
+              *(f"{title}:" for _, title, _ in CAMPAIGN_SETUP_SCREENS),
+              f"{BOTS_SETUP[1]}:", f"{TAG_PROFILE_SETUP[1]}:", "FLOODFECTION SETTINGS:"]
+    # (the sections' rows on the hub, after the rows' own: SERVER_SETUP_SECTIONS)
+    section_label = len(labels)
+    labels += [f"{title}:" for _, title, _, _ in SERVER_SETUP_SECTIONS]
+    extra += _strings(f"{base}/labels", labels)
+    help_strings = [
         "",
         "The name the game shows in the lists of games.\\nEnter changes it.",
         "The most players the game takes (up to 128).",
@@ -3451,8 +3467,50 @@ def _server_settings() -> list:
         TAG_PROFILE_SETUP[2],
         # (FLOODFECTION SETTINGS': menu_functions.c's FLOODFECTION_SETUP_HELP)
         "The Spartans' loadout and last stands, and the\\ninfected's forms, for this game.",
-    ])
-    lines = _screen(base, spec, rows, ["server settings update"],
+        # (the sections' rows on the hub: menu_functions.c's SERVER_SETUP_SECTION_HELP)
+        *(help_text for _, _, help_text, _ in SERVER_SETUP_SECTIONS),
+    ]
+    extra += _strings(f"{base}/help_strings", help_strings)
+    # the sections (SERVER_SETUP_SECTIONS): Server Setup itself is a hub of
+    # GAME NAME, the sections' rows and BOTS, each section a screen of its
+    # own with its rows, run by the same "server settings update" (which
+    # packs the rows each screen shows: menu_functions.c's
+    # server_settings_pack_rows), each its value a summary of it
+    by_key = {row[0].rsplit("/", 1)[1][3:]: row for row in rows}
+    hub_rows = [(f"{base}/op_server_name", None, 0)]
+    section_lines = []
+    for index, (key, title, _, members) in enumerate(SERVER_SETUP_SECTIONS):
+        target = f"{base}/{key}/{key}_screen"
+        extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                             ("flags", "pass_unhandled_to_focused_child"),
+                                             ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<on event="a" open="{target}"/>', f'<on event="start" open="{target}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>',
+                          f'<child widget="{base}/{key}_label"/>', f'<child widget="{base}/{key}_value" x="230" y="1"/>'])
+        extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 230), ("height", 22),
+                                                 ("string_list", f"{base}/labels"), ("string_index", section_label + index),
+                                                 ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                                                 ("text_y", 4)], [])
+        extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
+                                                 ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
+                                                 ("text_y", 5), ("text_flags", "no_focus_test")], [])
+        hub_rows.append((f"{base}/op_{key}", None, len(hub_rows)))
+        # (BOTS after LOBBY SETTINGS, its own screen as before)
+        if key == "lobby_settings":
+            hub_rows.append((f"{base}/op_{BOTS_SETUP[0]}", None, len(hub_rows)))
+        section = f"{base}/{key}"
+        section_spec = {"screen": f"{key}_screen", "spacing": SERVER_SETTINGS_ROW_SPACING, "help_top": 366,
+                        "header": (f"header_{key}", f"{section}/header_{key}")}
+        section_rows = [(by_key[member][0], by_key[member][1], place)
+                        for place, member in enumerate(members)]
+        section_extra = _strings(f"{section}/help_strings", help_strings)
+        section_extra += _button(f"{section}/button_defaults", 3, [])
+        section_extra += _text_button(f"{section}/button_ok", "OK", ['<on event="a" back="true"/>',
+                                                                    '<on event="start" back="true"/>'])
+        screen = _screen(section, section_spec, section_rows, ["server settings update"],
+                         ['<on event="created" run="server settings init"/>'], section_extra)
+        section_lines += [line.replace(f'<child widget="{section}/button_defaults" y="1"/>', "") for line in screen]
+    lines = _screen(base, spec, hub_rows, ["server settings update"],
                     ['<on event="created" run="server settings init"/>'], extra)
     # (co-op's options' screens, map sharing's and the bots')
     for key, title, _, screen_rows in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP, BOTS_SETUP]:
@@ -3462,10 +3520,13 @@ def _server_settings() -> list:
     lines = [line.replace(f'<child widget="{base}/button_defaults" y="1"/>', "") for line in lines]
     lines = [line.replace('<on event="b" back="true"/>', SCREEN_BACK[0])
              .replace('<on event="back" back="true"/>', SCREEN_BACK[1]) for line in lines]
-    return lines
+    return lines + section_lines
 
 
 MAXIMUM_PLAYERS = [2, 4, 8, 12, 16, 24, 32, 48, 64, 96, 128]
+# Server Setup's rows' spacing, its hub's and its sections' (menu_functions.c's
+# SERVER_SETTINGS_ROW_SPACING, which packs those shown)
+SERVER_SETTINGS_ROW_SPACING = 34
 # CO-OP OPTIONS' amounts of PER PLAYER (network.coop_enemies, percentages)
 # and STATIC MULTIPLIER (network.coop_enemies_multiplier), as menu_functions.c's
 # gametype_options have their values
@@ -3553,10 +3614,11 @@ MAP_SHARE_SETUP = ("map_share_options", "MAP SHARING",
                                            for kb in MAP_SHARE_UPLOADS],
      ["The most you send of maps, so that the game\\nkeeps the rest of your upload."] * len(MAP_SHARE_UPLOADS)),
 ])
-# Server Setup's bots (port/linux/game/bots.c, the settings' bots.count,
-# bots.skill and bots.teams), a LOCAL game's only (no other machine joins
-# it), in MAP SHARING's place, which a LOCAL game hides (menu_functions.c's
-# server_settings_update); laid out as co-op's options are. The bots join
+# Server Setup's bots (port/linux/game/bots.c, the settings' bots.enabled,
+# bots.count, bots.skill, bots.teams and bots.keep_min), any multiplayer game
+# hosted here: in MAP SHARING's place in a LOCAL game, which hides it, under
+# it in an online or LAN one (menu_functions.c's server_settings_update);
+# laid out as co-op's options are. The bots join
 # the lobby as the screen's OK sets them, in a Slayer game (and SWAT,
 # Infection and Gun Game, Slayer's)
 # (none up to the player cap but the host: bots.h's BOTS_MAXIMUM, 127)
@@ -3566,10 +3628,14 @@ BOTS_SKILLS = ["recruit", "easy", "normal", "heroic", "veteran", "legendary"]
 # levels, then each level: bots_combat.c's bots_combat_distributed_skill)
 BOTS_SKILL_CHOICES = ["distributed", *BOTS_SKILLS]
 BOTS_SETUP = ("bots_options", "BOTS",
-              "Computer players in this game: how many, how\\nwell they play, and their teams. Slayer only.", [
-    ("bots_count", "BOTS:", [str(count) if count else "NONE" for count in BOTS_COUNTS],
+              "Computer players in this game: how many, how well\\nthey play. Slayer, CTF and King of the Hill.", [
+    ("bots_enabled", "BOTS:", ["ON", "OFF"], [
+        "Bots join this game, as many as COUNT says.",
+        "No bots join this game; COUNT is kept for later.",
+    ]),
+    ("bots_count", "COUNT:", [str(count) if count else "NONE" for count in BOTS_COUNTS],
      ["No bots: only the players on this computer."] +
-     ["Bots join the lobby with you, as far as the game\\nhas room: Slayer, CTF and King of the Hill."] *
+     ["Bots join the lobby with you, as far as the game\\nhas room: Slayer, CTF, King of the Hill."] *
      (len(BOTS_COUNTS) - 1)),
     ("bots_skill", "SKILL:", [skill.upper() for skill in BOTS_SKILL_CHOICES], [
         "Each bot its own level, on a curve: most NORMAL\\nand HEROIC, a few RECRUIT and LEGENDARY.",
@@ -3584,13 +3650,31 @@ BOTS_SETUP = ("bots_options", "BOTS",
         "In a team game, the bots join both teams, evening\\nthem with the players.",
         "In a team game, every bot is on the team the\\nplayers are not on.",
     ]),
+    ("bots_keep_min", "KEEP PLAYER COUNT:", ["ON", "OFF"], [
+        "A player who joins takes a bot's place, and a bot\\ntakes theirs again when they leave.",
+        "The bots stay as many as COUNT, as far as the\\ngame has room.",
+    ]),
 ])
+# Server Setup's sections (_server_settings): the hub's rows, each opening a
+# screen of the rows named (row keys, op_<key>); BOTS is a row of the hub's
+# too, after LOBBY SETTINGS (its own screen: BOTS_SETUP). Their key, title,
+# help on the hub, and rows (those a game does not show are hidden there, as
+# they were on the one screen: menu_functions.c's server_settings_update)
+SERVER_SETUP_SECTIONS = [
+    ("lobby_settings", "LOBBY SETTINGS", "How many play, who can find and join the game,\\nand map sharing.",
+     ["max_players", "invite", "listing", "password", "map_share_options"]),
+    ("game_settings", "GAME SETTINGS", "The gametype and its rules for this game (co-op's\\noptions, for a co-op game).",
+     ["game_type", "player_options", "item_options", "vehicle_options", "indicator_options", "team_options",
+      "coop_options", "voice_options"]),
+    ("fork_settings", "FORK SETTINGS", "This fork's own: game modes' settings, the tag\\nprofile, the randomizer and skulls.",
+     ["floodfection_options", "tag_profile", "randomizer", "skulls"]),
+]
 # Server Setup's TAG PROFILE (port/linux/game/tag_multiplayer.c, the setting
 # game.multiplayer_tag_profile), a multiplayer game's on one of the game's own
 # maps: the Tag Injector's multiplayer profile it plays (its key, its title
 # and its row's help)
 TAG_PROFILE_SETUP = ("tag_profile", "TAG PROFILE",
-                     "Chosen for the whole game before this screen:\\nwho can see it. A goes back to it.")
+                     "Chosen for the whole game before Server Setup:\\nwho can see it. Go back to change it.")
 # the game's TAG PROFILE screen (menu_functions.c's tag_profile_asked: the
 # Tag Injector on, a multiplayer profile made, one of the game's own
 # multiplayer maps), between the gametype and Server Setup: its rows
@@ -3600,7 +3684,7 @@ TAG_PROFILE_ROWS = 9
 SETUP_OPTIONS_PLACE = 6
 # (their screens' titles)
 TITLES.update({f"{MT}/server_settings/{key}/header_{key}": title
-               for key, title, _, _ in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP, BOTS_SETUP]})
+               for key, title, _, _ in [*COOP_SETUP_SCREENS, MAP_SHARE_SETUP, BOTS_SETUP, *SERVER_SETUP_SECTIONS]})
 # (the rows of a co-op options screen in one place, the one shown: PER
 # PLAYER's and MULTIPLIER's, by EXTRA ENEMIES')
 SETUP_OPTION_SAME_PLACE = set()
@@ -3750,7 +3834,8 @@ def _lobby() -> list:
                      # it runs: menu_functions.c's map_vote_lobby_check. Y is
                      # the 4-way join screen's)
                      f'<on event="x" run="port map vote open" open="{base}/map_vote/map_vote_screen" branch="true"/>',
-                     '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
+                     # (no description backdrop: the docked chat has its own
+                     # box, where it was)
                      f'<child widget="{base}/lobby_list"/>',
                      f'<child widget="{base}/header_lobby"/>',
                      f'<child widget="{base}/lobby_join_help"/>'])
@@ -3759,44 +3844,71 @@ def _lobby() -> list:
                                                  ("width", 275), ("height", 24), ("font", "ui\\small_ui"),
                                                  ("color", "#FF2896FF"), ("align", "right"), ("text_y", 5),
                                                  ("text_flags", "no_focus_test")], [])
-    # (its rows: any controller's left and right switch its own player's team,
-    # on the rows only, so that they move along the buttons)
-    rows = [f'<child widget="{base}/list_item_{index}" x="20" y="{73 + 30 * index}"/>' for index in range(11)]
+    # (its rows: any controller's left switches its own player's team, on the
+    # rows only, so that it moves along the buttons; Right goes into the
+    # docked chat: menu_functions.c's lobby_chat_event_taken)
+    rows_left, rows_top, rows_width, row_height, row_step = LOBBY_ROWS
+    rows = [f'<child widget="{base}/list_item_{index}" x="{rows_left}" y="{rows_top + row_step * index}"/>'
+            for index in range(11)]
     lines += _widget(f"{base}/lobby_list", [("type", "column_list"), ("width", 640), ("height", 480),
                                             ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                                             ("description", f"{base}/lobby_desc")],
                      ['<data input="net splitscreen prejoin players"/>', '<data input="port lobby update"/>',
                       *rows,
                       f'<child widget="{base}/lobby_button_bar" y="414"/>'])
+    # (each a player's: its name at the left, a chip of its team's colour
+    # before it, drawn by menu_functions.c's menu_functions_text_box_drawn,
+    # its speaker after it; A or a click opens the player's menu, the chat's:
+    # "port lobby player menu")
     for index in range(11):
         lines += _widget(f"{base}/list_item_{index}",
-                         [("width", 390), ("height", 28),
+                         [("width", rows_width), ("height", row_height),
                           ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
-                          ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3)],
-                         ['<on event="left right" run="swap player team"/>',
-                          '<child widget="main_menu/new_select/list_item_text" x="25"/>',
-                          '<child widget="main_menu/new_select/list_item_arrows"/>'])
+                          ("color", "#FF2896FF")],
+                         ['<on event="left" run="swap player team"/>',
+                          '<on event="a" run="port lobby player menu"/>',
+                          '<on event="left_mouse" run="port lobby player menu"/>',
+                          f'<child widget="{base}/list_item_text"/>'])
+    lines += _widget(f"{base}/list_item_text", [("type", "text"), ("controller", 1), ("left", 22), ("top", 0),
+                                                ("width", rows_width - 30), ("height", row_height),
+                                                ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("text_y", 3),
+                                                ("text_flags", "no_focus_test")], [])
     lines += _widget(f"{base}/lobby_desc", [("width", 640), ("height", 480)],
                      ['<child widget="main_menu/current_profile_name"/>',
-                      f'<child widget="{base}/lobby_right_item" x="22" y="2"/>'])
-    lines += _widget(f"{base}/lobby_right_item", [("controller", 1), ("left", 406), ("top", 75), ("width", 162),
-                                                  ("height", 326),
-                                                  ("bitmap", "bitmaps/spinner_list_3_wide_item_background")],
+                      f'<child widget="{base}/lobby_right_item"/>',
+                      f'<child widget="{base}/lobby_chat"/>'])
+    # (the game's panel: the map's picture at its left, its name and the
+    # game's data beside it, over a box as the docked chat's, the whole
+    # panel wide: an empty text box, menu_functions.c's lobby_panel_drawn)
+    panel_left, panel_top, panel_width, panel_height = LOBBY_PANEL
+    lines += _widget(f"{base}/lobby_right_item", [("type", "text"), ("controller", 1), ("left", panel_left),
+                                                  ("top", panel_top), ("width", panel_width),
+                                                  ("height", panel_height), ("font", "ui\\small_ui"),
+                                                  ("color", "#FFFFFFFF"), ("text_flags", "no_focus_test")],
                      # (a campaign level's picture and name in place of the
                      # map's, for network co-op: menu_functions.c's
                      # lobby_map_show)
                      [f'<child widget="{base}/lobby_map_pic"/>', f'<child widget="{base}/lobby_map_name"/>',
-                      '<child widget="main_menu/solo_level_select/replay_level_right_pic"/>',
-                      '<child widget="main_menu/solo_level_select/replay_level_right_name"/>',
+                      f'<child widget="{base}/lobby_level_pic"/>', f'<child widget="{base}/lobby_level_name"/>',
                       f'<child widget="{base}/lobby_game_data"/>'])
-    lines += _widget(f"{base}/lobby_map_pic", [("controller", 1), ("left", 419), ("top", 87), ("width", 140),
-                                               ("height", 114), ("bitmap", "ui\\shell\\bitmaps\\mp_map_grafix")], [])
-    lines += _widget(f"{base}/lobby_map_name", [("type", "text"), ("controller", 1), ("left", 417), ("top", 204),
-                                                ("width", 146), ("height", 43), ("string_list", "main_menu/mp_map_list"),
-                                                ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
-    lines += _widget(f"{base}/lobby_game_data", [("type", "text"), ("controller", 1), ("left", 417), ("top", 250),
-                                                 ("width", 146), ("height", 144), ("font", "ui\\small_ui"),
-                                                 ("color", "#FF2896FF")], [])
+    for key, bitmap in (("map", "mp_map_grafix"), ("level", "sp_levels")):
+        lines += _widget(f"{base}/lobby_{key}_pic", [("controller", 1), ("left", panel_left + 6),
+                                                     ("top", panel_top + 6), ("width", 98), ("height", 80),
+                                                     ("bitmap", f"ui\\shell\\bitmaps\\{bitmap}")], [])
+    for key, strings in (("map", "main_menu/mp_map_list"), ("level", "main_menu/map_list")):
+        lines += _widget(f"{base}/lobby_{key}_name", [("type", "text"), ("controller", 1), ("left", panel_left + 112),
+                                                      ("top", panel_top + 3), ("width", panel_width - 116),
+                                                      ("height", 24), ("string_list", strings),
+                                                      ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
+    lines += _widget(f"{base}/lobby_game_data", [("type", "text"), ("controller", 1), ("left", panel_left + 112),
+                                                 ("top", panel_top + 27), ("width", panel_width - 116),
+                                                 ("height", panel_height - 29),
+                                                 ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
+    chat_left, chat_top, chat_width, chat_height = LOBBY_CHAT
+    lines += _widget(f"{base}/lobby_chat", [("type", "text"), ("controller", 1), ("left", chat_left),
+                                            ("top", chat_top), ("width", chat_width), ("height", chat_height),
+                                            ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"),
+                                            ("text_flags", "no_focus_test")], [])
     # (its words: menu_functions.c's lobby_update. "<name> - dedicated": the
     # game's host is a dedicated server)
     lines += _strings(f"{base}/lobby_words", ["dedicated"])
@@ -3845,7 +3957,7 @@ def _lobby() -> list:
                       f'<child widget="{vote}/map_vote_button_bar" y="414"/>'])
     for index in range(8):
         lines += _widget(f"{vote}/list_item_{index}",
-                         [("width", 390), ("height", 28),
+                         [("width", 290), ("height", 28),
                           ("bitmap", "bitmaps/sel_list_item_bkd_top" if index == 0 else "bitmaps/sel_list_item_bkd"),
                           ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("align", "center"), ("text_y", 3)],
                          ['<on event="a" run="port map vote choose"/>',
@@ -3855,7 +3967,7 @@ def _lobby() -> list:
                           '<child widget="main_menu/new_select/list_item_arrows"/>'])
     lines += _widget(f"{vote}/map_vote_desc", [("width", 640), ("height", 480)],
                      ['<child widget="main_menu/current_profile_name"/>',
-                      f'<child widget="{base}/lobby_right_item" x="22" y="2"/>'])
+                      f'<child widget="{base}/lobby_right_item" x="{640 - 20 - LOBBY_PANEL[2] - LOBBY_PANEL[0]}"/>'])
     lines += _widget(f"{vote}/map_vote_button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
                                                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
                      [f'<child widget="{vote}/map_vote_button_lobby" x="510" y="1"/>'])
@@ -3912,9 +4024,9 @@ def _lobby() -> list:
                                               ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                                               ("description", f"{base}/lobby_desc")],
                      ['<data input="port lobby preview update"/>',
-                      f'<child widget="{base}/preview_status" x="30" y="75"/>',
+                      f'<child widget="{base}/preview_status" x="{LOBBY_ROWS[0] + 10}" y="{LOBBY_ROWS[1]}"/>',
                       f'<child widget="{base}/preview_button_bar" y="414"/>'])
-    lines += _widget(f"{base}/preview_status", [("type", "text"), ("controller", 1), ("width", 360), ("height", 300),
+    lines += _widget(f"{base}/preview_status", [("type", "text"), ("controller", 1), ("width", LOBBY_ROWS[2] - 10), ("height", 230),
                                                 ("font", "ui\\large_ui"), ("color", "#FF2896FF")], [])
     lines += _widget(f"{base}/preview_button_bar", [("type", "column_list"), ("width", 640), ("height", 28),
                                                     ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],

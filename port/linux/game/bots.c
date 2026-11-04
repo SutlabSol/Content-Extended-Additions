@@ -235,9 +235,6 @@ debug.bot_trace logs each bot's state.
 #include "infection.h"
 #include "game/player_queues_new.h"
 
-/* p2p.c's, p2p_lobby.c's */
-int p2p_hosting_internet(void);
-int p2p_hosting_listed(void);
 
 /* capture the flag's and king of the hill's (below) */
 struct bots_bot;
@@ -259,6 +256,7 @@ static boolean bots_king_guard(struct bots_bot *bot, struct player_datum *player
 /* the platform layer's */
 const char *config_string(char const *name);
 long config_integer(char const *name);
+int config_boolean(char const *name);
 void platform_log(char const *format, ...);
 /* the maps the bots were readied for, counted (bots_initialize_for_new_map):
 what is kept a map (the weapons' kinds, the powerups, the ground memo) is
@@ -1129,7 +1127,12 @@ void bots_set_count_override(long count)
 
 long bots_wanted_count(void)
 {
-	long count = bots_count_override >= 0 ? bots_count_override : bots_setting_integer("HALO_BOTS", "bots.count");
+	long count;
+
+	/* (BOTS: OFF keeps bots.count's number for later) */
+	if (bots_count_override < 0 && !config_boolean("bots.enabled"))
+		return 0;
+	count = bots_count_override >= 0 ? bots_count_override : bots_setting_integer("HALO_BOTS", "bots.count");
 
 	return count < 0 ? 0 : count > BOTS_MAXIMUM ? BOTS_MAXIMUM : count;
 }
@@ -1163,16 +1166,21 @@ short bots_teams(void)
 		_bots_teams_against;
 }
 
-/* whether this machine hosts a game bots may play in: a local (split screen)
-one, one for the local network (system link), or one for internet play that
-the server browser does not list (a private game, joined by its invite), whose
-clients drive the bots with the input the host relays (network_distributed.c);
-not a public one */
+/* whether this machine hosts a game bots may play in: any multiplayer game
+it hosts, local (split screen), system link or internet, public or private,
+whose clients drive the bots with the input the host relays
+(network_distributed.c) */
 int bots_game_allowed(void)
 {
-	if (!global_network_game_server_get())
-		return FALSE;
-	return network_game_is_splitscreen_local() || !p2p_hosting_internet() || !p2p_hosting_listed();
+	return global_network_game_server_get() != NULL;
+}
+
+/* bots.keep_min: in a game other machines join (not a local one), a player
+who joins takes a bot's place and a bot takes theirs again when they leave */
+int bots_keep_player_count(void)
+{
+	return bots_count_override < 0 && !network_game_is_splitscreen_local() &&
+		config_boolean("bots.keep_min");
 }
 
 int bots_machine_is_bot(long machine_index)
@@ -1191,20 +1199,27 @@ static int bots_player_is_bot(long player_index)
 
 void bots_network_player(long bot_index, struct network_player *player)
 {
-	/* (the Marines of Halo's campaign; eleven characters at most: past the fifteenth, each again with a number,
-	"Johnson 2") */
+	/* (the Marines' and the ship's of Halo's campaign, "[BOT]" before each:
+	eleven characters at most, so six of the name; past the fifteenth, each
+	again with a number, "[BOT]Kojo2") */
 	static char const *const names[] =
 	{
-		"Johnson", "Jenkins", "Mendoza", "Bisenti", "Stacker", "Polaski", "Chips", "Kojo",
-		"Rawley", "Riley", "Wellsley", "Hall", "Fitzgerald", "Locklear", "Mitchell",
+		"Avery", "Kojo", "Chips", "Riley", "Hall", "Rawley", "Keyes", "Stack",
+		"Polask", "Mendoz", "Bisent", "Jenkin", "Fitz", "Lock", "Mitch",
 	};
 	char name[16];
 	long index;
 
 	if (bot_index < (long)NUMBEROF(names))
-		snprintf(name, sizeof(name), "%s", names[bot_index]);
+		snprintf(name, sizeof(name), "[BOT]%.6s", names[bot_index]);
 	else
-		snprintf(name, sizeof(name), "%.8s %ld", names[bot_index % NUMBEROF(names)], bot_index / NUMBEROF(names) + 1);
+	{
+		char number[8];
+
+		snprintf(number, sizeof(number), "%ld", bot_index / (long)NUMBEROF(names) + 1);
+		snprintf(name, sizeof(name), "[BOT]%.*s%s", (int)(6 - strlen(number)), names[bot_index % NUMBEROF(names)],
+			number);
+	}
 
 	csmemset(player, 0, sizeof(*player));
 	for (index = 0; index < (long)NUMBEROF(player->name) - 1 && name[index]; index++)

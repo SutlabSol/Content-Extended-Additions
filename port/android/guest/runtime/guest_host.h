@@ -95,9 +95,9 @@ int host_sdl_gamepad_axis(unsigned int gamepad, int axis);
 int host_sdl_gamepad_button(unsigned int gamepad, int button);
 int host_sdl_gamepad_type(unsigned int gamepad);
 int host_sdl_rumble_gamepad(unsigned int gamepad, unsigned int low, unsigned int high, unsigned int milliseconds);
-/* the Switch host only (port/switch/host_imports.list): the controller's turn
-since the last call, in radians, into yaw and pitch. Other hosts do not
-provide it. */
+/* the controller's turn since the last call, in radians, into yaw and pitch
+(0 for one without a gyroscope): the Switch's (libnx), the PS5's (scePad),
+Android's and Linux's (SDL's gamepad sensors: port/android/host/host_sdl.c) */
 void host_sdl_gamepad_gyro(unsigned int gamepad, float *yaw, float *pitch);
 void host_sdl_close_gamepad(unsigned int gamepad);
 /* callback: void (*)(void *userdata, unsigned int stream, int additional, int total),

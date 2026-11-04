@@ -1,21 +1,27 @@
 /*
 TAG_PACK.C
 
-The tag packs (tag_pack.h): maps/<name>.pack, one for each manifest in
+The tag packs (tag_pack.h): tag_pack/<name>.pack, one for each manifest in
 port/assets/tag_packs (port/linux/src/port_tag_packs.c), written by the game
 itself at the main menu from the maps the manifest names, and read by the
 tag importer (tag_import.c) as a level loads, which never reads a map for
 its tags. tools/tag_pack.py writes the same file on a computer.
 
-At start-up the main menu renames each pack's legacy files (a pack once
-called otherwise: randomizer.pack is watanoge_randomizer.pack now), then
-asks for each pack its manifest wants then ("always", a setting on, or a
-condition of tag_pack_conditions.c's) that is not there, is stale (its
-header's content hash is not its manifest's) or no longer matches its maps;
-code asks for one later with tag_pack_request (a setting turned on, a game
-joined that wants it). A notice says so first; the pack is written once it
-is dismissed, behind a dialog whose text each frame drawn brings up to
-date, and kept. A pack none of whose maps is there is not asked for.
+At start-up the main menu moves the packs an older build wrote among the
+maps (maps/<name>.pack, or a name the pack once had: randomizer.pack is
+watanoge_randomizer.pack now) into tag_pack/, so they are kept, not written
+again; then asks for each pack its manifest wants then ("always", a setting
+on, or a condition of tag_pack_conditions.c's) that is not there, is stale
+(its header's content hash is not its manifest's) or no longer matches its
+maps; code asks for one later with tag_pack_request (a setting turned on, a
+game joined that wants it). A pack none of whose maps is there is not asked
+for.
+
+The packs asked for are written together, on a thread of their own, while
+the main menu shows a checklist of them over itself (tag_pack_draw): each
+pack's name and file, and whether it waits, is being written (how far), is
+done or failed. Nothing is asked of the player, and the menus take no input
+until it is gone, a moment after the last is done.
 
 A pack is 'rpak', format 2 (TAG_PACK_FORMAT_VERSION), its content hash and
 how many maps, then a 56-byte record per map (tag_pack.h); then each map's
@@ -26,22 +32,35 @@ Each distinct blob of pixels or samples is kept once.
 A disc map is a plain 0x800-byte header and a zlib stream, and its tag
 section is at the end, so each map is inflated twice: once for its tags,
 which say which ranges to keep, and again to copy those ranges as the
-stream passes them. The randomizer's ten maps take a few minutes and about
-500 MB, once. The file is written as <name>.pack.partial and renamed when it
-is whole, so a stop part-way leaves no pack that looks complete.
+stream passes them. A map several packs are made of (c40 is in three) is
+read and inflated those two times for all of them at once, each pack given
+the ranges it keeps as the stream passes them; and each read is read ahead
+on a thread of its own (platform_file_read_ahead), so the card's reads and
+zlib's inflating run together, not in turn (the Switch's SD card). Each
+pack is written as <name>.pack.partial and renamed when it is whole, so a
+stop part-way leaves no pack that looks complete.
 */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <ctype.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "cseries/cseries_windows.h"
 #include "cache/cache_files.h"
+#include "cutscene/cinematics.h"
+#include "interface/interface.h"
 #include "main/main.h"
+#include "rasterizer/rasterizer.h"
+#include "render/render.h"
 #include "tag_files/tag_files.h"
+#include "tag_files/tag_groups.h"
+#include "text/draw_string.h"
+#include "text/font_group.h"
+#include "text/unicode.h"
 
 #include "halo_port_limits.h"
 #include "tag_pack.h"
@@ -58,12 +77,18 @@ is whole, so a stop part-way leaves no pack that looks complete.
 #define RANGE_LIMIT (64L * 1024L * 1024L)
 #define IO_CHUNK 0x40000
 #define SEEN_SLOTS 0x20000
-#define PROGRESS_MILLISECONDS 100
+/* the most packs written together (as many as there are manifests) */
+#define BATCH_PACKS 8
+/* the checklist kept up after the last pack is done, and after one failed */
+#define CHECKLIST_DONE_MILLISECONDS 1500
+#define CHECKLIST_FAILED_MILLISECONDS 5000
+/* the folder of the packs, in the data's (d:\), and the maps' language's
+below it (maps_de: tag_pack\de\) */
+#define PACK_DIRECTORY "d:\\tag_pack\\"
 
 extern int config_boolean(char const *name);
-extern void display_error_text_deferred(wchar_t const *text, short local_player_index);
-extern boolean ui_widget_port_error_showing(void);
-extern boolean ui_widget_port_error_open(void);
+extern void platform_log(char const *format, ...);
+extern void platform_file_read_ahead(HANDLE file);
 
 /* bitmap_group's bitmaps block, and a bitmap_data's fields */
 #define BITMAPS_COUNT 0x60
@@ -115,22 +140,6 @@ struct pack_seen
 	long data_at;
 };
 
-static struct
-{
-	/* the manifest being written (port_tag_packs.h) */
-	long pack;
-	HANDLE out;
-	long cursor;
-	unsigned char *chunk;
-	struct pack_seen *seen;
-	long seen_count;
-	double done;
-	double total;
-	unsigned long shown_at;
-	/* a write refused: the card is full, or the pack is too large */
-	int failed;
-} build;
-
 /* bitmaps.c bitmap_format_bits_per_pixel_table, through p8-bump */
 static short const bitmap_bits[] = { 8, 8, 8, 16, 0, 0, 16, 0, 16, 16, 32, 32, 0, 0, 4, 8, 8, 8 };
 
@@ -158,64 +167,6 @@ static void write_u32(unsigned char *bytes, unsigned long value)
 	bytes[1] = (unsigned char)(value >> 8);
 	bytes[2] = (unsigned char)(value >> 16);
 	bytes[3] = (unsigned char)(value >> 24);
-}
-
-/* ---------- the screen
-
-The build's dialog (tag_pack_update) shows this text, which each
-frame drawn here brings up to date. The loading screen's bar is not used: it
-is drawn for a loop that renders every frame, and from near nothing it stays
-black for minutes */
-
-static wchar_t status_text[200];
-static char status_map[TAG_PACK_MAP_NAME_SIZE];
-/* the manifest's words, as the dialogs take them (lines split by \r\n) */
-static wchar_t notice_text[300];
-static wchar_t building_text[160];
-static wchar_t ready_text[160];
-static wchar_t failed_text[200];
-
-static void status_set(wchar_t const *first, int percent, char const *map)
-{
-	int out = 0;
-	int index;
-
-	for (index = 0; first[index] && out < (int)NUMBEROF(status_text) - 48; index++)
-		status_text[out++] = first[index];
-	if (percent >= 0)
-	{
-		if (percent >= 100)
-			status_text[out++] = L'1';
-		if (percent >= 10)
-			status_text[out++] = (wchar_t)(L'0' + (percent / 10) % 10);
-		status_text[out++] = (wchar_t)(L'0' + percent % 10);
-		status_text[out++] = L'%';
-	}
-	if (map && map[0])
-	{
-		status_text[out++] = L' ';
-		status_text[out++] = L'(';
-		for (index = 0; map[index] && index < TAG_PACK_MAP_NAME_SIZE - 1; index++)
-			status_text[out++] = (wchar_t)(unsigned char)map[index];
-		status_text[out++] = L')';
-	}
-	status_text[out] = 0;
-}
-
-static void progress_show(int force)
-{
-	unsigned long now = system_milliseconds();
-	int percent;
-
-	if (!force && now - build.shown_at < PROGRESS_MILLISECONDS)
-		return;
-	build.shown_at = now;
-	percent = build.total > 0.0 ? (int)(build.done * 100.0 / build.total) : 0;
-	if (percent > 99)
-		percent = 99;
-	status_set(building_text, percent, status_map);
-	main_pregame_render();
-	main_present_frame();
 }
 
 /* ---------- files */
@@ -251,34 +202,13 @@ static int file_read(HANDLE file, void *buffer, unsigned long size)
 	return 1;
 }
 
-static int pack_write(void const *buffer, unsigned long size)
+static int file_exists(char const *path)
 {
-	unsigned long done = 0;
+	HANDLE file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 
-	if ((unsigned long)build.cursor + size > (unsigned long)PACK_LIMIT)
-	{
-		error(_error_silent, "tag pack: past what a 32-bit offset can name");
-		build.failed = 1;
+	if (file == INVALID_HANDLE_VALUE)
 		return 0;
-	}
-	while (done < size)
-	{
-		DWORD chunk = (DWORD)(size - done);
-		DWORD wrote = 0;
-
-		if (chunk > IO_CHUNK)
-			chunk = IO_CHUNK;
-		if (!WriteFile(build.out, (char const *)buffer + done, chunk, &wrote, NULL) || wrote == 0)
-		{
-			error(_error_silent, "tag pack: could not write (error %lu; is the card full?)",
-				(unsigned long)GetLastError());
-			build.failed = 1;
-			return 0;
-		}
-		done += wrote;
-	}
-	build.cursor += (long)size;
-
+	CloseHandle(file);
 	return 1;
 }
 
@@ -309,87 +239,6 @@ int tag_pack_map_header(char const *leaf, long *file_length, long *tag_offset, l
 		return 0;
 	if (compressed)
 		*compressed = physical == INVALID_FILE_SIZE || (long)physical < *file_length;
-
-	return 1;
-}
-
-/* ---------- a map's bytes, front to back */
-
-static int stream_begin(struct pack_stream *stream, HANDLE file, int compressed)
-{
-	memset(stream, 0, sizeof(*stream));
-	stream->file = file;
-	stream->compressed = compressed;
-	stream->produced = MAP_HEADER_SIZE;
-	if (!file_at(file, MAP_HEADER_SIZE))
-		return 0;
-	if (!compressed)
-		return 1;
-	stream->input = malloc(IO_CHUNK);
-	if (!stream->input || inflateInit(&stream->zlib) != Z_OK)
-		return 0;
-	stream->inflating = 1;
-
-	return 1;
-}
-
-static void stream_end(struct pack_stream *stream)
-{
-	if (stream->inflating)
-		inflateEnd(&stream->zlib);
-	if (stream->input)
-		free(stream->input);
-	memset(stream, 0, sizeof(*stream));
-}
-
-/* the next `size` bytes, into `out`, or passed over when it is NULL */
-static int stream_take(struct pack_stream *stream, long size, unsigned char *out)
-{
-	while (size > 0)
-	{
-		unsigned char *into = out ? out : build.chunk;
-		long want = size > IO_CHUNK ? IO_CHUNK : size;
-		long filled;
-
-		if (!stream->compressed)
-		{
-			if (out ? !file_read(stream->file, into, (unsigned long)want) :
-				!file_at(stream->file, stream->produced + want))
-				return 0;
-			filled = want;
-		}
-		else
-		{
-			int result;
-
-			stream->zlib.next_out = (Bytef *)into;
-			stream->zlib.avail_out = (uInt)want;
-			while (stream->zlib.avail_out > 0)
-			{
-				if (stream->zlib.avail_in == 0)
-				{
-					DWORD got = 0;
-
-					if (!ReadFile(stream->file, stream->input, IO_CHUNK, &got, NULL) || got == 0)
-						return 0;
-					stream->zlib.next_in = (Bytef *)stream->input;
-					stream->zlib.avail_in = got;
-				}
-				result = inflate(&stream->zlib, Z_NO_FLUSH);
-				if (result == Z_STREAM_END && stream->zlib.avail_out > 0)
-					return 0;
-				if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
-					return 0;
-			}
-			filled = want;
-		}
-		stream->produced += filled;
-		size -= filled;
-		if (out)
-			out += filled;
-		build.done += (double)filled;
-		progress_show(0);
-	}
 
 	return 1;
 }
@@ -565,7 +414,7 @@ static void sound_ranges(struct range_list *list, unsigned char const *blob, lon
 
 /* the ranges a map's bitmaps and sounds read, in order, the overlapping
 ones joined. 0 when the tags are not a campaign map's */
-static int collect(struct range_list *list, unsigned char const *blob, long blob_size, long file_length)
+static int collect(long pack, struct range_list *list, unsigned char const *blob, long blob_size, long file_length)
 {
 	long count;
 	long instances;
@@ -589,7 +438,7 @@ static int collect(struct range_list *list, unsigned char const *blob, long blob
 
 		if (base < 0 || (group != 'bitm' && group != 'snd!'))
 			continue;
-		if (!port_tag_packs_keep(build.pack, group, tag_name(blob, blob_size, instance)))
+		if (!port_tag_packs_keep(pack, group, tag_name(blob, blob_size, instance)))
 			continue;
 		if (group == 'bitm')
 		{
@@ -604,7 +453,7 @@ static int collect(struct range_list *list, unsigned char const *blob, long blob
 			sound_ranges(list, blob, blob_size, base, file_length, &ok);
 		}
 	}
-	if (!ok || bitmaps < port_tag_packs_minimum_bitmaps(build.pack) || sounds < port_tag_packs_minimum_sounds(build.pack))
+	if (!ok || bitmaps < port_tag_packs_minimum_bitmaps(pack) || sounds < port_tag_packs_minimum_sounds(pack))
 		return 0;
 	qsort(list->ranges, (unsigned long)list->count, sizeof(*list->ranges), range_less);
 	kept = 0;
@@ -671,13 +520,13 @@ static void hash_bytes(unsigned long *first, unsigned long *second, unsigned cha
 	}
 }
 
-static struct pack_seen *seen_slot(unsigned long first, unsigned long second, long size)
+static struct pack_seen *seen_slot(struct pack_seen *table, unsigned long first, unsigned long second, long size)
 {
 	unsigned long slot = (first ^ (second * 31)) & (SEEN_SLOTS - 1);
 
 	for (;;)
 	{
-		struct pack_seen *seen = build.seen + slot;
+		struct pack_seen *seen = table + slot;
 
 		if (!seen->size || (seen->first == first && seen->second == second && seen->size == size))
 			return seen;
@@ -685,325 +534,813 @@ static struct pack_seen *seen_slot(unsigned long first, unsigned long second, lo
 	}
 }
 
-/* ---------- a map */
 
-/* the range's bytes, at the end of the pack unless the same bytes already
-are in it. Those under the map's header are its own, not the stream's */
-static int copy_range(struct pack_stream *stream, unsigned char const *header, struct pack_range *range)
+/* ---------- the packs being written
+
+Each pack of a batch its own file, its blobs seen, its records, and the
+range it is copying as the stream passes it; how far it has got (done of
+total, its maps' bytes inflated twice), as a percent the checklist reads */
+
+enum
 {
-	long start = build.cursor;
-	long offset = range->offset;
-	long left = range->size;
-	unsigned long first = 0x52414E44UL;
-	unsigned long second = 0x4F4D495AUL;
+	_job_waiting = 0,
+	_job_building,
+	_job_done,
+	_job_failed
+};
+
+struct pack_job
+{
+	long pack;
+	char path[512];
+	char partial[520];
+	HANDLE out;
+	long cursor;
 	struct pack_seen *seen;
+	long seen_count;
+	/* a write refused: the card is full, or the pack is too large */
+	int failed;
+	struct pack_record records[TAG_PACK_MAPS];
+	int record_count;
+	long directory_size;
+	double done;
+	double total;
+	/* the map now: whether it is of this pack, its ranges and the one
+	being copied (from start, left bytes to go, hashed so far) */
+	int in_map;
+	struct range_list list;
+	long range_index;
+	int copying;
+	long copy_start;
+	long copy_left;
+	unsigned long first;
+	unsigned long second;
+	/* (read by the main thread: tag_pack_draw) */
+	volatile int state;
+	volatile int percent;
+};
 
-	if (offset < MAP_HEADER_SIZE)
-	{
-		long below = MAP_HEADER_SIZE - offset;
+static struct
+{
+	struct pack_job jobs[BATCH_PACKS];
+	int count;
+	unsigned char *chunk;
+	/* the jobs the map being inflated is of (a bit each), for the progress */
+	unsigned long inflating_jobs;
+	pthread_t thread;
+	int thread_started;
+	/* started, its thread running; its thread done (joined by tag_pack_update) */
+	volatile int running;
+	volatile int finished;
+	unsigned long started_at;
+	/* when the checklist's last pack was done, and whether one failed */
+	unsigned long ended_at;
+	int any_failed;
+	int shown;
+} batch;
 
-		if (below > left)
-			below = left;
-		hash_bytes(&first, &second, header + offset, below);
-		if (!pack_write(header + offset, (unsigned long)below))
-			return 0;
-		offset += below;
-		left -= below;
-	}
-	if (left > 0 && (offset < stream->produced || !stream_take(stream, offset - stream->produced, NULL)))
+static void job_progress(struct pack_job *job)
+{
+	int percent = job->total > 0.0 ? (int)(job->done * 100.0 / job->total) : 0;
+
+	job->percent = percent < 0 ? 0 : percent > 99 ? 99 : percent;
+}
+
+static int job_write(struct pack_job *job, void const *buffer, unsigned long size)
+{
+	unsigned long done = 0;
+
+	if (job->failed)
 		return 0;
-	while (left > 0)
+	if ((unsigned long)job->cursor + size > (unsigned long)PACK_LIMIT)
 	{
-		long piece = left > IO_CHUNK ? IO_CHUNK : left;
+		platform_log("tag pack: %s past what a 32-bit offset can name", port_tag_packs_name(job->pack));
+		job->failed = 1;
+		return 0;
+	}
+	while (done < size)
+	{
+		DWORD chunk = (DWORD)(size - done);
+		DWORD wrote = 0;
 
-		if (!stream_take(stream, piece, build.chunk))
+		if (chunk > IO_CHUNK)
+			chunk = IO_CHUNK;
+		if (!WriteFile(job->out, (char const *)buffer + done, chunk, &wrote, NULL) || wrote == 0)
+		{
+			platform_log("tag pack: could not write %s (error %lu; is the card full?)", job->partial,
+				(unsigned long)GetLastError());
+			job->failed = 1;
 			return 0;
-		hash_bytes(&first, &second, build.chunk, piece);
-		if (!pack_write(build.chunk, (unsigned long)piece))
-			return 0;
-		left -= piece;
+		}
+		done += wrote;
 	}
-	first = finish_hash(first ^ (unsigned long)range->size);
-	second = finish_hash(second + (unsigned long)range->size);
-	if (build.seen_count >= SEEN_SLOTS / 4 * 3)
-	{
-		range->data_at = start;
-		return 1;
-	}
-	seen = seen_slot(first, second, range->size);
-	if (seen->size)
-	{
-		/* the next blob writes over this copy */
-		range->data_at = seen->data_at;
-		build.cursor = start;
-		return file_at(build.out, start);
-	}
-	seen->first = first;
-	seen->second = second;
-	seen->size = range->size;
-	seen->data_at = start;
-	build.seen_count++;
-	range->data_at = start;
+	job->cursor += (long)size;
 
 	return 1;
 }
 
-static int pack_map(char const *leaf, struct pack_record *record)
+/* ---------- a map's bytes, front to back */
+
+static int stream_begin(struct pack_stream *stream, HANDLE file, int compressed)
+{
+	memset(stream, 0, sizeof(*stream));
+	stream->file = file;
+	stream->compressed = compressed;
+	stream->produced = MAP_HEADER_SIZE;
+	if (!file_at(file, MAP_HEADER_SIZE))
+		return 0;
+	if (!compressed)
+		return 1;
+	stream->input = malloc(IO_CHUNK);
+	if (!stream->input || inflateInit(&stream->zlib) != Z_OK)
+		return 0;
+	stream->inflating = 1;
+
+	return 1;
+}
+
+static void stream_end(struct pack_stream *stream)
+{
+	if (stream->inflating)
+		inflateEnd(&stream->zlib);
+	if (stream->input)
+		free(stream->input);
+	memset(stream, 0, sizeof(*stream));
+}
+
+/* the next `size` bytes, into `out`, or passed over when it is NULL; each
+pack the map is of the further on (batch.inflating_jobs) */
+static int stream_take(struct pack_stream *stream, long size, unsigned char *out)
+{
+	while (size > 0)
+	{
+		unsigned char *into = out ? out : batch.chunk;
+		long want = size > IO_CHUNK ? IO_CHUNK : size;
+		int index;
+
+		if (!stream->compressed)
+		{
+			if (out ? !file_read(stream->file, into, (unsigned long)want) :
+				!file_at(stream->file, stream->produced + want))
+				return 0;
+		}
+		else
+		{
+			int result;
+
+			stream->zlib.next_out = (Bytef *)into;
+			stream->zlib.avail_out = (uInt)want;
+			while (stream->zlib.avail_out > 0)
+			{
+				if (stream->zlib.avail_in == 0)
+				{
+					DWORD got = 0;
+
+					if (!ReadFile(stream->file, stream->input, IO_CHUNK, &got, NULL) || got == 0)
+						return 0;
+					stream->zlib.next_in = (Bytef *)stream->input;
+					stream->zlib.avail_in = got;
+				}
+				result = inflate(&stream->zlib, Z_NO_FLUSH);
+				if (result == Z_STREAM_END && stream->zlib.avail_out > 0)
+					return 0;
+				if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
+					return 0;
+			}
+		}
+		stream->produced += want;
+		size -= want;
+		if (out)
+			out += want;
+		for (index = 0; index < batch.count; index++)
+		{
+			if (batch.inflating_jobs & (1UL << index))
+			{
+				batch.jobs[index].done += (double)want;
+				job_progress(&batch.jobs[index]);
+			}
+		}
+	}
+
+	return 1;
+}
+
+/* a map opened to be read front to back, read ahead on a thread of its own
+(the card's reads alongside zlib's inflating: xbox_files.c) */
+static HANDLE map_open(char const *leaf)
 {
 	char path[512];
-	unsigned char header[MAP_HEADER_SIZE];
-	unsigned char *blob = NULL;
-	struct range_list list;
-	struct pack_stream stream;
 	HANDLE file;
-	long file_length, tag_offset, tag_size;
-	long index;
-	long resource_bytes = 0;
-	double started = build.done;
-	int compressed;
-	int ok = 0;
 
-	memset(&list, 0, sizeof(list));
-	memset(&stream, 0, sizeof(stream));
-	snprintf(status_map, sizeof(status_map), "%s", leaf);
-	if (!tag_pack_map_header(leaf, &file_length, &tag_offset, &tag_size, &compressed))
-	{
-		error(_error_silent, "tag pack: no usable %s.map", leaf);
-		return 0;
-	}
 	map_path(path, sizeof(path), leaf);
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE)
+		return INVALID_HANDLE_VALUE;
+	platform_file_read_ahead(file);
+	return file;
+}
+
+/* ---------- a pack's ranges, as the stream passes them */
+
+/* the end of the range being copied: the blob kept, at the end of the pack,
+unless the same bytes already are in it (then the next blob writes over
+this copy) */
+static int job_range_end(struct pack_job *job)
+{
+	struct pack_range *range = job->list.ranges + job->range_index;
+	struct pack_seen *seen;
+	unsigned long first = finish_hash(job->first ^ (unsigned long)range->size);
+	unsigned long second = finish_hash(job->second + (unsigned long)range->size);
+
+	job->copying = 0;
+	job->range_index++;
+	if (job->seen_count >= SEEN_SLOTS / 4 * 3)
+	{
+		range->data_at = job->copy_start;
+		return 1;
+	}
+	seen = seen_slot(job->seen, first, second, range->size);
+	if (seen->size)
+	{
+		range->data_at = seen->data_at;
+		job->cursor = job->copy_start;
+		return file_at(job->out, job->copy_start);
+	}
+	seen->first = first;
+	seen->second = second;
+	seen->size = range->size;
+	seen->data_at = job->copy_start;
+	job->seen_count++;
+	range->data_at = job->copy_start;
+
+	return 1;
+}
+
+/* the map's bytes from offset (size of them, at bytes): those of the pack's
+ranges among them written to it. The ranges are in order and apart, and the
+bytes come in order, the header's first */
+static int job_feed(struct pack_job *job, long offset, unsigned char const *bytes, long size)
+{
+	while (size > 0 && job->range_index < job->list.count && !job->failed)
+	{
+		struct pack_range *range = job->list.ranges + job->range_index;
+		long from;
+		long skip;
+		long take;
+
+		if (!job->copying)
+		{
+			if (offset + size <= range->offset)
+				return 1;
+			/* (a range begun before these bytes, but not copied: passed) */
+			if (range->offset < offset)
+			{
+				platform_log("tag pack: %s's range at %ld passed by (at %ld)", port_tag_packs_name(job->pack),
+					range->offset, offset);
+				return 0;
+			}
+			job->copying = 1;
+			job->copy_start = job->cursor;
+			job->copy_left = range->size;
+			job->first = 0x52414E44UL;
+			job->second = 0x4F4D495AUL;
+		}
+		from = range->offset + (range->size - job->copy_left);
+		skip = from - offset;
+		take = size - skip;
+		if (take > job->copy_left)
+			take = job->copy_left;
+		hash_bytes(&job->first, &job->second, bytes + skip, take);
+		if (!job_write(job, bytes + skip, (unsigned long)take))
+			return 0;
+		job->copy_left -= take;
+		offset += skip + take;
+		bytes += skip + take;
+		size -= skip + take;
+		if (!job->copy_left && !job_range_end(job))
+			return 0;
+	}
+	return !job->failed;
+}
+
+/* where the pack wants the stream next (the next byte of its range), or
+-1 when it wants no more of this map */
+static long job_wants(struct pack_job const *job)
+{
+	struct pack_range const *range;
+
+	if (!job->in_map || job->failed || job->range_index >= job->list.count)
+		return -1;
+	range = job->list.ranges + job->range_index;
+	return job->copying ? range->offset + (range->size - job->copy_left) : range->offset;
+}
+
+/* ---------- a map, for each pack of it */
+
+static int job_record(struct pack_job *job, char const *leaf, long file_length, long tag_offset, long tag_size,
+	unsigned char const *blob)
+{
+	struct pack_record *record = job->records + job->record_count;
+	long index;
+	long resource_bytes = 0;
+
+	memset(record, 0, sizeof(*record));
+	snprintf(record->leaf, sizeof(record->leaf), "%s", leaf);
+	record->file_length = file_length;
+	record->tag_offset = tag_offset;
+	record->tag_size = tag_size;
+	record->tags_at = job->cursor;
+	if (!job_write(job, blob, (unsigned long)tag_size))
 		return 0;
+	record->ranges_at = job->cursor;
+	record->range_count = job->list.count;
+	for (index = 0; index < job->list.count; index++)
+	{
+		unsigned char entry[12];
+
+		write_u32(entry, (unsigned long)job->list.ranges[index].offset);
+		write_u32(entry + 4, (unsigned long)job->list.ranges[index].size);
+		write_u32(entry + 8, (unsigned long)job->list.ranges[index].data_at);
+		if (!job_write(job, entry, sizeof(entry)))
+			return 0;
+		resource_bytes += job->list.ranges[index].size;
+	}
+	job->record_count++;
+	platform_log("tag pack: %s: %s.map, %ld ranges, %ld resource bytes, pack now %ld bytes",
+		port_tag_packs_name(job->pack), leaf, job->list.count, resource_bytes, job->cursor);
+
+	return 1;
+}
+
+static int pack_has_map(long pack, char const *leaf)
+{
+	long level;
+
+	for (level = 0; level < port_tag_packs_map_count(pack) && level < TAG_PACK_MAPS; level++)
+	{
+		if (!_stricmp(port_tag_packs_map(pack, level), leaf))
+			return 1;
+	}
+	return 0;
+}
+
+/* the map, read for every pack of the batch it is of: its tags (each pack's
+ranges from them), then its pixels and samples, each pack given its own */
+static void batch_map(char const *leaf)
+{
+	unsigned char header[MAP_HEADER_SIZE];
+	unsigned char *blob = NULL;
+	struct pack_stream stream;
+	HANDLE file = INVALID_HANDLE_VALUE;
+	long file_length, tag_offset, tag_size;
+	double started[BATCH_PACKS];
+	int compressed;
+	int index;
+	int any = 0;
+	unsigned long jobs = 0;
+
+	memset(&stream, 0, sizeof(stream));
+	for (index = 0; index < batch.count; index++)
+	{
+		struct pack_job *job = batch.jobs + index;
+
+		job->in_map = !job->failed && pack_has_map(job->pack, leaf);
+		started[index] = job->done;
+		if (job->in_map)
+			jobs |= 1UL << index;
+	}
+	if (!jobs)
+		return;
+	if (!tag_pack_map_header(leaf, &file_length, &tag_offset, &tag_size, &compressed))
+	{
+		platform_log("tag pack: no usable %s.map", leaf);
+		return;
+	}
+	batch.inflating_jobs = jobs;
+	file = map_open(leaf);
 	blob = malloc((unsigned long)tag_size);
-	if (!blob || !file_at(file, 0) || !file_read(file, header, sizeof(header)))
+	if (file == INVALID_HANDLE_VALUE || !blob || !file_read(file, header, sizeof(header)))
 		goto done;
 	/* the tags, at the stream's end */
 	if (!stream_begin(&stream, file, compressed) ||
 		!stream_take(&stream, tag_offset - MAP_HEADER_SIZE, NULL) ||
 		!stream_take(&stream, tag_size, blob))
 	{
-		error(_error_silent, "tag pack: %s.map ends early (a half-copied map?)", leaf);
+		platform_log("tag pack: %s.map ends early (a half-copied map?)", leaf);
 		goto done;
 	}
-	stream_end(&stream);
-	if (!collect(&list, blob, tag_size, file_length))
-	{
-		error(_error_silent, "tag pack: %s.map's tags are not the map %s wants", leaf,
-			port_tag_packs_name(build.pack));
-		goto done;
-	}
-	/* the pixels and samples, from the start again */
-	build.done = started + (double)file_length;
-	if (!stream_begin(&stream, file, compressed))
-		goto done;
-	for (index = 0; index < list.count; index++)
-	{
-		if (!copy_range(&stream, header, list.ranges + index))
-		{
-			error(_error_silent, "tag pack: could not copy %s.map's range at %ld", leaf,
-				list.ranges[index].offset);
-			goto done;
-		}
-		resource_bytes += list.ranges[index].size;
-	}
-	stream_end(&stream);
-	memset(record, 0, sizeof(*record));
-	snprintf(record->leaf, sizeof(record->leaf), "%s", leaf);
-	record->file_length = file_length;
-	record->tag_offset = tag_offset;
-	record->tag_size = tag_size;
-	record->tags_at = build.cursor;
-	if (!pack_write(blob, (unsigned long)tag_size))
-		goto done;
-	record->ranges_at = build.cursor;
-	record->range_count = list.count;
-	for (index = 0; index < list.count; index++)
-	{
-		unsigned char entry[12];
-
-		write_u32(entry, (unsigned long)list.ranges[index].offset);
-		write_u32(entry + 4, (unsigned long)list.ranges[index].size);
-		write_u32(entry + 8, (unsigned long)list.ranges[index].data_at);
-		if (!pack_write(entry, sizeof(entry)))
-			goto done;
-	}
-	error(_error_silent, "tag pack: %s.map, %ld ranges, %ld resource bytes, pack now %ld bytes",
-		leaf, list.count, resource_bytes, build.cursor);
-	ok = 1;
-done:
 	stream_end(&stream);
 	CloseHandle(file);
-	build.done = started + 2.0 * (double)file_length;
+	file = INVALID_HANDLE_VALUE;
+	for (index = 0; index < batch.count; index++)
+	{
+		struct pack_job *job = batch.jobs + index;
+
+		if (!job->in_map)
+			continue;
+		memset(&job->list, 0, sizeof(job->list));
+		job->range_index = 0;
+		job->copying = 0;
+		job->done = started[index] + (double)file_length;
+		job_progress(job);
+		if (!collect(job->pack, &job->list, blob, tag_size, file_length))
+		{
+			platform_log("tag pack: %s.map's tags are not the map %s wants", leaf, port_tag_packs_name(job->pack));
+			job->in_map = 0;
+			jobs &= ~(1UL << index);
+			continue;
+		}
+		any = 1;
+	}
+	batch.inflating_jobs = jobs;
+	if (!any)
+		goto done;
+	/* the pixels and samples, from the start again: the header's bytes
+	first, then the stream's, as far as the furthest range wanted */
+	file = map_open(leaf);
+	if (file == INVALID_HANDLE_VALUE || !stream_begin(&stream, file, compressed))
+		goto done;
+	for (index = 0; index < batch.count; index++)
+	{
+		if (batch.jobs[index].in_map && !job_feed(batch.jobs + index, 0, header, MAP_HEADER_SIZE))
+			batch.jobs[index].in_map = 0;
+	}
+	for (;;)
+	{
+		long next = -1;
+		long end = 0;
+		long size;
+
+		for (index = 0; index < batch.count; index++)
+		{
+			struct pack_job *job = batch.jobs + index;
+			long wants = job_wants(job);
+
+			if (wants < 0)
+				continue;
+			if (next < 0 || wants < next)
+				next = wants;
+			if (job->list.ranges[job->list.count - 1].offset + job->list.ranges[job->list.count - 1].size > end)
+				end = job->list.ranges[job->list.count - 1].offset + job->list.ranges[job->list.count - 1].size;
+		}
+		if (next < 0)
+			break;
+		if (next > stream.produced && !stream_take(&stream, next - stream.produced, NULL))
+			break;
+		size = end - stream.produced;
+		if (size > IO_CHUNK)
+			size = IO_CHUNK;
+		{
+			long offset = stream.produced;
+
+			if (size <= 0 || !stream_take(&stream, size, batch.chunk))
+				break;
+			for (index = 0; index < batch.count; index++)
+			{
+				if (job_wants(batch.jobs + index) >= 0 && !job_feed(batch.jobs + index, offset, batch.chunk, size))
+				{
+					platform_log("tag pack: %s could not copy %s.map's range near %ld",
+						port_tag_packs_name(batch.jobs[index].pack), leaf, offset);
+					batch.jobs[index].in_map = 0;
+				}
+			}
+		}
+	}
+	for (index = 0; index < batch.count; index++)
+	{
+		struct pack_job *job = batch.jobs + index;
+
+		if (!job->in_map)
+			continue;
+		if (job->range_index < job->list.count)
+			platform_log("tag pack: %s.map ended before %s's ranges did", leaf, port_tag_packs_name(job->pack));
+		else
+			job_record(job, leaf, file_length, tag_offset, tag_size, blob);
+	}
+done:
+	stream_end(&stream);
+	if (file != INVALID_HANDLE_VALUE)
+		CloseHandle(file);
+	batch.inflating_jobs = 0;
+	for (index = 0; index < batch.count; index++)
+	{
+		struct pack_job *job = batch.jobs + index;
+
+		if (pack_has_map(job->pack, leaf))
+		{
+			job->done = started[index] + 2.0 * (double)file_length;
+			job_progress(job);
+		}
+		if (job->list.ranges)
+			free(job->list.ranges);
+		memset(&job->list, 0, sizeof(job->list));
+		job->in_map = 0;
+	}
 	if (blob)
 		free(blob);
-	if (list.ranges)
-		free(list.ranges);
-
-	return ok;
 }
 
-static int pack_finish(struct pack_record const *records, int count, long directory_size)
+/* ---------- a pack, begun and finished */
+
+static int job_finish(struct pack_job *job)
 {
-	unsigned char *directory = malloc((unsigned long)directory_size);
+	unsigned char *directory = malloc((unsigned long)job->directory_size);
 	int index;
 	int ok;
 
 	if (!directory)
 		return 0;
-	memset(directory, 0, (unsigned long)directory_size);
+	memset(directory, 0, (unsigned long)job->directory_size);
 	write_u32(directory, 'rpak');
 	write_u32(directory + 4, TAG_PACK_FORMAT_VERSION);
-	write_u32(directory + 8, port_tag_packs_content(build.pack));
-	write_u32(directory + 12, (unsigned long)count);
-	for (index = 0; index < count; index++)
+	write_u32(directory + 8, port_tag_packs_content(job->pack));
+	write_u32(directory + 12, (unsigned long)job->record_count);
+	for (index = 0; index < job->record_count; index++)
 	{
 		unsigned char *entry = directory + TAG_PACK_HEADER_SIZE + index * TAG_PACK_RECORD_SIZE;
 
-		memcpy(entry, records[index].leaf, TAG_PACK_MAP_NAME_SIZE - 1);
-		write_u32(entry + 32, (unsigned long)records[index].file_length);
-		write_u32(entry + 36, (unsigned long)records[index].tag_offset);
-		write_u32(entry + 40, (unsigned long)records[index].tag_size);
-		write_u32(entry + 44, (unsigned long)records[index].tags_at);
-		write_u32(entry + 48, (unsigned long)records[index].range_count);
-		write_u32(entry + 52, (unsigned long)records[index].ranges_at);
+		memcpy(entry, job->records[index].leaf, TAG_PACK_MAP_NAME_SIZE - 1);
+		write_u32(entry + 32, (unsigned long)job->records[index].file_length);
+		write_u32(entry + 36, (unsigned long)job->records[index].tag_offset);
+		write_u32(entry + 40, (unsigned long)job->records[index].tag_size);
+		write_u32(entry + 44, (unsigned long)job->records[index].tags_at);
+		write_u32(entry + 48, (unsigned long)job->records[index].range_count);
+		write_u32(entry + 52, (unsigned long)job->records[index].ranges_at);
 	}
 	/* a copy written over at the end leaves bytes past it */
-	ok = file_at(build.out, build.cursor) && SetEndOfFile(build.out) && file_at(build.out, 0);
-	build.cursor = 0;
-	ok = ok && pack_write(directory, (unsigned long)directory_size);
+	ok = file_at(job->out, job->cursor) && SetEndOfFile(job->out) && file_at(job->out, 0);
+	job->cursor = 0;
+	ok = ok && job_write(job, directory, (unsigned long)job->directory_size);
 	free(directory);
 
 	return ok;
 }
 
-static char const *pack_path(long pack, char *path, unsigned int size)
-{
-	snprintf(path, size, "%s%s.pack", cache_files_map_directory(), port_tag_packs_name(pack));
-	return path;
-}
+static char const *pack_path(long pack, char *path, unsigned int size);
+static void pack_directory_make(void);
 
-static int pack_build(long pack)
+static int job_begin(struct pack_job *job)
 {
-	char path[512];
-	char partial[520];
-	struct pack_record records[TAG_PACK_MAPS];
-	long map_count = port_tag_packs_map_count(pack);
-	long directory_size;
-	int count = 0;
-	int level;
-	int ok = 0;
+	long map_count = port_tag_packs_map_count(job->pack);
+	long level;
+	unsigned char *blank;
+	int ok;
 
 	if (map_count > TAG_PACK_MAPS)
 		map_count = TAG_PACK_MAPS;
-	directory_size = TAG_PACK_HEADER_SIZE + map_count * TAG_PACK_RECORD_SIZE;
-	pack_path(pack, path, sizeof(path));
-	snprintf(partial, sizeof(partial), "%s.partial", path);
-	memset(&build, 0, sizeof(build));
-	build.pack = pack;
+	job->directory_size = TAG_PACK_HEADER_SIZE + map_count * TAG_PACK_RECORD_SIZE;
+	pack_path(job->pack, job->path, sizeof(job->path));
+	snprintf(job->partial, sizeof(job->partial), "%s.partial", job->path);
 	for (level = 0; level < map_count; level++)
 	{
 		long file_length, tag_offset, tag_size;
 
-		if (tag_pack_map_header(port_tag_packs_map(pack, level), &file_length, &tag_offset, &tag_size, NULL))
-			build.total += 2.0 * (double)file_length;
+		if (tag_pack_map_header(port_tag_packs_map(job->pack, level), &file_length, &tag_offset, &tag_size, NULL))
+			job->total += 2.0 * (double)file_length;
 	}
-	build.chunk = malloc(IO_CHUNK);
-	build.seen = malloc(SEEN_SLOTS * sizeof(*build.seen));
-	if (!build.chunk || !build.seen || build.total <= 0.0)
+	job->seen = malloc(SEEN_SLOTS * sizeof(*job->seen));
+	if (!job->seen || job->total <= 0.0)
 	{
-		error(_error_silent, "tag pack: cannot write %s (%s)", path,
-			build.total <= 0.0 ? "none of its maps is there" : "out of memory");
-		goto done;
+		platform_log("tag pack: cannot write %s (%s)", job->path,
+			job->total <= 0.0 ? "none of its maps is there" : "out of memory");
+		return 0;
 	}
-	memset(build.seen, 0, SEEN_SLOTS * sizeof(*build.seen));
-	build.out = CreateFileA(partial, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
-	if (build.out == INVALID_HANDLE_VALUE)
+	memset(job->seen, 0, SEEN_SLOTS * sizeof(*job->seen));
+	job->out = CreateFileA(job->partial, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+	if (job->out == INVALID_HANDLE_VALUE)
 	{
-		error(_error_silent, "tag pack: could not write %s (error %lu)", partial, (unsigned long)GetLastError());
-		build.out = NULL;
-		goto done;
+		platform_log("tag pack: could not write %s (error %lu)", job->partial, (unsigned long)GetLastError());
+		job->out = NULL;
+		return 0;
 	}
-	error(_error_silent, "tag pack: writing %s (once)", path);
-	progress_show(1);
-	memset(records, 0, sizeof(records));
-	{
-		unsigned char *blank = malloc((unsigned long)directory_size);
-
-		if (!blank)
-			goto done;
-		memset(blank, 0, (unsigned long)directory_size);
-		ok = pack_write(blank, (unsigned long)directory_size);
-		free(blank);
-		if (!ok)
-			goto done;
-		ok = 0;
-	}
-	for (level = 0; level < map_count; level++)
-	{
-		if (pack_map(port_tag_packs_map(pack, level), records + count))
-			count++;
-		else if (build.failed)
-			goto done;
-	}
-	ok = count > 0 && pack_finish(records, count, directory_size);
-done:
-	if (build.out)
-		CloseHandle(build.out);
-	build.out = NULL;
-	if (ok)
-	{
-		DeleteFileA(path);
-		ok = MoveFileA(partial, path);
-		if (!ok)
-			error(_error_silent, "tag pack: could not rename %s (error %lu)", partial, (unsigned long)GetLastError());
-	}
-	if (!ok)
-		DeleteFileA(partial);
-	else
-		error(_error_silent, "tag pack: wrote %s (%d maps, %ld distinct pixel and sample blobs)",
-			path, count, build.seen_count);
-	status_map[0] = 0;
-	if (build.chunk)
-		free(build.chunk);
-	if (build.seen)
-		free(build.seen);
-	memset(&build, 0, sizeof(build));
+	blank = malloc((unsigned long)job->directory_size);
+	if (!blank)
+		return 0;
+	memset(blank, 0, (unsigned long)job->directory_size);
+	ok = job_write(job, blank, (unsigned long)job->directory_size);
+	free(blank);
+	platform_log("tag pack: writing %s (once)", job->path);
 
 	return ok;
 }
 
-/* ---------- the packs */
-
-/* a manifest's words as a dialog takes them: each line ended \r\n */
-static void text_widen(wchar_t *text, int size, char const *source)
+static void job_end(struct pack_job *job)
 {
-	int out = 0;
+	int ok = !job->failed && job->out && job->record_count > 0 && job_finish(job);
 
-	for (; *source && out < size - 2; source++)
+	if (job->out)
+		CloseHandle(job->out);
+	job->out = NULL;
+	if (ok)
 	{
-		if (*source == '\n')
-			text[out++] = L'\r';
-		text[out++] = (wchar_t)(unsigned char)*source;
+		DeleteFileA(job->path);
+		ok = MoveFileA(job->partial, job->path);
+		if (!ok)
+			platform_log("tag pack: could not rename %s (error %lu)", job->partial, (unsigned long)GetLastError());
 	}
-	text[out] = 0;
+	if (!ok)
+		DeleteFileA(job->partial);
+	else
+		platform_log("tag pack: wrote %s (%d maps, %ld distinct pixel and sample blobs)", job->path,
+			job->record_count, job->seen_count);
+	if (job->seen)
+		free(job->seen);
+	job->seen = NULL;
+	job->percent = ok ? 100 : job->percent;
+	job->state = ok ? _job_done : _job_failed;
 }
 
-static void texts_load(long pack)
+/* the batch's thread: every pack begun, each map once for all of them, every
+pack finished */
+static void *batch_thread(void *context)
 {
-	text_widen(notice_text, (int)NUMBEROF(notice_text), port_tag_packs_text(pack, "notice"));
-	text_widen(building_text, (int)NUMBEROF(building_text), port_tag_packs_text(pack, "building"));
-	text_widen(ready_text, (int)NUMBEROF(ready_text), port_tag_packs_text(pack, "ready"));
-	text_widen(failed_text, (int)NUMBEROF(failed_text), port_tag_packs_text(pack, "failed"));
-	if (!notice_text[0])
-		text_widen(notice_text, (int)NUMBEROF(notice_text), "Some data needs to be built\nfrom the maps.\nIt takes a moment.");
-	if (!building_text[0])
-		text_widen(building_text, (int)NUMBEROF(building_text), "Building data:\n");
-	if (!ready_text[0])
-		text_widen(ready_text, (int)NUMBEROF(ready_text), "The data is ready.");
-	if (!failed_text[0])
-		text_widen(failed_text, (int)NUMBEROF(failed_text), "The data could not\nbe built. Is the card full?");
+	char const *leaves[BATCH_PACKS * TAG_PACK_MAPS];
+	int leaf_count = 0;
+	int index;
+	unsigned long started = system_milliseconds();
+
+	(void)context;
+	pack_directory_make();
+	for (index = 0; index < batch.count; index++)
+	{
+		struct pack_job *job = batch.jobs + index;
+		long level;
+
+		job->state = _job_building;
+		if (!job_begin(job))
+		{
+			job->failed = 1;
+			continue;
+		}
+		/* (its maps, each once in the batch's order) */
+		for (level = 0; level < port_tag_packs_map_count(job->pack) && level < TAG_PACK_MAPS; level++)
+		{
+			char const *leaf = port_tag_packs_map(job->pack, level);
+			int seen;
+
+			for (seen = 0; seen < leaf_count && _stricmp(leaves[seen], leaf); seen++)
+				;
+			if (seen == leaf_count)
+				leaves[leaf_count++] = leaf;
+		}
+	}
+	for (index = 0; index < leaf_count; index++)
+	{
+		int job_index;
+
+		batch_map(leaves[index]);
+		/* (a pack whose maps are all read is done now, not at the batch's end) */
+		for (job_index = 0; job_index < batch.count; job_index++)
+		{
+			struct pack_job *job = batch.jobs + job_index;
+			int later;
+			int remaining = 0;
+
+			if (job->state != _job_building)
+				continue;
+			for (later = index + 1; later < leaf_count; later++)
+				remaining |= pack_has_map(job->pack, leaves[later]);
+			if (!remaining || job->failed)
+				job_end(job);
+		}
+	}
+	for (index = 0; index < batch.count; index++)
+	{
+		if (batch.jobs[index].state == _job_building)
+			job_end(batch.jobs + index);
+	}
+	platform_log("tag pack: %d pack%s written in %.1f s", batch.count, batch.count == 1 ? "" : "s",
+		(double)(system_milliseconds() - started) / 1000.0);
+	batch.finished = 1;
+
+	return NULL;
 }
+
+/* ---------- where the packs are
+
+tag_pack\<name>.pack in the data (d:\), or tag_pack\<language>\ for the
+maps of another language (maps_de: tag_pack\de\), whose maps' packs differ */
+
+static void pack_directory(char *directory, unsigned int size)
+{
+	char const *maps = cache_files_map_directory();
+	char const *language = strstr(maps, "maps_");
+
+	if (language)
+	{
+		char name[32];
+		int length = 0;
+
+		for (language += 5; *language && *language != '\\' && length < (int)sizeof(name) - 1; language++)
+			name[length++] = *language;
+		name[length] = 0;
+		snprintf(directory, size, "%s%s\\", PACK_DIRECTORY, name);
+	}
+	else
+		snprintf(directory, size, "%s", PACK_DIRECTORY);
+}
+
+static void pack_directory_make(void)
+{
+	char directory[512];
+	size_t length;
+
+	CreateDirectoryA(PACK_DIRECTORY, NULL);
+	pack_directory(directory, sizeof(directory));
+	length = strlen(directory);
+	if (length && directory[length - 1] == '\\')
+		directory[length - 1] = 0;
+	CreateDirectoryA(directory, NULL);
+}
+
+static char const *pack_path(long pack, char *path, unsigned int size)
+{
+	char directory[512];
+
+	pack_directory(directory, sizeof(directory));
+	snprintf(path, size, "%s%s.pack", directory, port_tag_packs_name(pack));
+	return path;
+}
+
+/* a file moved: renamed, or (another drive: a maps folder moved,
+game.maps.path) copied and the old one deleted */
+static int file_move(char const *from, char const *to)
+{
+	HANDLE in;
+	HANDLE out;
+	unsigned char *buffer;
+	int ok = 1;
+
+	if (MoveFileA(from, to))
+		return 1;
+	in = CreateFileA(from, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (in == INVALID_HANDLE_VALUE)
+		return 0;
+	out = CreateFileA(to, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+	buffer = malloc(IO_CHUNK);
+	if (out == INVALID_HANDLE_VALUE || !buffer)
+		ok = 0;
+	while (ok)
+	{
+		DWORD got = 0;
+		DWORD wrote = 0;
+
+		if (!ReadFile(in, buffer, IO_CHUNK, &got, NULL))
+			ok = 0;
+		else if (!got)
+			break;
+		else if (!WriteFile(out, buffer, got, &wrote, NULL) || wrote != got)
+			ok = 0;
+	}
+	CloseHandle(in);
+	if (out != INVALID_HANDLE_VALUE)
+		CloseHandle(out);
+	if (buffer)
+		free(buffer);
+	if (ok)
+		DeleteFileA(from);
+	else
+		DeleteFileA(to);
+	return ok;
+}
+
+/* the pack's files an older build left among the maps (its own name, or one
+it once had: legacy_file_names) moved into tag_pack\, not written again: the
+first there taken, the others deleted (a pack is only ever written again),
+and their .partial files deleted */
+static void pack_move_old(long pack)
+{
+	char path[512];
+	long index;
+
+	pack_path(pack, path, sizeof(path));
+	for (index = -1; index < port_tag_packs_legacy_count(pack); index++)
+	{
+		char old[512];
+		char partial[520];
+
+		if (index < 0)
+			snprintf(old, sizeof(old), "%s%s.pack", cache_files_map_directory(), port_tag_packs_name(pack));
+		else
+			snprintf(old, sizeof(old), "%s%s", cache_files_map_directory(), port_tag_packs_legacy(pack, index));
+		snprintf(partial, sizeof(partial), "%s.partial", old);
+		DeleteFileA(partial);
+		if (!file_exists(old))
+			continue;
+		if (file_exists(path))
+		{
+			if (DeleteFileA(old))
+				error(_error_silent, "tag pack: deleted %s, which %s is now", old, path);
+		}
+		else if (file_move(old, path))
+			error(_error_silent, "tag pack: moved %s to %s", old, path);
+		else
+			error(_error_silent, "tag pack: could not move %s to %s (error %lu)", old, path,
+				(unsigned long)GetLastError());
+	}
+}
+
+/* ---------- the packs */
 
 /* whether any map of the pack is there to write it from */
 static int pack_buildable(long pack)
@@ -1081,75 +1418,31 @@ static int pack_ready(long pack)
 	return ready;
 }
 
-/* what the main menu is doing about the pack: the notice is up; the build's
-dialog has been asked for; it is up, and the pack is written */
-enum
-{
-	_pack_idle = 0,
-	_pack_notice,
-	_pack_dialog_asked,
-	_pack_dialog_up
-};
-
-static int pack_step;
-/* times the build's dialog was gone before it was seen open, asked again */
-static int pack_dialog_retries;
-/* the pack being written (NONE), and those asked for after it, in turn */
-static long pack_current = NONE;
-static long pack_queue[TAG_PACK_MAPS];
+/* those asked for, written in the next batch */
+static long pack_queue[BATCH_PACKS];
 static int pack_queued;
 
 static void pack_request(long pack)
 {
 	int index;
 
-	if (pack < 0 || pack_current == pack)
+	if (pack < 0)
 		return;
 	for (index = 0; index < pack_queued; index++)
 	{
 		if (pack_queue[index] == pack)
 			return;
 	}
+	/* (being written now) */
+	for (index = 0; batch.running && index < batch.count; index++)
+	{
+		if (batch.jobs[index].pack == pack && batch.jobs[index].state <= _job_building)
+			return;
+	}
 	if (pack_queued >= (int)NUMBEROF(pack_queue) || pack_ready(pack) || !pack_buildable(pack))
 		return;
 	pack_queue[pack_queued++] = pack;
-	error(_error_silent, "tag pack: %s wanted; written at the main menu, after its notice", port_tag_packs_name(pack));
-}
-
-/* a pack once called otherwise: renamed to the pack's own name, or, when
-the pack is there already, deleted (it is only ever written again) */
-static void legacy_rename(long pack)
-{
-	char path[512];
-	long index;
-
-	pack_path(pack, path, sizeof(path));
-	for (index = 0; index < port_tag_packs_legacy_count(pack); index++)
-	{
-		char legacy[512];
-		char partial[520];
-		HANDLE file;
-
-		snprintf(legacy, sizeof(legacy), "%s%s", cache_files_map_directory(), port_tag_packs_legacy(pack, index));
-		snprintf(partial, sizeof(partial), "%s.partial", legacy);
-		DeleteFileA(partial);
-		file = CreateFileA(legacy, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
-		if (file == INVALID_HANDLE_VALUE)
-			continue;
-		CloseHandle(file);
-		file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
-		if (file != INVALID_HANDLE_VALUE)
-		{
-			CloseHandle(file);
-			if (DeleteFileA(legacy))
-				error(_error_silent, "tag pack: deleted %s, which %s.pack is now", legacy, port_tag_packs_name(pack));
-		}
-		else if (MoveFileA(legacy, path))
-			error(_error_silent, "tag pack: renamed %s to %s", legacy, path);
-		else
-			error(_error_silent, "tag pack: could not rename %s to %s (error %lu)", legacy, path,
-				(unsigned long)GetLastError());
-	}
+	error(_error_silent, "tag pack: %s wanted; written at the main menu", port_tag_packs_name(pack));
 }
 
 /* whether a manifest wants its pack at start-up */
@@ -1195,7 +1488,16 @@ unsigned long tag_pack_content(char const *name)
 
 int tag_pack_ready(char const *name)
 {
-	return pack_ready(port_tag_packs_find(name));
+	long pack = port_tag_packs_find(name);
+	int index;
+
+	/* (not while it is being written) */
+	for (index = 0; batch.running && index < batch.count; index++)
+	{
+		if (batch.jobs[index].pack == pack && batch.jobs[index].state <= _job_building)
+			return 0;
+	}
+	return pack_ready(pack);
 }
 
 void tag_pack_request(char const *name)
@@ -1209,13 +1511,66 @@ void tag_pack_request(char const *name)
 
 int tag_pack_busy(void)
 {
-	return pack_current != NONE || pack_queued > 0;
+	return batch.running || pack_queued > 0;
+}
+
+/* the queued packs written together on the batch's thread */
+static void batch_start(void)
+{
+	int index;
+
+	memset(&batch, 0, sizeof(batch));
+	batch.chunk = malloc(IO_CHUNK);
+	if (!batch.chunk)
+	{
+		error(_error_silent, "tag pack: out of memory to write the packs");
+		pack_queued = 0;
+		return;
+	}
+	for (index = 0; index < pack_queued && index < BATCH_PACKS; index++)
+	{
+		batch.jobs[index].pack = pack_queue[index];
+		batch.jobs[index].state = _job_waiting;
+	}
+	batch.count = index;
+	pack_queued = 0;
+	batch.running = 1;
+	batch.shown = 1;
+	batch.started_at = system_milliseconds();
+	if (pthread_create(&batch.thread, NULL, batch_thread, NULL) == 0)
+		batch.thread_started = 1;
+	else
+	{
+		error(_error_silent, "tag pack: could not start the packs' thread; writing them here");
+		batch_thread(NULL);
+	}
+	error(_error_silent, "tag pack: writing %d pack%s", batch.count, batch.count == 1 ? "" : "s");
 }
 
 void tag_pack_update(boolean main_menu)
 {
 	static int checked;
+	int index;
 
+	/* (the batch's thread done: joined, its packs' outcome kept for the
+	checklist a moment) */
+	if (batch.running && batch.finished)
+	{
+		if (batch.thread_started)
+			pthread_join(batch.thread, NULL);
+		batch.thread_started = 0;
+		batch.running = 0;
+		batch.ended_at = system_milliseconds() | 1;
+		for (index = 0; index < batch.count; index++)
+		{
+			if (batch.jobs[index].state != _job_done)
+				batch.any_failed = 1;
+			error(_error_silent, "tag pack: %s %s", port_tag_packs_name(batch.jobs[index].pack),
+				batch.jobs[index].state == _job_done ? "written" : "failed");
+		}
+		free(batch.chunk);
+		batch.chunk = NULL;
+	}
 	if (!main_menu)
 		return;
 	if (!checked)
@@ -1224,63 +1579,197 @@ void tag_pack_update(boolean main_menu)
 
 		checked = 1;
 		for (pack = 0; pack < port_tag_packs_count(); pack++)
-			legacy_rename(pack);
+			pack_move_old(pack);
 		for (pack = 0; pack < port_tag_packs_count(); pack++)
 		{
 			if (pack_wanted(pack))
 				pack_request(pack);
 		}
 	}
-	switch (pack_step)
+	if (!batch.running && pack_queued)
+		batch_start();
+}
+
+/* ---------- the checklist (interface.c, over everything: the main menu's)
+
+A panel in the middle of the screen: a title, then a row a pack: its name
+(the manifest's "building" words, "Building game mode data:" as "Game mode
+data") and its file at the left, and at the right whether it waits, how far
+it is (a bar under the row), done or failed */
+
+int tag_pack_checklist_shown(void)
+{
+	unsigned long now = system_milliseconds();
+
+	if (!batch.shown)
+		return 0;
+	if (batch.running)
+		return 1;
+	if (batch.ended_at && now - batch.ended_at <
+		(unsigned long)(batch.any_failed ? CHECKLIST_FAILED_MILLISECONDS : CHECKLIST_DONE_MILLISECONDS))
 	{
-	case _pack_idle:
-		if (!pack_queued || ui_widget_port_error_showing())
-			return;
-		pack_current = pack_queue[0];
-		pack_queued--;
-		memmove(pack_queue, pack_queue + 1, (unsigned long)pack_queued * sizeof(*pack_queue));
-		texts_load(pack_current);
-		display_error_text_deferred(notice_text, 0);
-		error(_error_silent, "tag pack: %s's notice asked for", port_tag_packs_name(pack_current));
-		pack_dialog_retries = 0;
-		pack_step = _pack_notice;
-		return;
-	case _pack_notice:
-		if (ui_widget_port_error_showing())
-			return;
-		error(_error_silent, "tag pack: %s's notice dismissed; its build's dialog asked for",
-			port_tag_packs_name(pack_current));
-		status_set(building_text, 0, "");
-		display_error_text_deferred(status_text, 0);
-		pack_step = _pack_dialog_asked;
-		return;
-	case _pack_dialog_asked:
-		/* (it opens as the widgets update, after this; the pack is written
-		only once it is drawn over the menu) */
-		if (ui_widget_port_error_open())
-			pack_step = _pack_dialog_up;
-		else if (!ui_widget_port_error_showing())
+		return 1;
+	}
+	batch.shown = 0;
+	return 0;
+}
+
+/* a pack's name, as the checklist shows it */
+static void pack_display_name(long pack, wchar_t *name, int size)
+{
+	char const *words = port_tag_packs_text(pack, "building");
+	int out = 0;
+
+	if (words && !strncmp(words, "Building ", 9))
+	{
+		words += 9;
+		for (; *words && *words != ':' && *words != '\n' && out < size - 1; words++)
 		{
-			/* (closed before it was seen open: the notice was answered, so
-			it is asked again, and after a few times the pack is written
-			without it) */
-			pack_dialog_retries++;
-			error(_error_silent, "tag pack: %s's build dialog closed before it was seen (%d)",
-				port_tag_packs_name(pack_current), pack_dialog_retries);
-			if (pack_dialog_retries < 3)
-				pack_step = _pack_notice;
-			else
-				pack_step = _pack_dialog_up;
+			char character = *words;
+
+			if (!out && character >= 'a' && character <= 'z')
+				character = (char)(character - 'a' + 'A');
+			name[out++] = (wchar_t)(unsigned char)character;
 		}
+	}
+	else
+	{
+		for (words = port_tag_packs_name(pack); *words && out < size - 1; words++)
+			name[out++] = (wchar_t)(unsigned char)*words;
+	}
+	name[out] = 0;
+}
+
+static void checklist_text(long font_index, real scale, rectangle2d const *bounds, real_argb_color const *color,
+	short justification, wchar_t const *text)
+{
+	rectangle2d scaled = *bounds;
+
+	/* (the text's scale shrinks its clip rectangle too: widened to the box's) */
+	scaled.x1 = (short)(bounds->x0 + (bounds->x1 - bounds->x0) / scale + 0.5f);
+	rasterizer_text_set_scale(scale, (real)scaled.x0, (real)scaled.y0);
+	draw_string_set_draw_mode(font_index, NONE, justification, 0, color);
+	rasterizer_draw_unicode_string(&scaled, NULL, NULL, 0, text);
+	rasterizer_text_set_scale(1.0f, 0.0f, 0.0f);
+}
+
+void tag_pack_draw(void)
+{
+	long font_index;
+	struct font_header *font;
+	real scale;
+	short line;
+	short screen_width;
+	short screen_height;
+	short width;
+	short height;
+	short row_height;
+	short padding;
+	rectangle2d panel;
+	rectangle2d bounds;
+	real_argb_color white;
+	real_argb_color grey;
+	real_argb_color blue;
+	real_argb_color red;
+	int index;
+
+	if (!tag_pack_checklist_shown())
 		return;
-	case _pack_dialog_up:
-		error(_error_silent, "tag pack: %s's build dialog up; writing it", port_tag_packs_name(pack_current));
-		pack_step = _pack_idle;
-		if (pack_build(pack_current))
-			status_set(ready_text, -1, NULL);
+	font_index = tag_loaded(FONT_GROUP_TAG, "ui\\small_ui");
+	if (font_index == NONE)
+		font_index = interface_get_tag_index(_interface_font_terminal);
+	if (font_index == NONE)
+		return;
+	screen_width = (short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0);
+	screen_height = (short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0);
+	if (screen_width <= 0 || screen_height <= 0)
+		return;
+	font = font_definition_get(font_index);
+	scale = (real)screen_height / 480.0f;
+	line = (short)((font->ascending_height + font->descending_height + font->leading_height) * scale + 0.5f);
+	if (line <= 0)
+		return;
+	padding = (short)(line / 2 + 1);
+	row_height = (short)(line * 2 + padding);
+	width = (short)(screen_width * 6 / 10);
+	height = (short)(padding * 3 + line * 2 + row_height * batch.count);
+	panel.x0 = (short)((screen_width - width) / 2);
+	panel.x1 = (short)(panel.x0 + width);
+	panel.y0 = (short)((screen_height - height) / 2);
+	panel.y1 = (short)(panel.y0 + height);
+	draw_quad(&panel, 0xE0000000UL);
+	white.alpha = 1.0f;
+	white.red = white.green = white.blue = 1.0f;
+	grey.alpha = 1.0f;
+	grey.red = grey.green = grey.blue = 0.65f;
+	blue.alpha = 1.0f;
+	blue.red = 0.16f;
+	blue.green = 0.59f;
+	blue.blue = 1.0f;
+	red.alpha = 1.0f;
+	red.red = 0.9f;
+	red.green = 0.3f;
+	red.blue = 0.28f;
+	bounds.x0 = (short)(panel.x0 + padding * 2);
+	bounds.x1 = (short)(panel.x1 - padding * 2);
+	bounds.y0 = (short)(panel.y0 + padding);
+	bounds.y1 = (short)(bounds.y0 + line);
+	checklist_text(font_index, scale, &bounds, &white, 0, batch.running ?
+		L"Generating data from your maps..." : batch.any_failed ? L"Some data could not be generated." :
+		L"Your data is ready.");
+	bounds.y0 = (short)(bounds.y1);
+	bounds.y1 = (short)(bounds.y0 + line);
+	checklist_text(font_index, scale, &bounds, &grey, 0, L"Done once: nothing to do but wait.");
+	bounds.y0 = (short)(bounds.y1 + padding);
+	for (index = 0; index < batch.count; index++)
+	{
+		struct pack_job const *job = batch.jobs + index;
+		wchar_t name[64];
+		wchar_t file[64];
+		wchar_t status[16];
+		char const *pack_name = port_tag_packs_name(job->pack);
+		int state = job->state;
+		int percent = job->percent;
+		int out;
+		rectangle2d row;
+		rectangle2d bar;
+
+		pack_display_name(job->pack, name, (int)NUMBEROF(name));
+		for (out = 0; pack_name[out] && out < (int)NUMBEROF(file) - 6; out++)
+			file[out] = (wchar_t)(unsigned char)pack_name[out];
+		file[out++] = L'.';
+		file[out++] = L'p';
+		file[out++] = L'a';
+		file[out++] = L'c';
+		file[out++] = L'k';
+		file[out] = 0;
+		if (state == _job_waiting)
+			usnprintf(status, NUMBEROF(status), L"WAITING");
+		else if (state == _job_building)
+			usnprintf(status, NUMBEROF(status), L"%d%%", percent);
+		else if (state == _job_done)
+			usnprintf(status, NUMBEROF(status), L"DONE");
 		else
-			status_set(failed_text, -1, NULL);
-		pack_current = NONE;
-		return;
+			usnprintf(status, NUMBEROF(status), L"FAILED");
+		row = bounds;
+		row.y1 = (short)(row.y0 + line);
+		checklist_text(font_index, scale, &row, state == _job_failed ? &red : &white, 0, name);
+		checklist_text(font_index, scale, &row, state == _job_done ? &blue : state == _job_failed ? &red : &grey,
+			2 /* right */, status);
+		row.y0 = row.y1;
+		row.y1 = (short)(row.y0 + line);
+		checklist_text(font_index, scale, &row, &grey, 0, file);
+		/* (the bar, under the row) */
+		bar.x0 = bounds.x0;
+		bar.x1 = bounds.x1;
+		bar.y0 = (short)(row.y1 + padding / 4);
+		bar.y1 = (short)(bar.y0 + MAX(padding / 3, 2));
+		draw_quad(&bar, 0x40FFFFFFUL);
+		if (state != _job_waiting)
+		{
+			bar.x1 = (short)(bar.x0 + (long)(bounds.x1 - bounds.x0) * (state == _job_building ? percent : 100) / 100);
+			draw_quad(&bar, state == _job_failed ? 0xE0E04C47UL : 0xE02896FFUL);
+		}
+		bounds.y0 = (short)(bounds.y0 + row_height);
 	}
 }

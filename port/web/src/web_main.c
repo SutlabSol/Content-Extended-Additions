@@ -12,6 +12,8 @@ game (shell_xbox.c's main, renamed halo_game_main by tools/web_build.py).
 
 #include <emscripten.h>
 #include <emscripten/console.h>
+#include <emscripten/proxying.h>
+#include <pthread.h>
 #include <emscripten/wasmfs.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -100,6 +102,40 @@ void web_frame_shown(void)
 	__atomic_add_fetch(&web_shared[_web_frames_shown], 1, __ATOMIC_RELAXED);
 }
 
+/* ---------- the tab hidden
+
+The game's main loop runs on the page's frames (requestAnimationFrame:
+source/main/main.c's emscripten_set_main_loop), which the browser stops
+while the tab is hidden: no tick, nothing sent or heard, and in a network
+game the others' pings climb past 999 until it drops (network_distributed.c).
+While hidden the loop runs on a timer instead, 30 times a second, which a
+worker's timers keep doing; shown again, on the frames. The page tells it
+(app.js's visibilitychange), and the change is made on the game's thread,
+between two of its iterations: the call queued to it runs as it waits for
+the next one, frames stopped or not */
+static pthread_t web_game_thread;
+static int web_game_thread_known;
+
+static void web_visibility_apply(void *argument)
+{
+	int hidden = (int)(intptr_t)argument;
+
+	if (hidden)
+		emscripten_set_main_loop_timing(EM_TIMING_SETTIMEOUT, 33);
+	else
+		emscripten_set_main_loop_timing(EM_TIMING_RAF, 1);
+	emscripten_log(EM_LOG_CONSOLE, "web: the tab %s: the game's loop on %s", hidden ? "hidden" : "shown",
+		hidden ? "a timer" : "the page's frames");
+}
+
+EMSCRIPTEN_KEEPALIVE void web_page_hidden(int hidden)
+{
+	if (!web_game_thread_known)
+		return;
+	emscripten_proxy_async(emscripten_proxy_get_system_queue(), web_game_thread, web_visibility_apply,
+		(void *)(intptr_t)(hidden ? 1 : 0));
+}
+
 /* ---------- start */
 
 /* a setting from the browser, unless the page's arguments gave it */
@@ -147,5 +183,7 @@ int main(int argc, char **argv)
 	/* (an invite link among them is joined: port/linux/src/p2p.c) */
 	web_net_arguments(argc, argv);
 	web_js_post(0, "starting");
+	web_game_thread = pthread_self();
+	web_game_thread_known = 1;
 	return halo_game_main();
 }

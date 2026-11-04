@@ -5243,11 +5243,25 @@ static __inline real widget_instance_get_cumulative_alpha_modifier(
 	return alpha_modifier;
 }
 
+/* port: whether a list's chosen item is shown as chosen: not a list's own
+items (a button bar's) while the list it is in has its focus on another,
+nor where the menus have the focus elsewhere (menu_port_list_unfocused).
+The game showed a button bar's button lit with the rows above it focused */
+static boolean widget_instance_port_list_unfocused(
+	struct widget_instance *list)
+{
+	return list &&
+		((list->type == _ui_widget_type_column_list && list->parent &&
+			list->parent->type == _ui_widget_type_column_list && list->parent->focused_child != list) ||
+		menu_port_list_unfocused(list));
+}
+
 static boolean widget_instance_text_box_is_focused(
 	struct widget_instance *widget)
 {
 	struct widget_instance *parent = widget->parent;
-	boolean focused = parent ? parent->focused_child == widget : TRUE;
+	boolean focused = parent ? parent->focused_child == widget && !widget_instance_port_list_unfocused(parent) :
+		TRUE;
 
 	if (!focused && parent)
 	{
@@ -7544,7 +7558,8 @@ static void widget_instance_render_recursive(
 	{
 		for (child = widget->child; child; child = child->next)
 		{
-			focus = child == widget->focused_child;
+			/* port: (widget_instance_port_list_unfocused) */
+			focus = child == widget->focused_child && !widget_instance_port_list_unfocused(widget);
 			use_nifty_plasma_fx = focus &&
 				(widget->type == _ui_widget_type_spinner_list ||
 				widget->type == _ui_widget_type_column_list);
@@ -8009,10 +8024,12 @@ static void column_list_update(
 	struct ui_widget_definition *definition)
 {
 	struct widget_instance *child;
+	/* port: (widget_instance_port_list_unfocused) */
+	boolean unfocused = widget_instance_port_list_unfocused(widget);
 
 	for (child = widget->child; child; child = child->next)
 	{
-		if (child == widget->focused_child)
+		if (child == widget->focused_child && !unfocused)
 		{
 			if (child->animation.number_of_sprite_frames == 2)
 				child->animation.current_frame_index = 1;

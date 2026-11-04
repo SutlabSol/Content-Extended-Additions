@@ -1,10 +1,10 @@
 /*
 TAG_PACK.H
 
-The tag packs (tag_pack.c): maps/<name>.pack, each a few maps' tags and the
-pixels and samples a manifest keeps of them (port/assets/tag_packs:
+The tag packs (tag_pack.c): tag_pack/<name>.pack, each a few maps' tags and
+the pixels and samples a manifest keeps of them (port/assets/tag_packs:
 port/linux/src/port_tag_packs.c), written once by the main menu from the
-maps in maps/, behind a notice, and read by the tag importer
+maps in maps/, on a thread of their own behind a checklist, and read by the tag importer
 (tag_import.c) as a level loads. port/linux/TAG_INJECTION.md tells how to
 make one.
 */
@@ -24,8 +24,8 @@ bytes are in the pack). tools/tag_pack.py writes the same */
 #define TAG_PACK_MAP_NAME_SIZE 32
 #define TAG_PACK_MAPS 32
 
-/* a pack's file (maps/<name>.pack, which the map directory is put before),
-or NULL when no manifest has that name */
+/* a pack's file (tag_pack/<name>.pack, or tag_pack/<language>/ for another
+language's maps), or NULL when no manifest has that name */
 char const *tag_pack_file_name(char const *name);
 /* what it holds: its manifest's hash, which its header must carry */
 unsigned long tag_pack_content(char const *name);
@@ -33,15 +33,20 @@ unsigned long tag_pack_content(char const *name);
 /* the pack is there, written by this build's manifest, and each map of it
 in maps/ is the one it was written from */
 int tag_pack_ready(char const *name);
-/* the pack is wanted: a notice, then, at the main menu, the pack written.
-Nothing when it is ready, or none of its maps is there */
+/* the pack is wanted: at the main menu, it is written with the others asked
+for. Nothing when it is ready, or none of its maps is there */
 void tag_pack_request(char const *name);
-/* a pack's notice or dialog up, or a pack waiting for its turn */
+/* packs being written, or waiting to be */
 int tag_pack_busy(void);
-/* the main menu, each frame (main.c): at the first, the packs once called
-otherwise renamed, and those their manifests want at start-up asked for;
-then the one asked for first written */
+/* the main menu, each frame (main.c): at the first, the packs an older build
+left among the maps moved into tag_pack/, and those their manifests want at
+start-up asked for; then those asked for written together, on a thread */
 void tag_pack_update(boolean main_menu);
+/* the checklist of the packs being written up (and a moment after): the
+menus take no input meanwhile (menu_functions.c's menu_port_event_taken) */
+int tag_pack_checklist_shown(void);
+/* (interface.c, over everything) the checklist drawn */
+void tag_pack_draw(void);
 
 /* a map's header, as a pack records it. 0 when the map is not there or is
 not an Xbox map */

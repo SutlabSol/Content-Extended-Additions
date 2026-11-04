@@ -176,6 +176,10 @@ the main menu's social column focused), and for a click its social column
 takes (port/linux/game/menu_functions.c) */
 unsigned char menu_port_event_taken(void *widget, void *event);
 unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer);
+/* TRUE for a list whose chosen item is not to be shown lit, the focus being
+elsewhere on its screen (the lobby's rows and buttons while its docked chat
+has it: port/linux/game/menu_functions.c) */
+unsigned char menu_port_list_unfocused(void *widget);
 /* the campaign's skulls (port/linux/game/skulls.c) */
 #include "halo_skulls.h"
 /* a weapon's pickup prompt as the Tag Editor's Pickup settings have it

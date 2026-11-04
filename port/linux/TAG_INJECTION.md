@@ -5,11 +5,16 @@ randomizer's actors and weapons from the other campaign maps, the skulls'
 oddball and Flood, a game mode's effects and models (Floodfection's Flood
 forms, from Two Betrayals). This is done in two parts:
 
-- **Tag packs** (`port/linux/game/tag_pack.c`): `maps/<name>.pack`, each
+- **Tag packs** (`port/linux/game/tag_pack.c`): `tag_pack/<name>.pack`, each
   holding some maps' tag sections and the bitmap pixels and sound samples of
   theirs a manifest keeps. A pack is written once, at the main menu, from
   the player's own maps, and written again when its manifest or its maps
-  change.
+  change. The packs asked for are written together on a thread of their
+  own, each map read once for all of them, while a checklist over the main
+  menu shows each pack's name and file and how far it is; nothing is asked
+  of the player. Another language's maps (`maps_de/`) have theirs in
+  `tag_pack/de/`. A pack an older build left in `maps/` is moved into
+  `tag_pack/` at start-up, not written again.
 - **The tag importer** (`port/linux/game/tag_import.c`): as a level loads,
   the tags asked for (the *roots*) are read from a pack, with every tag they
   name, copied, and appended to the level's tag table. The game then uses
@@ -41,11 +46,11 @@ A pack is described by a manifest, `port/assets/tag_packs/<name>.toml`.
 Rebuilding the game embeds it; nothing else needs to list it.
 
 ```toml
-name = "opence_gamemodes"         # the file's name, and maps/<name>.pack
+name = "opence_gamemodes"         # the file's name, and tag_pack/<name>.pack
 version = 1                       # raise it by hand only when a keep rule
                                   # means something else than it says
-legacy_file_names = []            # files this pack was once called: renamed
-                                  # to maps/<name>.pack at start-up
+legacy_file_names = []            # files this pack was once called in maps/:
+                                  # moved to tag_pack/<name>.pack at start-up
 maps = ["c40"]                    # map files (without .map) it is made of:
                                   # at most 32, each at most 31 letters
 minimum_bitmaps = 1               # a map with fewer kept bitmaps or sounds

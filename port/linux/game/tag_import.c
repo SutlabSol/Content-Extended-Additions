@@ -863,12 +863,15 @@ static void donor_bytes_free(struct tag_import_donor *donor)
 /* `start` and `size` are offsets in the inflated file. The disc file's
 header is plain; everything from 0x800 on is the zlib stream precaching
 inflates. Output before `start` is discarded, so the whole map is never
-held */
+held. Read and passed over INFLATE_SPAN_CHUNK at a time: an SD card's
+small reads are slow (the Switch's) */
+#define INFLATE_SPAN_CHUNK 0x40000
+
 static int inflate_span(HANDLE file, long start, long size, unsigned char *destination)
 {
 	z_stream stream;
-	unsigned char input[0x2000];
-	unsigned char discard[0x2000];
+	unsigned char *input;
+	unsigned char *discard;
 	long produced;
 	long end;
 	int result;
@@ -880,9 +883,15 @@ static int inflate_span(HANDLE file, long start, long size, unsigned char *desti
 		return 0;
 	if (!donor_file_at(file, 0x800))
 		return 0;
+	input = malloc(INFLATE_SPAN_CHUNK);
+	discard = malloc(INFLATE_SPAN_CHUNK);
 	memset(&stream, 0, sizeof(stream));
-	if (inflateInit(&stream) != Z_OK)
+	if (!input || !discard || inflateInit(&stream) != Z_OK)
+	{
+		free(input);
+		free(discard);
 		return 0;
+	}
 	produced = 0x800;
 	end = start + size;
 	result = Z_OK;
@@ -891,7 +900,7 @@ static int inflate_span(HANDLE file, long start, long size, unsigned char *desti
 		if (stream.avail_in == 0)
 		{
 			got = 0;
-			if (!ReadFile(file, input, (DWORD)sizeof(input), &got, NULL) || got == 0)
+			if (!ReadFile(file, input, (DWORD)INFLATE_SPAN_CHUNK, &got, NULL) || got == 0)
 				break;
 			stream.next_in = (Bytef *)input;
 			stream.avail_in = got;
@@ -900,8 +909,8 @@ static int inflate_span(HANDLE file, long start, long size, unsigned char *desti
 		{
 			long skip = start - produced;
 
-			if (skip > (long)sizeof(discard))
-				skip = (long)sizeof(discard);
+			if (skip > (long)INFLATE_SPAN_CHUNK)
+				skip = (long)INFLATE_SPAN_CHUNK;
 			stream.next_out = (Bytef *)discard;
 			asked = (unsigned int)skip;
 		}
@@ -909,8 +918,8 @@ static int inflate_span(HANDLE file, long start, long size, unsigned char *desti
 		{
 			long want = end - produced;
 
-			if (want > 0x4000)
-				want = 0x4000;
+			if (want > INFLATE_SPAN_CHUNK)
+				want = INFLATE_SPAN_CHUNK;
 			stream.next_out = (Bytef *)(destination + (produced - start));
 			asked = (unsigned int)want;
 		}
@@ -926,20 +935,10 @@ static int inflate_span(HANDLE file, long start, long size, unsigned char *desti
 			result = Z_OK;
 	}
 	inflateEnd(&stream);
+	free(input);
+	free(discard);
 
 	return produced >= end;
-}
-
-static int pack_read_u32(struct pack *pack, long at, unsigned long *value)
-{
-	unsigned char bytes[4];
-	DWORD got = 0;
-
-	if (!donor_file_at(pack->file, at) || !ReadFile(pack->file, bytes, 4, &got, NULL) || got != 4)
-		return 0;
-	memcpy(value, bytes, 4);
-
-	return 1;
 }
 
 static void pack_close(struct pack *pack)
@@ -985,6 +984,7 @@ static int pack_load(struct pack *pack, char const *path)
 	unsigned long content = 0;
 	unsigned long count = 0;
 	unsigned long index;
+	unsigned char head[TAG_PACK_HEADER_SIZE];
 	DWORD open_error;
 
 	pack->file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
@@ -995,9 +995,15 @@ static int pack_load(struct pack *pack, char const *path)
 		pack->file = NULL;
 		return 0;
 	}
-	if (!pack_read_u32(pack, 0, &magic) || !pack_read_u32(pack, 4, &version) ||
-		!pack_read_u32(pack, 8, &content) || !pack_read_u32(pack, 12, &count) ||
-		magic != 'rpak' || version != TAG_PACK_FORMAT_VERSION || content != pack->content ||
+	/* (its header in one read) */
+	if (donor_file_at(pack->file, 0) && donor_file_read(pack->file, head, sizeof(head)))
+	{
+		memcpy(&magic, head, 4);
+		memcpy(&version, head + 4, 4);
+		memcpy(&content, head + 8, 4);
+		memcpy(&count, head + 12, 4);
+	}
+	if (magic != 'rpak' || version != TAG_PACK_FORMAT_VERSION || content != pack->content ||
 		count > (unsigned long)TAG_PACK_MAPS)
 	{
 		error(_error_silent, "tag import: %s is not a pack of this build's %s (format %lu, content %08lx)", path,
@@ -1735,8 +1741,8 @@ the last */
 static int extras_inflate(HANDLE file, struct donor_extra *extras, long count)
 {
 	z_stream stream;
-	unsigned char input[0x2000];
-	unsigned char output[0x4000];
+	unsigned char *input;
+	unsigned char *output;
 	long produced = 0x800;
 	long end = 0;
 	long first = 0;
@@ -1751,9 +1757,15 @@ static int extras_inflate(HANDLE file, struct donor_extra *extras, long count)
 	}
 	if (!donor_file_at(file, 0x800))
 		return 0;
+	input = malloc(INFLATE_SPAN_CHUNK);
+	output = malloc(INFLATE_SPAN_CHUNK);
 	memset(&stream, 0, sizeof(stream));
-	if (inflateInit(&stream) != Z_OK)
+	if (!input || !output || inflateInit(&stream) != Z_OK)
+	{
+		free(input);
+		free(output);
 		return 0;
+	}
 	while (produced < end && result != Z_STREAM_END)
 	{
 		long filled;
@@ -1761,17 +1773,17 @@ static int extras_inflate(HANDLE file, struct donor_extra *extras, long count)
 		if (stream.avail_in == 0)
 		{
 			got = 0;
-			if (!ReadFile(file, input, (DWORD)sizeof(input), &got, NULL) || got == 0)
+			if (!ReadFile(file, input, (DWORD)INFLATE_SPAN_CHUNK, &got, NULL) || got == 0)
 				break;
 			stream.next_in = (Bytef *)input;
 			stream.avail_in = got;
 		}
 		stream.next_out = (Bytef *)output;
-		stream.avail_out = (unsigned int)sizeof(output);
+		stream.avail_out = (unsigned int)INFLATE_SPAN_CHUNK;
 		result = inflate(&stream, Z_NO_FLUSH);
 		if (result != Z_OK && result != Z_STREAM_END && result != Z_BUF_ERROR)
 			break;
-		filled = (long)(sizeof(output) - stream.avail_out);
+		filled = (long)(INFLATE_SPAN_CHUNK - stream.avail_out);
 		if (filled <= 0 && stream.avail_in)
 			break;
 		for (index = first; index < count && extras[index].offset < produced + filled; index++)
@@ -1790,6 +1802,8 @@ static int extras_inflate(HANDLE file, struct donor_extra *extras, long count)
 			result = Z_OK;
 	}
 	inflateEnd(&stream);
+	free(input);
+	free(output);
 
 	return produced >= end;
 }

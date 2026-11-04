@@ -64,7 +64,7 @@ FONT_ASSETS = Path("port/assets/fonts")
 FONT_LIST = FONT_ASSETS / "fonts.json"
 MENU_ASSETS = Path("port/assets/menus")
 MENU_LIST = MENU_ASSETS / "menus.json"
-# the tag packs' manifests, each maps/<name>.pack (port/linux/src/port_tag_packs.c)
+# the tag packs' manifests, each tag_pack/<name>.pack (port/linux/src/port_tag_packs.c)
 TAG_PACK_ASSETS = Path("port/assets/tag_packs")
 # SMAA's files and the names port/linux/src/xgpu_post.c declares them by
 SMAA_ASSETS = Path("port/third_party/smaa")

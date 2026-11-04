@@ -1895,8 +1895,9 @@ static void chat_keyboard_press(
 /* the on-screen keyboard's controller (pressed: the buttons pressed this
 frame, held: those held) and taps: B closes it, Start sends the line, D-pad
 Up and Down turn it to everyone, the team or the vehicle, the stick (and
-D-pad Left and Right) moves the key picked, A presses it, X deletes, Y
-gives capitals; a tap presses the key under it */
+D-pad Left and Right) moves the key picked, A presses it, X (the left
+button) deletes, Y (the top button) types a space; a tap presses the key
+under it */
 static void chat_keyboard_update(
 	unsigned long pressed,
 	unsigned long held)
@@ -1955,7 +1956,7 @@ static void chat_keyboard_update(
 	if (chat_input.active && TEST_FLAG(pressed, HALO_CHAT_PAD_X))
 		chat_input_delete();
 	if (chat_input.active && TEST_FLAG(pressed, HALO_CHAT_PAD_Y))
-		chat_keyboard.shift = !chat_keyboard.shift;
+		chat_text_append(chat_input.text, " ");
 	/* (a tap on a key presses it; elsewhere it closes the keyboard, as the
 	touch controls, B among them, hide while it is up: touch_input.c) */
 	if (chat_input.active && chat_input.controller == 0 && halo_chat_taps(&x, &y) && chat_keyboard.drawn)

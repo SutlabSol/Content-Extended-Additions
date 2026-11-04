@@ -658,6 +658,8 @@ $('delete-data').addEventListener('click', async () => {
   if (!confirm('Delete the maps copied into this browser? Saved games stay.')) return;
   const root = await navigator.storage.getDirectory();
   await root.removeEntry('maps', { recursive: true }).catch(() => {});
+  // (the tag packs written from them: port/linux/game/tag_pack.c)
+  await root.removeEntry('tag_pack', { recursive: true }).catch(() => {});
   // (and the game's copies of them, save/z/cache000.map and on)
   try {
     const drive = await (await root.getDirectoryHandle('save')).getDirectoryHandle('z');
@@ -1176,6 +1178,15 @@ window.addEventListener('pagehide', () => {
 });
 
 document.addEventListener('visibilitychange', async () => {
+  // (the game's loop on a timer while the tab is hidden, which stops the
+  // page's frames: web_main.c's web_page_hidden. A network game goes on)
+  if (game && game._web_page_hidden) {
+    try {
+      game._web_page_hidden(document.visibilityState === 'hidden' ? 1 : 0);
+    } catch {
+      // (the game not started yet, or stopped)
+    }
+  }
   if (gameStarted && !gameStopped && document.visibilityState === 'visible' && navigator.wakeLock && !wakeLock) {
     try {
       wakeLock = await navigator.wakeLock.request('screen');

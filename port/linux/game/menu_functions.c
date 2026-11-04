@@ -112,6 +112,7 @@ their handlers open opens.
 
 #include "cseries.h"
 #include "cseries/errors.h"
+#include "cutscene/cinematics.h"
 #include "input/input.h"
 #include "input/input_abstraction.h"
 #include "interface/event_manager.h"
@@ -11784,7 +11785,9 @@ CAMPAIGN_SETUP_SCREENS), a co-op game's: their help, and the rows' spacing,
 SKULLS taking RANDOMIZER's place when that is hidden */
 #define RANDOMIZER_SETUP_HELP 16
 #define SKULLS_SETUP_HELP 17
-#define SERVER_SETTINGS_ROW_SPACING 24
+/* (tools/port_settings.py's SERVER_SETTINGS_ROW_SPACING: the rows, 28 tall,
+well apart) */
+#define SERVER_SETTINGS_ROW_SPACING 34
 /* Server Setup's BOTS row (tools/port_settings.py's BOTS_SETUP), a LOCAL
 game's, in MAP SHARING's place: its help */
 #define BOTS_SETUP_HELP 18
@@ -11799,9 +11802,13 @@ spacing of SERVER_SETTINGS_ROW_SPACING has above the help) */
 /* Server Setup's FLOODFECTION SETTINGS row, a Floodfection game's, in
 ITEM OPTIONS' place: its help */
 #define FLOODFECTION_SETUP_HELP 21
+/* Server Setup's sections' rows on its hub (tools/port_settings.py's
+SERVER_SETUP_SECTIONS: LOBBY SETTINGS, GAME SETTINGS, FORK SETTINGS): their
+help, in that order */
+#define SERVER_SETUP_SECTION_HELP 22
 static boolean gametype_setup_floodfection(void);
 #define SERVER_SETTINGS_FIRST_ROW 73
-#define SERVER_SETTINGS_ROWS 12
+#define SERVER_SETTINGS_ROWS 8
 
 /* whether this machine has a publisher key (read as Server Setup opens) */
 static boolean server_settings_publisher;
@@ -11950,15 +11957,13 @@ static boolean server_settings_tag_profile_shown(void)
 /* TAG PROFILE: shown for such a game, its value the multiplayer profile
 the game plays (NONE: every build sees it), its help; and the rows shown
 packed, closer together where there would be more than the screen's twelve */
+static void server_settings_pack_rows(struct widget_instance *list);
+
 static void server_settings_tag_profile_update(struct widget_instance *list)
 {
 	struct widget_instance *row = named(list, "op_tag_profile", 0);
 	struct widget_instance *help = list->parameters.list.extended_description;
-	struct widget_instance *child;
 	boolean shown = server_settings_tag_profile_shown();
-	short count = 0;
-	short spacing = SERVER_SETTINGS_ROW_SPACING;
-	short place = 0;
 
 	visible_set(row, shown);
 	if (!row || !shown)
@@ -11984,6 +11989,17 @@ static void server_settings_tag_profile_update(struct widget_instance *list)
 	}
 	if (help && list->focused_child == row)
 		help->parameters.text_box.string_list_index = TAG_PROFILE_SETUP_HELP;
+}
+
+/* the rows shown packed, one under another (closer together where there
+would be more than the screen's eight, which GAME SETTINGS has at most) */
+static void server_settings_pack_rows(struct widget_instance *list)
+{
+	struct widget_instance *child;
+	short count = 0;
+	short spacing = SERVER_SETTINGS_ROW_SPACING;
+	short place = 0;
+
 	for (child = list->child; child; child = child->next)
 		count = (short)(count + (!strncmp(child->name, "op_", 3) && child->visible));
 	if (count > SERVER_SETTINGS_ROWS)
@@ -12003,12 +12019,88 @@ static boolean server_settings_tag_profile_change(struct widget_instance *widget
 {
 	if (!server_settings_tag_profile_shown())
 		return TRUE;
+	/* (from FORK SETTINGS, a screen below Server Setup: the TAG PROFILE
+	screen is two back, which B takes; its help says so) */
+	if (!named(screen_of(widget), "op_server_name", 0))
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
 	if (text_field_editing(NULL))
 		text_field_end(TRUE);
 	ui_play_audio_feedback_sound(SOUND_BACK);
 	ui_widget_port_go_back(widget);
 	*widget_deleted = TRUE;
 	return TRUE;
+}
+
+/* FORK SETTINGS' rows shown: FLOODFECTION SETTINGS (a Floodfection
+game's), TAG PROFILE (server_settings_tag_profile_shown), RANDOMIZER and
+SKULLS (a co-op game's: server_settings_update's own conditions), as their
+names into the row's value; FALSE with none, and the row is hidden */
+static boolean server_settings_fork_shown(char *value, long size)
+{
+	boolean cooperative = hosting_cooperative();
+	boolean daily = cooperative && community_challenge_running();
+	boolean shown[4];
+	static char const *const names[] = { "FLOODFECTION", "TAG PROFILE", "RANDOMIZER", "SKULLS" };
+	short index;
+	boolean any = FALSE;
+
+	shown[0] = !cooperative && gametype_setup_floodfection();
+	shown[1] = server_settings_tag_profile_shown();
+	shown[2] = daily || (cooperative && config_boolean("game.randomizer") && hosting_campaign_level() &&
+		tag_multiplayer_game_campaign_profile() == NONE);
+	shown[3] = daily || (cooperative && config_boolean("game.skulls"));
+	value[0] = 0;
+	for (index = 0; index < 4; index++)
+	{
+		if (!shown[index])
+			continue;
+		{
+			size_t length = strlen(value);
+
+			snprintf(value + length, (size_t)size - length, "%s%s", any ? ", " : "", names[index]);
+		}
+		any = TRUE;
+	}
+	return any;
+}
+
+/* the hub's rows of the sections (tools/port_settings.py's
+SERVER_SETUP_SECTIONS), on the hub only: LOBBY SETTINGS' value its players
+and listing ("16 PLAYERS, PUBLIC"), GAME SETTINGS' the gametype (co-op's:
+CO-OP), FORK SETTINGS' what it has (hidden with nothing); each its help */
+static void server_settings_sections_update(struct widget_instance *list)
+{
+	static char const *const sections[] = { "op_lobby_settings", "op_game_settings", "op_fork_settings" };
+	struct widget_instance *help = list->parameters.list.extended_description;
+	char value[ROW_TEXT_LENGTH];
+	wchar_t wide[ROW_TEXT_LENGTH];
+	short index;
+
+	if (!named(list, sections[0], 0))
+		return;
+	for (index = 0; index < (short)NUMBEROF(sections); index++)
+	{
+		if (help && list->focused_child == named(list, sections[index], 0))
+			help->parameters.text_box.string_list_index = (short)(SERVER_SETUP_SECTION_HELP + index);
+	}
+	snprintf(value, sizeof(value), "%d PLAYERS, %s",
+		maximum_players[PIN(*server_settings_maximum_players_index(), 0, maximum_players_choices() - 1)],
+		multiplayer.mode == _multiplayer_mode_host_local ? "LOCAL" :
+		multiplayer.mode != _multiplayer_mode_host_internet ? "LAN" :
+		server_settings_private() ? "PRIVATE" : "PUBLIC");
+	text_field_show(named(list, "lobby_settings_value", 0), value, FALSE);
+	if (hosting_cooperative())
+		text_set(named(list, "game_settings_value", 0), L"CO-OP");
+	else
+	{
+		gametype_setup_type(wide);
+		text_set(named(list, "game_settings_value", 0), wide);
+	}
+	visible_set(named(list, "op_fork_settings", 0), server_settings_fork_shown(value, sizeof(value)));
+	text_field_show(named(list, "fork_settings_value", 0), value, FALSE);
 }
 
 /* "server settings update" */
@@ -12021,8 +12113,14 @@ static void server_settings_update(struct widget_instance *list)
 	if (spinner)
 		*server_settings_maximum_players_index() = (short)PIN(spinner->parameters.list.selected_index, 0,
 			maximum_players_choices() - 1);
-	wide_to_text(multiplayer.game_name, text, sizeof(text));
-	text_field_show(named(list, "server_name_value", 0), text, text_field_editing(row));
+	/* (each screen's rows its own: the hub's, or a section's, which this
+	updates alike, the rows it has not passed over) */
+	if (row)
+	{
+		wide_to_text(multiplayer.game_name, text, sizeof(text));
+		text_field_show(named(list, "server_name_value", 0), text, text_field_editing(row));
+	}
+	server_settings_sections_update(list);
 	if (multiplayer.mode == _multiplayer_mode_host_local)
 		snprintf(text, sizeof(text), "NONE: A LOCAL GAME");
 	else if (multiplayer.mode != _multiplayer_mode_host_internet)
@@ -12102,31 +12200,35 @@ static void server_settings_update(struct widget_instance *list)
 			else if (help && list->focused_child == named(list, "op_map_share_options", 0))
 				help->parameters.text_box.string_list_index = MAP_SHARE_OPTIONS_HELP;
 		}
-		/* BOTS in MAP SHARING's place, a LOCAL game's: no one joins it to
-		share a map with, and only its lobby takes the bots (bots.c) */
+		/* BOTS, any multiplayer game's the player hosts (bots.c): in MAP
+		SHARING's place in a LOCAL game (no one joins it to share a map
+		with), under it in an online or LAN one (the rows then packed:
+		server_settings_pack_rows) */
 		{
 			boolean local = multiplayer.mode == _multiplayer_mode_host_local && !cooperative;
+			boolean bots = !cooperative;
 			struct widget_instance *help = list->parameters.list.extended_description;
 
 			visible_set(named(list, "op_map_share_options", 0), !local);
-			visible_set(named(list, "op_bots_options", 0), local);
-			if (help && local && list->focused_child == named(list, "op_bots_options", 0))
+			visible_set(named(list, "op_bots_options", 0), bots);
+			if (help && bots && list->focused_child == named(list, "op_bots_options", 0))
 				help->parameters.text_box.string_list_index = BOTS_SETUP_HELP;
-			/* (its value, what its screen chose: "4, DISTRIBUTED, EVEN", or
-			NONE) */
-			if (local)
+			/* (its value, what its screen chose: "4, DISTRIBUTED, EVEN, KEEP
+			COUNT", or OFF) */
+			if (bots)
 			{
 				long count = PIN(config_integer("bots.count"), 0, BOTS_MAXIMUM);
 				char const *skill = config_string("bots.skill");
 				char value[64];
 				short index;
 
-				if (!count)
-					snprintf(value, sizeof(value), "NONE");
+				if (!config_boolean("bots.enabled") || !count)
+					snprintf(value, sizeof(value), "OFF");
 				else
 				{
-					snprintf(value, sizeof(value), "%ld, %s, %s", count, skill ? skill : "",
-						!strcmp(config_string("bots.teams"), "against") ? "AGAINST YOU" : "EVEN");
+					snprintf(value, sizeof(value), "%ld, %s, %s%s", count, skill ? skill : "",
+						!strcmp(config_string("bots.teams"), "against") ? "AGAINST YOU" : "EVEN",
+						!local && config_boolean("bots.keep_min") ? ", KEEP COUNT" : "");
 					for (index = 0; value[index]; index++)
 						value[index] = (char)toupper((unsigned char)value[index]);
 				}
@@ -12173,6 +12275,8 @@ static void server_settings_update(struct widget_instance *list)
 			help->parameters.text_box.string_list_index = SERVER_PASSWORD_HELP;
 	}
 	server_settings_tag_profile_update(list);
+	/* (the rows each screen shows, one under another) */
+	server_settings_pack_rows(list);
 }
 
 static void server_password_done(char const *text)
@@ -15358,10 +15462,9 @@ static void lobby_row_text(short row, wchar_t *text)
 
 	ustrncpy(name, player->name, NUMBEROF(player->name));
 	name[NUMBEROF(player->name)] = 0;
-	if (game && game->variant.universal_variant.teams)
-		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s  (%s)", name, player->team_index ? L"BLUE" : L"RED");
-	else
-		usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s", name);
+	/* (its team a chip of its colour before it: menu_functions_text_box_drawn) */
+	(void)game;
+	usnprintf(text, ROW_TEXT_LENGTH - 1, L"%s", name);
 	/* (this machine's players, when it has more than one: their controllers) */
 	if (lobby_local_player_count() >= 2 && (short)player->machine_index == network_game_client_get_local_machine_index())
 	{
@@ -15394,17 +15497,17 @@ static void lobby_map_show(struct widget_instance *description, char const *map_
 	map_list's, in the place of the map's) */
 	visible_set(named(description, "lobby_map_pic", 0), level == NONE);
 	visible_set(named(description, "lobby_map_name", 0), level == NONE);
-	visible_set(named(description, "replay_level_right_pic", 0), level != NONE);
-	visible_set(named(description, "replay_level_right_name", 0), level != NONE);
+	visible_set(named(description, "lobby_level_pic", 0), level != NONE);
+	visible_set(named(description, "lobby_level_name", 0), level != NONE);
 	if ((widget = named(description, "lobby_map_pic", 0)) != NULL)
 		widget->animation.current_frame_index = map;
 	if ((widget = named(description, "lobby_map_name", 0)) != NULL)
 		widget->parameters.text_box.string_list_index = map;
 	if (level == NONE)
 		return;
-	if ((widget = named(description, "replay_level_right_pic", 0)) != NULL)
+	if ((widget = named(description, "lobby_level_pic", 0)) != NULL)
 		widget->animation.current_frame_index = level;
-	if ((widget = named(description, "replay_level_right_name", 0)) != NULL)
+	if ((widget = named(description, "lobby_level_name", 0)) != NULL)
 		widget->parameters.text_box.string_list_index = level;
 }
 
@@ -15414,6 +15517,11 @@ static struct
 {
 	struct widget_instance *texts[LOBBY_ROWS];
 	long machines[LOBBY_ROWS];
+	/* (their teams, NONE in a game without: a chip of the colour) */
+	short teams[LOBBY_ROWS];
+	/* (where the rows' texts were drawn last, the screen's: the player's
+	menu opens under its row, lobby_player_menu) */
+	short bottoms[LOBBY_ROWS];
 	short count;
 	unsigned long updated_at;
 } lobby_icons;
@@ -15991,6 +16099,262 @@ static void social_home_chat_stick(struct widget_instance *widget, struct event_
 	}
 }
 
+/* ---------- the lobby's docked chat (tools/port_settings.py's LOBBY_CHAT,
+under the game's map and data at the right): the fork's chat box, as the
+main menu's. The D-pad's (or the left stick's) Right goes into it from a
+player's row or from LEAVE (the last button), and Left (or B) back out; in
+it, up and down go through its lines, and A writes in it, or, on a line
+chosen, opens its player's menu. The right stick does the same from
+anywhere (up and down the lines, right the player's menu), and R3 (or a
+click, or T on a keyboard: social_chat_open_keys) writes in it */
+static struct
+{
+	unsigned long drawn_at;
+	rectangle2d chat;
+	boolean focused;
+} lobby_chat;
+
+static boolean lobby_chat_shown(void)
+{
+	return lobby_chat.drawn_at && (long)(system_milliseconds() - lobby_chat.drawn_at) < SOCIAL_HOME_SHOWN_MILLISECONDS;
+}
+
+/* (menu_functions_text_box_drawn) its text box: the chat docked over it */
+static void lobby_chat_drawn(rectangle2d const *bounds)
+{
+	if (!social_chat_dock_shown())
+	{
+		lobby_chat.drawn_at = 0;
+		lobby_chat.focused = FALSE;
+		memset(&lobby_chat.chat, 0, sizeof(lobby_chat.chat));
+		return;
+	}
+	lobby_chat.drawn_at = system_milliseconds() | 1;
+	lobby_chat.chat = *bounds;
+	social_chat_draw_docked(bounds->x0, bounds->y0, bounds->x1, bounds->y1, (short)halo_screen_ui_offset_current(),
+		lobby_chat.focused);
+}
+
+/* (menu_functions_text_box_drawn) the game's panel at the top left (its
+map's picture, name and data over it): the docked chat's box, as wide as
+the panel, which the stock spinner background, drawn texel for texel, is
+not */
+static void lobby_panel_drawn(rectangle2d const *bounds)
+{
+	draw_quad(bounds, (pixel32)0x99 << 24);
+}
+
+/* (lobby_chat_event_taken) the widget the lobby's focus is on, at the
+bottom of its focused children: a player's row or a button */
+static char const *lobby_focused_name(struct widget_instance *screen)
+{
+	struct widget_instance *widget = screen;
+
+	while (widget->focused_child)
+		widget = widget->focused_child;
+	return widget->name ? widget->name : "";
+}
+
+/* (lobby_chat_event_taken) down out of the chat: the lobby's buttons
+focused, the one chosen there last (off SWITCH TEAM when it is hidden) */
+static void lobby_chat_to_buttons(struct widget_instance *screen)
+{
+	struct widget_instance *list = named(screen, "lobby_list", 0);
+	struct widget_instance *bar = named(list, "lobby_button_bar", 0);
+
+	lobby_chat.focused = FALSE;
+	ui_play_audio_feedback_sound(SOUND_CURSOR);
+	if (!list || !bar)
+		return;
+	list->focused_child = bar;
+	if (!bar->focused_child || !bar->focused_child->visible)
+		bar->focused_child = bar->child;
+	focus_off_hidden(bar);
+}
+
+/* ui_widget.c's (halo_linux_source_fixups.h): the lobby's rows and buttons
+not lit while its docked chat has the focus */
+unsigned char menu_port_list_unfocused(void *instance)
+{
+	struct widget_instance *widget = instance;
+
+	return lobby_chat.focused && lobby_chat_shown() && widget && widget->name &&
+		(!strcmp(widget->name, "lobby_list") || !strcmp(widget->name, "lobby_button_bar"));
+}
+
+/* (lobby_chat_event_taken) A in the chat: its player's menu on a line
+chosen, else written in */
+static void lobby_chat_pick(short controller)
+{
+	if (social_chat_dock_pick_menu(controller))
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+	}
+	else if (!social_chat_dock_picked())
+	{
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		social_chat_open_docked(controller);
+	}
+	else
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+	}
+}
+
+/* (menu_port_event_taken) the lobby's: the D-pad's and the left stick's
+into the chat and in it, the right stick's and R3's */
+static boolean lobby_chat_event_taken(struct widget_instance *widget, struct event_record const *event)
+{
+	short button = NONE;
+	short across = 0;
+	short down = 0;
+
+	if (!lobby_chat_shown())
+	{
+		lobby_chat.focused = FALSE;
+		return FALSE;
+	}
+	if (event->type == MENU_EVENT_BUTTON && event->data.button.value == 1)
+	{
+		button = event->data.button.index;
+		across = button == _gamepad_binary_button_dpad_left ? -1 : button == _gamepad_binary_button_dpad_right ? 1 : 0;
+		down = button == _gamepad_binary_button_dpad_up ? -1 : button == _gamepad_binary_button_dpad_down ? 1 : 0;
+	}
+	else if (event->type == MENU_EVENT_LEFT_STICK)
+	{
+		across = event->data.stick.x == SHORT_MIN ? -1 : event->data.stick.x == SHORT_MAX ? 1 : 0;
+		down = event->data.stick.y == SHORT_MAX ? -1 : event->data.stick.y == SHORT_MIN ? 1 : 0;
+	}
+	if (!lobby_chat.focused && across > 0 && event->type != MENU_EVENT_RIGHT_STICK)
+	{
+		char const *name = lobby_focused_name(widget);
+
+		/* (from a player's row, or from the last button: the others'
+		Right is the next button's) */
+		if (strncmp(name, "list_item_", 10) && strcmp(name, "lobby_button_leave"))
+			return FALSE;
+		lobby_chat.focused = TRUE;
+		ui_play_audio_feedback_sound(SOUND_CURSOR);
+		return TRUE;
+	}
+	if (lobby_chat.focused && event->type != MENU_EVENT_RIGHT_STICK)
+	{
+		/* (a button held, or let go: still the chat's) */
+		if (event->type == MENU_EVENT_BUTTON && event->data.button.value != 1)
+			return button != _gamepad_binary_button_right_thumb;
+		if (down)
+		{
+			/* (as the right stick's up and down; down past its newest line,
+			to the buttons under it) */
+			if (social_chat_dock_pick_step(down))
+				ui_play_audio_feedback_sound(SOUND_CURSOR);
+			else if (down > 0)
+				lobby_chat_to_buttons(widget);
+			return TRUE;
+		}
+		if (across < 0 || button == _gamepad_analog_button_b || button == _gamepad_binary_button_back)
+		{
+			lobby_chat.focused = FALSE;
+			ui_play_audio_feedback_sound(SOUND_CURSOR);
+			return TRUE;
+		}
+		if (button == _gamepad_analog_button_a || button == _gamepad_binary_button_start)
+		{
+			lobby_chat_pick(event->controller_index);
+			return TRUE;
+		}
+		if (across > 0)
+		{
+			if (social_chat_dock_pick_menu(event->controller_index))
+				ui_play_audio_feedback_sound(SOUND_FORWARD);
+			return TRUE;
+		}
+		/* (X and Y: the screen's, the map vote and ADD PLAYER) */
+		if (button != _gamepad_binary_button_right_thumb)
+			return event->type == MENU_EVENT_LEFT_STICK;
+	}
+	if (event->type == MENU_EVENT_RIGHT_STICK)
+	{
+		short across = event->data.stick.x == SHORT_MIN ? -1 : event->data.stick.x == SHORT_MAX ? 1 : 0;
+		short down = event->data.stick.y == SHORT_MAX ? 1 : event->data.stick.y == SHORT_MIN ? -1 : 0;
+
+		(void)widget;
+		if (down)
+		{
+			if (social_chat_dock_pick_step(down))
+				ui_play_audio_feedback_sound(SOUND_CURSOR);
+		}
+		else if (across > 0 && social_chat_dock_pick_menu(event->controller_index))
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+		return TRUE;
+	}
+	if (event->type == MENU_EVENT_BUTTON && event->data.button.index == _gamepad_binary_button_right_thumb)
+	{
+		if (event->data.button.value == 1)
+		{
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+			social_chat_open_docked(event->controller_index);
+		}
+		return TRUE;
+	}
+	return FALSE;
+}
+
+/* "port lobby player menu" (A on a player's row of the lobby, or a click):
+the chat's menu of that player (social_chat_lobby_player_menu), beside the
+docked chat, on the controller's port (the keys' after typing); the host's
+too: KICK FROM GAME on another machine's player, REMOVE BOT on a bot's.
+Nothing on this machine's own players */
+extern int halo_keyboard_typed_last(void);
+
+static boolean lobby_player_menu(struct widget_instance *row, short controller)
+{
+	struct network_player *player;
+	wchar_t name[NUMBEROF(player->name) + 1];
+	unsigned long actions = 0;
+	boolean host = global_network_game_server_get() != NULL;
+	boolean bot;
+	short index;
+	short row_index;
+	short top;
+
+	if (!row || !row->name || strncmp(row->name, "list_item_", 10))
+		return FALSE;
+	index = (short)(multiplayer.lobby_first + atoi(row->name + 10));
+	if (index < 0 || index >= lobby_player_count)
+		return FALSE;
+	player = lobby_players[index];
+	if ((short)player->machine_index == network_game_client_get_local_machine_index())
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	ustrncpy(name, player->name, NUMBEROF(player->name));
+	name[NUMBEROF(player->name)] = 0;
+	/* (a bot: its name's [BOT], which a client knows it by too) */
+	bot = (host && bots_machine_is_bot(player->machine_index)) || !ustrncmp(name, L"[BOT]", 5);
+	if (bot)
+	{
+		actions |= FLAG(SOCIAL_CHAT_LOBBY_BOT_BIT);
+		if (host)
+			actions |= FLAG(SOCIAL_CHAT_LOBBY_REMOVE_BOT_BIT);
+	}
+	else if (host)
+		actions |= FLAG(SOCIAL_CHAT_LOBBY_KICK_BIT);
+	/* (under its row, as it was drawn last: else the chat's top) */
+	row_index = (short)atoi(row->name + 10);
+	top = row_index >= 0 && row_index < lobby_icons.count && lobby_icons.bottoms[row_index] > 0 ?
+		lobby_icons.bottoms[row_index] : lobby_chat.chat.y0;
+	if (!social_chat_lobby_player_menu(name, player->machine_index, actions,
+		(short)(halo_keyboard_typed_last() ? NONE : controller), top))
+	{
+		ui_play_audio_feedback_sound(SOUND_ERROR);
+		return TRUE;
+	}
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	return TRUE;
+}
+
 /* halo_linux_source_fixups.h: an event the menus are not to have: any
 while the fork's chat is typed in (or just closed); on the main menu, the
 controller's while its social column has the focus, and its Right into it,
@@ -16011,6 +16375,16 @@ unsigned char menu_port_event_taken(void *instance, void *record)
 	}
 	if (social_chat_busy())
 		return TRUE;
+	/* (the tag packs' checklist up: nothing until they are written,
+	tag_pack.c) */
+	if (tag_pack_checklist_shown())
+		return TRUE;
+	/* (the lobby's docked chat: lobby_chat_event_taken) */
+	if (widget && widget->name && !strcmp(widget->name, "lobby_screen"))
+	{
+		social_home.focused = FALSE;
+		return lobby_chat_event_taken(widget, event);
+	}
 	if (!widget || !widget->name || strcmp(widget->name, "main_menu") || !social_home_shown() || !social_enabled())
 	{
 		social_home.focused = FALSE;
@@ -16082,6 +16456,17 @@ unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer)
 {
 	short row;
 
+	if (pointer->left_clicks && tag_pack_checklist_shown())
+		return TRUE;
+	/* (the lobby's docked chat: a tap the on-screen keyboard, a click the
+	keyboard's keys) */
+	if (pointer->left_clicks && lobby_chat_shown() &&
+		pointer->click_x >= lobby_chat.chat.x0 && pointer->click_x < lobby_chat.chat.x1 &&
+		pointer->click_y >= lobby_chat.chat.y0 && pointer->click_y < lobby_chat.chat.y1)
+	{
+		social_chat_open_docked(pointer->touch ? 0 : NONE);
+		return TRUE;
+	}
 	if (!pointer->left_clicks || !social_home_shown() || !social_home.screen)
 		return FALSE;
 	if (pointer->click_x >= social_home.chat.x0 && pointer->click_x < social_home.chat.x1 &&
@@ -16171,6 +16556,17 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 			(short)(bounds->y0 - (392 - (258 + 388) / 2) * scale), (short)(126 * scale));
 	}
 #endif
+	/* (the lobby's docked chat: lobby_chat_drawn; and its game's panel) */
+	if (widget->name && !strcmp(widget->name, "lobby_chat"))
+	{
+		lobby_chat_drawn(bounds);
+		return;
+	}
+	if (widget->name && !strcmp(widget->name, "lobby_right_item"))
+	{
+		lobby_panel_drawn(bounds);
+		return;
+	}
 	/* (the main menu's social column: social_home_drawn) */
 	if (widget->name && (!strcmp(widget->name, "social_home") || !strcmp(widget->name, "social_home_chat")))
 	{
@@ -16239,6 +16635,47 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 
 		if (lobby_icons.texts[row] != widget)
 			continue;
+		lobby_icons.bottoms[row] = bounds->y1;
+		/* (the row the focus is on, the chat's not: lit as the docked
+		chat's edge is, its whole row (the text 22 in from it, 8 short of
+		its right), the controller's way through the players and to the
+		buttons) */
+		if (widget->parent && widget->parent->parent && widget->parent->parent->focused_child == widget->parent &&
+			!lobby_chat.focused)
+		{
+			rectangle2d lit;
+			rectangle2d edge;
+
+			lit.x0 = (short)(bounds->x0 - 22);
+			lit.x1 = (short)(bounds->x1 + 8);
+			lit.y0 = bounds->y0;
+			lit.y1 = bounds->y1;
+			draw_quad(&lit, 0x304F9BE0UL);
+			edge = lit;
+			edge.y1 = (short)(edge.y0 + 1);
+			draw_quad(&edge, 0xE04F9BE0UL);
+			edge.y0 = (short)(lit.y1 - 1);
+			edge.y1 = lit.y1;
+			draw_quad(&edge, 0xE04F9BE0UL);
+			edge = lit;
+			edge.x1 = (short)(edge.x0 + 1);
+			draw_quad(&edge, 0xE04F9BE0UL);
+			edge.x0 = (short)(lit.x1 - 1);
+			edge.x1 = lit.x1;
+			draw_quad(&edge, 0xE04F9BE0UL);
+		}
+		/* (its team's chip, at the row's left) */
+		if (lobby_icons.teams[row] != NONE)
+		{
+			rectangle2d chip;
+			short height = (short)MAX((bounds->y1 - bounds->y0) * 3 / 5, 4);
+
+			chip.x0 = (short)(bounds->x0 - height - 6);
+			chip.x1 = (short)(chip.x0 + height);
+			chip.y0 = (short)((bounds->y0 + bounds->y1 - height) / 2);
+			chip.y1 = (short)(chip.y0 + height);
+			draw_quad(&chip, lobby_icons.teams[row] ? 0xFF3A7BE0UL : 0xFFD8443BUL);
+		}
 		if (!network_voice_machine_speaking(machine_index) && !network_voice_machine_muted(machine_index))
 			return;
 		size = (short)MIN(14, bounds->y1 - bounds->y0);
@@ -16303,6 +16740,8 @@ static void lobby_update(struct widget_instance *list)
 				break;
 			lobby_icons.texts[index] = named(row, "list_item_text", 0);
 			lobby_icons.machines[index] = lobby_players[multiplayer.lobby_first + index]->machine_index;
+			lobby_icons.teams[index] = (short)(game && game->variant.universal_variant.teams ?
+				lobby_players[multiplayer.lobby_first + index]->team_index : NONE);
 			lobby_icons.count = (short)(index + 1);
 		}
 		lobby_icons.updated_at = system_milliseconds();
@@ -16344,7 +16783,7 @@ static void lobby_update(struct widget_instance *list)
 		}
 		ustrncpy(gametype, game->variant.human_readable_game_description, NUMBEROF(gametype) - 1);
 		gametype[NUMBEROF(gametype) - 1] = 0;
-		usnprintf(text, NUMBEROF(text) - 1, L"%s%s\r\n%s\r\n%d of %d players\r\n\r\n%s", name, gametype,
+		usnprintf(text, NUMBEROF(text) - 1, L"%s%s (%s)\r\n%d of %d players\r\n%s", name, gametype,
 			kind ? kind : engine_names[PIN(game->variant.game_engine_index, 0, 5)], lobby_player_count,
 			game->maximum_players,
 			seconds > 0 ? L"Starting in:" : (game->machine_count < 2 && lobby_player_count < 2) || dedicated ?
@@ -16360,7 +16799,7 @@ static void lobby_update(struct widget_instance *list)
 		{
 			size_t length = ustrlen(text);
 
-			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\n\r\nInvite link copied:\r\npaste it to friends");
+			usnprintf(text + length, NUMBEROF(text) - 1 - length, L"\r\nInvite link copied");
 		}
 		text_set_length(named(description, "lobby_game_data", 0), text, LOBBY_TEXT_LENGTH);
 	}
@@ -16990,7 +17429,7 @@ enum
 /* OPENCE OPTIONS' MODE's value of a mode and its take on it (_option_mode) */
 #define GAMETYPE_MODE_VALUE(mode, mode_variant) ((mode) | (mode_variant) << 8)
 
-/* the most values an option has (BOTS': 0 to 33) */
+/* the most values an option has (BOTS' COUNT: 0 to 127) */
 #define GAMETYPE_OPTION_VALUES 128
 
 struct gametype_option
@@ -17193,8 +17632,10 @@ static struct gametype_option const gametype_options[] =
 	{ "map_share_spinner", _option_setting, 0, 0, 2, { 0 }, "network.map_share", { "true", "false" } },
 	{ "map_share_upload_spinner", _option_setting, 0, 0, 8, { 0 }, "network.map_share_upload",
 		{ "256", "512", "1024", "2048", "4096", "8192", "16384", "20480" } },
-	/* the bots' (Server Setup's BOTS, a LOCAL game's: tools/port_settings.py's
+	/* the bots' (Server Setup's BOTS, any game hosted here: tools/port_settings.py's
 	BOTS_SETUP; bots.c, which the lobby's bots follow as they change) */
+	{ "bots_enabled_spinner", _option_setting, 0, 0, 2, { 0 }, "bots.enabled", { "true", "false" } },
+	{ "bots_keep_min_spinner", _option_setting, 0, 0, 2, { 0 }, "bots.keep_min", { "true", "false" } },
 	{ "bots_count_spinner", _option_setting, 0, 0, 128, { 0 }, "bots.count",
 		{ "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "17", "18",
 		"19", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "30", "31", "32", "33", "34", "35", "36",
@@ -18559,6 +19000,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "port lobby open"))
 		{
 			return lobby_join_reset();
+		}
+		else if (!strcmp(name, "port lobby player menu"))
+		{
+			return lobby_player_menu(widget, controller);
 		}
 		else if (!strcmp(name, "port map vote open"))
 		{

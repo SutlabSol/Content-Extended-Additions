@@ -1,4 +1,4 @@
-"""Build tag packs (maps/<name>.pack) from the maps in maps/, as their
+"""Build tag packs (tag_pack/<name>.pack beside maps/) from the maps in maps/, as their
 manifests in port/assets/tag_packs say:
 
     python3 tools/tag_pack.py                      every manifest's pack
@@ -323,7 +323,7 @@ def hash_span(handle, offset, size):
 
 def build(maps_dir, manifest, output):
     work = output.parent / (".%s_work" % manifest.name)
-    work.mkdir(exist_ok=True)
+    work.mkdir(parents=True, exist_ok=True)
     resources = open(work / "resources.bin", "wb")
     known = {}
     prepared = []
@@ -432,7 +432,7 @@ def main():
     parser = argparse.ArgumentParser(description="Build tag packs from their manifests.")
     parser.add_argument("packs", nargs="*", help="manifests' names (default: every one)")
     parser.add_argument("--maps-dir", type=Path, default=ROOT / "maps")
-    parser.add_argument("--output-dir", type=Path, help="where the packs are written (default: the maps' folder)")
+    parser.add_argument("--output-dir", type=Path, help="where the packs are written (default: tag_pack/ beside the maps' folder)")
     parser.add_argument("--list", action="store_true", help="each manifest's maps and content hash")
     args = parser.parse_args()
     found = manifests()
@@ -445,7 +445,7 @@ def main():
                 print("%-24s %08x  %s" % (manifest.name, manifest.content(), " ".join(manifest.maps)))
                 continue
             print("%s (content %08x)" % (manifest.name, manifest.content()), flush=True)
-            build(args.maps_dir, manifest, (args.output_dir or args.maps_dir) / (manifest.name + ".pack"))
+            build(args.maps_dir, manifest, (args.output_dir or args.maps_dir.parent / "tag_pack") / (manifest.name + ".pack"))
     except (OSError, RuntimeError, zlib.error, tomllib.TOMLDecodeError) as error:
         print("tag pack: %s" % error, file=sys.stderr)
         return 1

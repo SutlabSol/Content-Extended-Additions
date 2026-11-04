@@ -46,7 +46,7 @@ extern unsigned char network_aim_assist_block_mouse(void);
 #include "halo_keyboard.h"
 #include "halo_ui_pointer.h"
 #include "halo_overlay_menu.h"
-#if defined(HALO_SWITCH) || defined(HALO_PS5)
+#if defined(HALO_GUEST) || defined(HALO_ANDROID) || defined(HALO_PS5)
 #include "guest_host.h"
 #endif
 #include "controller_buttons.h"
@@ -239,6 +239,7 @@ static void chat_pad_record(short port, const XINPUT_GAMEPAD *pad)
 	if (pad->sThumbLX > PUSHED) buttons |= 1UL << HALO_CHAT_PAD_STICK_RIGHT;
 	if (pad->bAnalogButtons[XINPUT_GAMEPAD_WHITE] >= PRESSED) buttons |= 1UL << HALO_CHAT_PAD_LEFT_SHOULDER;
 	if (pad->bAnalogButtons[XINPUT_GAMEPAD_BLACK] >= PRESSED) buttons |= 1UL << HALO_CHAT_PAD_RIGHT_SHOULDER;
+	if (pad->wButtons & XINPUT_GAMEPAD_RIGHT_THUMB) buttons |= 1UL << HALO_CHAT_PAD_RIGHT_THUMB;
 	chat_pad[port] = buttons;
 }
 
@@ -486,10 +487,16 @@ the phone's, on the Switch the controller's) is a profile's Gyro Aim
 (input.gyro_aim, and input.gyro_zoom_only: always, or only while zoomed), and its horizontal and
 vertical sensitivity and invert are their own (input.gyro_sensitivity_horizontal,
 input.gyro_sensitivity_vertical, input.gyro_invert_horizontal,
-input.gyro_invert_vertical); the web's overlay has its own. Nothing but on
-Android, the web and the Switch, and the PS5, whose DualSense's gyroscope
-takes the Switch's controller's place. */
-#if defined(HALO_ANDROID) || defined(HALO_PS5)
+input.gyro_invert_vertical); the web's overlay has its own. Every other
+controller with a gyroscope (a DualSense, a DualShock 4, a Switch Pro
+Controller) aims the same way on any platform, each local player with
+their own: pad_gyro, by the host's SDL (host_sdl_gamepad_gyro) or this
+build's own (Windows and the web: sdl_gamepad_gyro_turn). */
+/* (the builds whose SDL is their own, not a host's: their gamepads'
+sensors read here) */
+#if defined(HALO_WINDOWS) || defined(HALO_WEB)
+#define HALO_NATIVE_SDL_GYRO
+#endif
 /* input.gyro_aim and the rest, each local player's (its profile's own:
 port_config.h), read again when the settings change: "true" aims with the
 gyroscope, and input.gyro_zoom_only (or an older "zoom") only while zoomed
@@ -531,7 +538,7 @@ static const struct gyro_settings *gyro_settings_read(short gamepad_index)
 	gyro->invert_vertical = config_player_boolean(player, "input.gyro_invert_vertical");
 	gyro->sensitivity_horizontal = (float)config_player_real(player, "input.gyro_sensitivity_horizontal");
 	gyro->sensitivity_vertical = (float)config_player_real(player, "input.gyro_sensitivity_vertical");
-#if !defined(HALO_SWITCH) && !defined(HALO_PS5)
+#if defined(HALO_ANDROID) && !defined(HALO_SWITCH) && !defined(HALO_PS5)
 	/* (the overlay runs the phone's gyroscope only while it is wanted: port
 	0's player's, who has the phone) */
 	if (player == 0)
@@ -539,19 +546,111 @@ static const struct gyro_settings *gyro_settings_read(short gamepad_index)
 #endif
 	return gyro;
 }
-#endif
 
 /* whether the player's gyroscope (the controller's on the Switch, the
 phone's on Android) aims only while it is zoomed in (input.gyro_aim =
 "zoom"): player_control.c drops its turn otherwise */
 int halo_linux_gyro_zoom_only(short gamepad_index)
 {
-#if defined(HALO_ANDROID) || defined(HALO_PS5)
 	return gyro_settings_read(gamepad_index)->zoom_only;
-#else
-	(void)gamepad_index;
-	return FALSE;
+}
+
+#ifdef HALO_NATIVE_SDL_GYRO
+/* this build's controllers' gyroscopes, by SDL's gamepad sensors (as the
+Android and Linux host's: port/android/host/host_sdl.c): the turn since the
+last ask, in radians, yaw to the player's right and pitch up, from the
+sensor's rate times the time since then. SDL's axes are the Switch's (+x to
+the controller's right, +y up, +z toward the player): yaw -y, pitch -x. A
+rate quieter than the sensor's noise at rest is dropped, and so is a gap
+long enough that one reading would spin the view */
+#define SDL_GYRO_NOISE 0.01f
+#define SDL_GYRO_LONGEST_GAP_NS 100000000ULL
+#define SDL_GYRO_PADS 8
+
+static struct
+{
+	SDL_Gamepad *pad;
+	Uint64 asked_at;
+} sdl_gyro_pads[SDL_GYRO_PADS];
+
+static void sdl_gamepad_gyro_turn(SDL_Gamepad *pad, float *yaw, float *pitch)
+{
+	float rate[3];
+	Uint64 now = SDL_GetTicksNS();
+	int slot;
+	int found = -1;
+	int empty = -1;
+
+	*yaw = 0.0f;
+	*pitch = 0.0f;
+	if (!pad || !SDL_GamepadHasSensor(pad, SDL_SENSOR_GYRO))
+		return;
+	for (slot = 0; slot < SDL_GYRO_PADS; slot++)
+	{
+		if (sdl_gyro_pads[slot].pad == pad)
+			found = slot;
+		else if (!sdl_gyro_pads[slot].pad && empty < 0)
+			empty = slot;
+	}
+	if (found < 0)
+	{
+		found = empty >= 0 ? empty : 0;
+		sdl_gyro_pads[found].pad = pad;
+		sdl_gyro_pads[found].asked_at = 0;
+	}
+	if (!SDL_GamepadSensorEnabled(pad, SDL_SENSOR_GYRO))
+	{
+		SDL_SetGamepadSensorEnabled(pad, SDL_SENSOR_GYRO, true);
+		sdl_gyro_pads[found].asked_at = 0;
+		return;
+	}
+	if (!SDL_GetGamepadSensorData(pad, SDL_SENSOR_GYRO, rate, 3))
+	{
+		sdl_gyro_pads[found].asked_at = 0;
+		return;
+	}
+	if (sdl_gyro_pads[found].asked_at && now > sdl_gyro_pads[found].asked_at &&
+		now - sdl_gyro_pads[found].asked_at <= SDL_GYRO_LONGEST_GAP_NS)
+	{
+		float seconds = (float)(now - sdl_gyro_pads[found].asked_at) * 1.0e-9f;
+		float x = rate[0] < SDL_GYRO_NOISE && rate[0] > -SDL_GYRO_NOISE ? 0.0f : rate[0];
+		float y = rate[1] < SDL_GYRO_NOISE && rate[1] > -SDL_GYRO_NOISE ? 0.0f : rate[1];
+
+		*yaw = -y * seconds;
+		*pitch = -x * seconds;
+	}
+	sdl_gyro_pads[found].asked_at = now;
+}
 #endif
+/* a local player's controller's gyroscope, the turn since the last ask with
+their Gyro Aim's sensitivity and invert: none with Gyro Aim off, for a
+controller without one, or while the chat's on-screen keyboard or the
+overlay menu is up */
+static int pad_gyro(short gamepad_index, float *gyro_yaw, float *gyro_pitch)
+{
+	SDL_Gamepad *gamepads[PORT_COUNT];
+	SDL_Gamepad *gamepad;
+	const struct gyro_settings *gyro = gyro_settings_read(gamepad_index);
+	int count;
+	float turn_yaw = 0.0f;
+	float turn_pitch = 0.0f;
+
+	*gyro_yaw = 0.0f;
+	*gyro_pitch = 0.0f;
+	if (!gyro->enabled || gamepad_index < 0 || network_chat_keyboard_open() || overlay_menu_open())
+		return FALSE;
+	count = sdl_gamepads(gamepads);
+	gamepad = port_gamepad(gamepads, count, gamepad_index);
+	if (!gamepad)
+		return FALSE;
+#ifdef HALO_NATIVE_SDL_GYRO
+	sdl_gamepad_gyro_turn(gamepad, &turn_yaw, &turn_pitch);
+#else
+	host_sdl_gamepad_gyro((unsigned int)gamepad, &turn_yaw, &turn_pitch);
+#endif
+	*gyro_yaw = (gyro->invert_horizontal ? -turn_yaw : turn_yaw) * gyro->sensitivity_horizontal;
+	*gyro_pitch = (gyro->invert_vertical ? -turn_pitch : turn_pitch) * gyro->sensitivity_vertical;
+	return *gyro_yaw != 0.0f || *gyro_pitch != 0.0f;
 }
 
 int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *gyro_yaw, float *gyro_pitch)
@@ -561,31 +660,11 @@ int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *
 	*gyro_yaw = 0.0f;
 	*gyro_pitch = 0.0f;
 #if defined(HALO_SWITCH) || defined(HALO_PS5)
-	{
-		SDL_Gamepad *gamepads[PORT_COUNT];
-		SDL_Gamepad *gamepad;
-		const struct gyro_settings *gyro = gyro_settings_read(gamepad_index);
-		int count;
-		float turn_yaw;
-		float turn_pitch;
-
-		/* (nor while the chat's on-screen keyboard or the overlay menu is up) */
-		if (!gyro->enabled || gamepad_index < 0 || network_chat_keyboard_open() || overlay_menu_open())
-			return FALSE;
-		count = sdl_gamepads(gamepads);
-		gamepad = port_gamepad(gamepads, count, gamepad_index);
-		if (!gamepad)
-			return FALSE;
-		host_sdl_gamepad_gyro((unsigned int)gamepad, &turn_yaw, &turn_pitch);
-		*gyro_yaw = (gyro->invert_horizontal ? -turn_yaw : turn_yaw) * gyro->sensitivity_horizontal;
-		*gyro_pitch = (gyro->invert_vertical ? -turn_pitch : turn_pitch) * gyro->sensitivity_vertical;
-		if (*gyro_yaw == 0.0f && *gyro_pitch == 0.0f)
-			return FALSE;
-		return TRUE;
-	}
+	return pad_gyro(gamepad_index, gyro_yaw, gyro_pitch);
 #elif defined(HALO_ANDROID) || defined(HALO_WEB)
+	/* (another player's: their controller's gyroscope alone) */
 	if (gamepad_index != 0)
-		return FALSE;
+		return pad_gyro(gamepad_index, gyro_yaw, gyro_pitch);
 	touch_input_look(0.0022f, yaw, pitch, gyro_yaw, gyro_pitch);
 #ifdef HALO_ANDROID
 	/* the phone's gyroscope, its own turn: Gyro Aim's on, sensitivity and invert */
@@ -601,6 +680,18 @@ int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *
 		*gyro_pitch = (gyro->invert_vertical ? -*gyro_pitch : *gyro_pitch) * gyro->sensitivity_vertical;
 	}
 #endif
+	/* (and the first player's controller's, with the phone's or the
+	overlay's) */
+	{
+		float pad_yaw;
+		float pad_pitch;
+
+		if (pad_gyro(0, &pad_yaw, &pad_pitch))
+		{
+			*gyro_yaw += pad_yaw;
+			*gyro_pitch += pad_pitch;
+		}
+	}
 	/* (none while the chat's on-screen keyboard is up: what was swiped is
 	dropped, not saved for after) */
 	if ((network_chat_keyboard_open() && network_chat_controller() == 0) || overlay_menu_open())
@@ -615,8 +706,8 @@ int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *
 	touch_used();
 	return TRUE;
 #else
-	(void)gamepad_index;
-	return FALSE;
+	/* (the desktop's: the controller's gyroscope, if it has one) */
+	return pad_gyro(gamepad_index, gyro_yaw, gyro_pitch);
 #endif
 }
 

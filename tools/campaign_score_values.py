@@ -4,7 +4,7 @@ from port/linux/game/campaign_score_values.json, as
 port/linux/game/campaign_score_values.c:
 
     python3 tools/campaign_score_values.py [--check]
-    python3 tools/campaign_score_values.py --pack maps/watanoge_randomizer.pack
+    python3 tools/campaign_score_values.py --pack tag_pack/watanoge_randomizer.pack
 
 configure.py runs it (write()) and lists the JSON among its inputs, so that
 ninja reruns configure.py, and so this, when a value changes. --check fails
@@ -422,7 +422,7 @@ def main() -> int:
         if "--pack" in sys.argv[1:]:
             arguments = sys.argv[1:]
             index = arguments.index("--pack")
-            list_pack(Path(arguments[index + 1]) if index + 1 < len(arguments) else ROOT / "maps/watanoge_randomizer.pack")
+            list_pack(Path(arguments[index + 1]) if index + 1 < len(arguments) else ROOT / "tag_pack/watanoge_randomizer.pack")
             return 0
         if "--check" in sys.argv[1:]:
             if not C_PATH.exists() or C_PATH.read_text() != generate():

@@ -259,6 +259,17 @@ void game_state_create_or_open_file(
 		87,
 		!xbox_game_state_globals.file_open);
 
+	/* port: with the snapshot in memory (the 20 MB of it made now, while the
+	map loads: made at the first checkpoint, it cost that frame 0.87 s on the
+	Switch, Assault on the Control Room's first), no file at all: nothing is
+	written to it, and making and sizing it each map was 20 MB of the card's
+	for nothing. The file only as the Xbox had it, without the memory */
+	if (game_state_snapshot_ready())
+	{
+		xbox_game_state_globals.handle = INVALID_HANDLE_VALUE;
+		xbox_game_state_globals.file_open = TRUE;
+		return;
+	}
 	xbox_game_state_globals.handle = CreateFileA("z:\\savegame.bin",
 		GENERIC_READ|GENERIC_WRITE, 0, NULL, OPEN_ALWAYS,
 		FILE_FLAG_NO_BUFFERING|FILE_FLAG_SEQUENTIAL_SCAN, NULL);
@@ -268,10 +279,6 @@ void game_state_create_or_open_file(
 		SetEndOfFile(xbox_game_state_globals.handle))
 	{
 		xbox_game_state_globals.file_open = TRUE;
-		/* the 20 MB snapshot made now, while the map loads: made at the first
-		checkpoint, it cost that frame 0.87 s on the Switch (Assault on the
-		Control Room's first checkpoint) */
-		game_state_snapshot_ready();
 	}
 	else
 	{
@@ -294,7 +301,10 @@ void game_state_close_file(
 		106,
 		xbox_game_state_globals.file_open);
 	game_state_snapshot.snapshot_valid = FALSE;
-	CloseHandle(xbox_game_state_globals.handle);
+	/* (none, with the snapshot: game_state_create_or_open_file) */
+	if (xbox_game_state_globals.handle != INVALID_HANDLE_VALUE)
+		CloseHandle(xbox_game_state_globals.handle);
+	xbox_game_state_globals.handle = INVALID_HANDLE_VALUE;
 	xbox_game_state_globals.file_open = FALSE;
 
 	return;
@@ -341,7 +351,8 @@ boolean game_state_write_to_file(
 		return TRUE;
 	}
 
-	if (SetFilePointer(xbox_game_state_globals.handle, 0, NULL, FILE_BEGIN) !=
+	if (xbox_game_state_globals.handle != INVALID_HANDLE_VALUE &&
+		SetFilePointer(xbox_game_state_globals.handle, 0, NULL, FILE_BEGIN) !=
 			INVALID_SET_FILE_POINTER &&
 		WriteFile(xbox_game_state_globals.handle, xbox_game_state_globals.buffer,
 			xbox_game_state_globals.buffer_size, &bytes_written, NULL) &&
@@ -393,7 +404,7 @@ boolean game_state_read_from_file(
 
 	/* port: read beside the game state, and taken once checked */
 	image = malloc(xbox_game_state_globals.buffer_size);
-	if (image &&
+	if (image && xbox_game_state_globals.handle != INVALID_HANDLE_VALUE &&
 		SetFilePointer(xbox_game_state_globals.handle, 0, NULL, FILE_BEGIN) !=
 			INVALID_SET_FILE_POINTER &&
 		ReadFile(xbox_game_state_globals.handle, image,
@@ -521,8 +532,13 @@ static void delete_persistent_storage(
 {
 	char path[256];
 
+	/* port: the file, not its profile's directory (the path is the
+	directory's: game_state_open_persistent_storage puts the name after it) */
 	if (game_state_get_persistent_storage_path(path))
+	{
+		strcat(path, game_state_get_persistent_storage_filename());
 		DeleteFileA(path);
+	}
 
 	return;
 }

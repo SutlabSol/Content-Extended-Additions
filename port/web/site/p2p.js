@@ -34,7 +34,7 @@ window.HaloP2P = (() => {
   const MAXIMUM_NAMES = 2;
   // (a channel that holds this much unsent drops what is sent to it, as a
   // full network would)
-  const BUFFERED_LIMIT = 1 << 20;
+  const BUFFERED_LIMIT = 64 * 1024;
 
   const encoder = new TextEncoder();
   const decoder = new TextDecoder();

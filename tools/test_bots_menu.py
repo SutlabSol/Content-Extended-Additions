@@ -72,8 +72,9 @@ def test_local_mode_hosts_alone():
 
 
 def test_server_setup_bots():
-    """Server Setup has BOTS in MAP SHARING's place, opening a screen whose
-    spinners set bots.count, bots.skill and bots.teams, every choice of
+    """Server Setup's hub has BOTS after LOBBY SETTINGS, opening a screen whose
+    spinners set bots.enabled, bots.count, bots.skill, bots.teams and
+    bots.keep_min, every choice of
     each one menu_functions.c knows, in the same order."""
     server = "\n".join(port_settings.multiplayer_files()["main_menu.multiplayer_type_select.server_settings.xml"])
     functions = FUNCTIONS.read_text()
@@ -81,8 +82,10 @@ def test_server_setup_bots():
     key, title, help_text, rows = port_settings.BOTS_SETUP
     base = f"{MT}/server_settings"
 
-    assert f'<child widget="{base}/op_{key}" x="54" y="193"/>' in server
-    assert f'<child widget="{base}/op_map_share_options" x="54" y="193"/>' in server
+    # (a row of Server Setup's hub, after LOBBY SETTINGS, whose screen has
+    # MAP SHARING: port_settings.SERVER_SETUP_SECTIONS)
+    assert f'<child widget="{base}/op_{key}" x="54" y="{73 + 2 * port_settings.SERVER_SETTINGS_ROW_SPACING}"/>' in server
+    assert f'<child widget="{base}/op_map_share_options" x="54" y="{73 + 4 * port_settings.SERVER_SETTINGS_ROW_SPACING}"/>' in server
     assert f'open="{base}/{key}/{key}_screen"' in server
     assert f'"op_{key}"' in functions
     # (its value, what the screen chose, which menu_functions.c writes)
@@ -102,9 +105,11 @@ def test_server_setup_bots():
     assert f'png="{png}"' in bitmaps and (MENUS / png).is_file()
     assert png in json.loads((MENUS / "menus.json").read_text())["files"]
 
-    settings = {"bots_count": ("bots.count", [str(count) for count in port_settings.BOTS_COUNTS]),
+    settings = {"bots_enabled": ("bots.enabled", ["true", "false"]),
+                "bots_count": ("bots.count", [str(count) for count in port_settings.BOTS_COUNTS]),
                 "bots_skill": ("bots.skill", port_settings.BOTS_SKILL_CHOICES),
-                "bots_teams": ("bots.teams", ["even", "against"])}
+                "bots_teams": ("bots.teams", ["even", "against"]),
+                "bots_keep_min": ("bots.keep_min", ["true", "false"])}
     assert [row for row, *_ in rows] == list(settings)
     for row, label, words, row_helps in rows:
         setting, values = settings[row]

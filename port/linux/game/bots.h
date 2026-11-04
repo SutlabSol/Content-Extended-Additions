@@ -1,4 +1,4 @@
-/* bots.h: computer players for local and system link multiplayer games (port/linux/game/bots.c)
+/* bots.h: computer players for the multiplayer games hosted here, local, system link and internet (port/linux/game/bots.c)
 
 A bot is a player of a local (split screen) or system link game whose
 controls come from code on the host instead of a controller (the clients
@@ -33,7 +33,7 @@ enum
 	_bots_teams_against,
 };
 
-/* the settings (bots.count, bots.skill, bots.teams) */
+/* the settings (bots.enabled and bots.count, bots.skill, bots.teams) */
 long bots_wanted_count(void);
 /* the count wanted in place of bots.count's (the benchmark's games: benchmark.c), or bots.count's again (-1) */
 void bots_set_count_override(long count);
@@ -45,9 +45,11 @@ holds (the host's alone knows: network_game_server_port_machine_joined) */
 int bots_machine_is_bot(long machine_index);
 /* (network_server_manager.c's) whether a machine that joined holds the index */
 unsigned char network_game_server_port_machine_joined(long machine_index);
-/* whether this machine hosts a game bots may play in: local (split screen), system link, or a private internet game
-(not listed in the server browser) */
+/* whether this machine hosts a game bots may play in: any multiplayer game it hosts (local, system link,
+internet public or private) */
 int bots_game_allowed(void);
+/* bots.keep_min, in a game other machines join: players who join take bots' places, bots theirs when they leave */
+int bots_keep_player_count(void);
 /* the network player for bot number `bot_index` (0 up): its machine,
 controller, name and no team or colour yet */
 void bots_network_player(long bot_index, struct network_player *player);
