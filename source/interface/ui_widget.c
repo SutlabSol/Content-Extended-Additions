@@ -5433,37 +5433,42 @@ static boolean ui_widget_port_text_wrap(
 	{
 		wchar_t character = text[index];
 
-		if (character == L'\r' || character == L'\n')
+		if (character == L' ' || character == L'\r' || character == L'\n' || character == 0)
 		{
-			line_start = index + 1;
-			last_space = NONE;
-			continue;
-		}
-		if (character == L' ' || character == 0)
-		{
-			wchar_t line[256];
-			long length = MIN(index - line_start, (long)NUMBEROF(line) - 1);
-			rectangle2d text_bounds;
-			rectangle2d cursor_bounds;
-
-			csmemcpy(line, text + line_start, length * sizeof(wchar_t));
-			line[length] = 0;
-			draw_unicode_string_compute_bounds(bounds, line, &text_bounds, &cursor_bounds);
-			if (cursor_bounds.x0 - bounds->x0 > width && last_space != NONE)
+			if (index > line_start)
 			{
-				text[last_space] = L'\r';
-				line_start = last_space + 1;
-				/* (the line begun, the word just measured: wider alone?) */
-				length = MIN(index - line_start, (long)NUMBEROF(line) - 1);
+				wchar_t line[256];
+				long length = MIN(index - line_start, (long)NUMBEROF(line) - 1);
+				rectangle2d text_bounds;
+				rectangle2d cursor_bounds;
+
 				csmemcpy(line, text + line_start, length * sizeof(wchar_t));
 				line[length] = 0;
 				draw_unicode_string_compute_bounds(bounds, line, &text_bounds, &cursor_bounds);
+				if (MAX(cursor_bounds.x0, text_bounds.x1) - bounds->x0 > width && last_space != NONE)
+				{
+					text[last_space] = L'\r';
+					line_start = last_space + 1;
+					/* (the line begun, the word just measured: wider alone?) */
+					length = MIN(index - line_start, (long)NUMBEROF(line) - 1);
+					csmemcpy(line, text + line_start, length * sizeof(wchar_t));
+					line[length] = 0;
+					draw_unicode_string_compute_bounds(bounds, line, &text_bounds, &cursor_bounds);
+				}
+				if (MAX(cursor_bounds.x0, text_bounds.x1) - bounds->x0 > width)
+					fits = FALSE;
 			}
-			if (cursor_bounds.x0 - bounds->x0 > width)
-				fits = FALSE;
 			if (character == 0)
 				break;
-			last_space = index;
+			if (character == L'\r' || character == L'\n')
+			{
+				line_start = index + 1;
+				last_space = NONE;
+			}
+			else
+			{
+				last_space = index;
+			}
 		}
 	}
 
@@ -5624,6 +5629,7 @@ static void widget_instance_render_text_box(
 	again), and as tall as the text box less its offset above and as much
 	below (the dialog's footer). Text that would be taller, or wider (a word
 	longer than a line), is drawn in the menus' smaller font. */
+	text_scale = pc_menu_text_scale(definition);
 	if (widget == ui_widget_port_error_text_box && ui_widget_port_error_text)
 	{
 		struct bitmap_data *background = definition->background_bitmap.index != NONE ?
@@ -5636,7 +5642,7 @@ static void widget_instance_render_text_box(
 
 		if (background && background->width > 0 && background->width < width)
 			width = background->width;
-		width = (short)(width - 4 * definition->horizontal_offset);
+		width = (short)(width - 4 * definition->horizontal_offset - 4);
 		ustrncpy(wrapped, *text, NUMBEROF(wrapped) - 1);
 		wrapped[NUMBEROF(wrapped) - 1] = 0;
 		if (!ui_widget_port_text_wrap(wrapped, &bounds, width) ||
@@ -5652,11 +5658,17 @@ static void widget_instance_render_text_box(
 			}
 		}
 		ui_widget_port_text_wrap(*text, &bounds, width);
+		draw_unicode_string_compute_bounds(&bounds, *text, &text_bounds, &cursor_bounds);
+		if (cursor_bounds.y1 - bounds.y0 > height && cursor_bounds.y1 > bounds.y0)
+		{
+			real fit_scale = (real)height / (real)(cursor_bounds.y1 - bounds.y0);
+			if (fit_scale < text_scale)
+				text_scale = MAX(fit_scale, 0.75f);
+		}
 	}
 	/* port: a text drawn smaller (or larger) than its font, about its top
 	left: laid out as wide and as tall as the box holds of it at that size,
 	and clipped so (rasterizer_text_set_scale) */
-	text_scale = pc_menu_text_scale(definition);
 	if (text_scale != 1.0f)
 	{
 		real origin_x = (real)bounds.x0;
