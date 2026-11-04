@@ -7,6 +7,9 @@ attribution generator, 2D blueprint collision extractor, and "Save Copy As..."
 scenario exporter (.map, 140x114 .bmp, .txt).
 */
 
+#ifndef HALO_RELEASE
+#define HALO_RELEASE
+#endif
 #include "cseries/cseries.h"
 #include "forge_cache_builder.h"
 #include "cache_file_formats.h"
@@ -20,27 +23,30 @@ scenario exporter (.map, 140x114 .bmp, .txt).
 #include "scenario/scenario_definitions.h"
 #include "structures/structure_bsp_definitions.h"
 #include "physics/collision_bsp_definitions.h"
+#include "items/item_definitions.h"
+#include "../../linux/src/port_tag_profiles.h"
+#include "tag_bundle.h"
 #include "zlib_prefixed.h"
 
-extern int forge_ensure_all_xbox_maps_cached(void);
-extern void platform_translate_path(char const *xbox_path, char *out_path, size_t out_size);
+extern void *custom_edition_sounds_encode(
+	void const *samples,
+	long size,
+	short compression,
+	boolean big_endian_pcm,
+	long channels,
+	long rate,
+	long encoded_rate,
+	unsigned long *encoded_bytes);
+extern void platform_translate_path(char const *xbox_path, char *out_path, unsigned long out_size);
 
 #include <ctype.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <xtl.h>
+#include "forge_engine.h"
 
-#ifdef _WIN32
-#include <direct.h>
-#include <io.h>
-#define FORGE_MKDIR(p) _mkdir(p)
-extern unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilename, unsigned long nSize);
-#else
-#include <sys/stat.h>
-#include <sys/types.h>
-#define FORGE_MKDIR(p) mkdir((p), 0755)
-#endif
+#define FORGE_MKDIR(p) CreateDirectoryA((p), NULL)
 
 #undef malloc
 #undef calloc
@@ -60,6 +66,9 @@ extern unsigned long __stdcall GetModuleFileNameA(void *hModule, char *lpFilenam
 #undef memcpy
 #undef memmove
 #undef memset
+
+#define fopen(p, m) ((FILE *)forge_host_fopen((p), (m)))
+#define remove(p) forge_host_remove((p))
 
 /* ---------- constants */
 
@@ -235,6 +244,17 @@ static struct tag_schema_group const *forge_schema_group_get(uint32_t group_tag)
 	return NULL;
 }
 
+static int forge_groups_compatible(uint32_t group_a, uint32_t group_b)
+{
+	if (group_a == group_b)
+		return 1;
+	if ((group_a == 'mod2' && group_b == 'mode') || (group_a == 'mode' && group_b == 'mod2'))
+		return 1;
+	if ((group_a == 'scex' && group_b == 'schi') || (group_a == 'schi' && group_b == 'scex'))
+		return 1;
+	return 0;
+}
+
 /* ---------- source .map loader */
 
 struct forge_source_map
@@ -313,7 +333,7 @@ static int forge_source_map_open(char const *path, struct forge_source_map *map)
 	map->map_name[31] = 0;
 	map->scenario_type = read_s16(hdr_peek + 0x60);
 
-	/* Transparently handle zlib-compressed Xbox v5 maps (or compressed CE v609 base maps in Faber_data/forge_maps/) */
+	/* Transparently handle zlib-compressed Xbox v5 maps (or compressed CE v609 base maps in OpenCE Forge/forge_maps/) */
 	if ((map->version == CACHE_VERSION_XBOX || map->version == CACHE_VERSION_CE) &&
 		(uint64_t)map->tag_data_offset + (uint64_t)map->tag_data_size > (uint64_t)sz)
 	{
@@ -323,7 +343,7 @@ static int forge_source_map_open(char const *path, struct forge_source_map *map)
 
 		if (decomp_len < map->tag_data_offset + map->tag_data_size)
 			decomp_len = map->tag_data_offset + map->tag_data_size;
-		if (decomp_len < 0x800u || decomp_len > 128u * 1024u * 1024u)
+		if (decomp_len < 0x800u || decomp_len > 512u * 1024u * 1024u)
 		{
 			fclose(f);
 			return 0;
@@ -332,14 +352,23 @@ static int forge_source_map_open(char const *path, struct forge_source_map *map)
 		if (map->version == CACHE_VERSION_XBOX)
 		{
 			int slot;
-			for (slot = 0; slot <= 6; slot++)
+			for (slot = -2; slot <= 6; slot++)
 			{
 				char z_xbox[64];
-				if (slot < 6)
+				if (slot == -2)
+					snprintf(cache_cand, sizeof(cache_cand), "OpenCE Forge/cached_tags/xbox_cache/%s.map", map->map_name);
+				else if (slot == -1)
+					snprintf(cache_cand, sizeof(cache_cand), "OpenCE Forge/cached_tags/xbox_cache/%s", map->filename);
+				else if (slot < 6)
+				{
 					snprintf(z_xbox, sizeof(z_xbox), "z:\\cache00%d.map", slot);
+					platform_translate_path(z_xbox, cache_cand, sizeof(cache_cand));
+				}
 				else
+				{
 					snprintf(z_xbox, sizeof(z_xbox), "z:\\cache_donor.map");
-				platform_translate_path(z_xbox, cache_cand, sizeof(cache_cand));
+					platform_translate_path(z_xbox, cache_cand, sizeof(cache_cand));
+				}
 				cf = fopen(cache_cand, "rb");
 				if (cf)
 				{
@@ -512,6 +541,25 @@ static char const *src_tag_name(struct forge_source_map const *map, int32_t idx)
 	if (!memchr(map->data + map->tag_data_offset + off, 0, map->tag_data_size - off))
 		return NULL;
 	return (char const *)(map->data + map->tag_data_offset + off);
+}
+
+static int32_t src_map_find_tag(struct forge_source_map const *map, uint32_t group_tag, char const *name)
+{
+	int32_t i;
+	if (!map || !map->data || !name)
+		return -1;
+	for (i = 0; i < map->tag_count; i++)
+	{
+		uint8_t const *inst = src_tag_instance(map, i);
+		char const *tname = src_tag_name(map, i);
+		if (inst && tname &&
+			forge_groups_compatible(read_u32(inst + 0x00), group_tag) &&
+			_stricmp(tname, name) == 0)
+		{
+			return i;
+		}
+	}
+	return -1;
 }
 
 /* ---------- 2D Blueprint Floorplan & Scenario Exporter ("Save Copy As...") */
@@ -827,30 +875,6 @@ static uint8_t *build_blueprint_bmp_buffer(
 	return img;
 }
 
-static int32_t src_map_find_tag(
-	struct forge_source_map const *map,
-	uint32_t group_tag,
-	char const *tag_path)
-{
-	int32_t i;
-	if (!map || !tag_path || !tag_path[0])
-		return -1;
-	for (i = 0; i < map->tag_count; i++)
-	{
-		uint8_t const *inst = src_tag_instance(map, i);
-		char const *name;
-		if (!inst)
-			continue;
-		if (group_tag != 0 && read_u32(inst + 0x00) != group_tag &&
-			read_u32(inst + 0x04) != group_tag && read_u32(inst + 0x08) != group_tag)
-			continue;
-		name = src_tag_name(map, i);
-		if (name && _stricmp(name, tag_path) == 0)
-			return i;
-	}
-	return -1;
-}
-
 static int32_t src_map_find_tag_or_variant(
 	struct forge_source_map const *map,
 	uint32_t group_tag,
@@ -1003,52 +1027,6 @@ static int16_t inplace_ensure_scenario_palette_entry(
 	return (int16_t)count;
 }
 
-static void cb_sanitize_cached_leaf(char const *tag_path, char *out_name, size_t out_sz)
-{
-	size_t i = 0, j = 0;
-	if (!out_name || out_sz == 0)
-		return;
-	for (i = 0; tag_path && tag_path[i] && j + 1 < out_sz; i++)
-	{
-		char c = tag_path[i];
-		if (c == '\\' || c == '/' || c == ' ' || c == ':')
-			out_name[j++] = '_';
-		else
-			out_name[j++] = c;
-	}
-	out_name[j] = 0;
-}
-
-static void cb_build_fcol_path(uint32_t group_tag, char const *tag_path, char *out_path, size_t out_sz)
-{
-	char sanitized[200];
-	char const *sub_dir = "misc";
-	if (group_tag == 'scen') sub_dir = "scenery";
-	else if (group_tag == 'vehi') sub_dir = "vehicles";
-	else if (group_tag == 'weap' || group_tag == 'eqip') sub_dir = "weapons";
-	else if (group_tag == 'bipd') sub_dir = "bipeds";
-	else if (group_tag == 'mach' || group_tag == 'ctrl' || group_tag == 'lifi') sub_dir = "devices";
-	cb_sanitize_cached_leaf(tag_path, sanitized, sizeof(sanitized));
-	snprintf(out_path, out_sz, "Faber_data/cached_tags/%s/%s.fcol", sub_dir, sanitized);
-}
-
-static void cb_build_fbtm_path(char const *bitm_tag_path, char *out_path, size_t out_sz)
-{
-	char sanitized[200];
-	cb_sanitize_cached_leaf(bitm_tag_path, sanitized, sizeof(sanitized));
-	snprintf(out_path, out_sz, "Faber_data/cached_tags/bitmaps/%s.fbtm", sanitized);
-}
-
-struct forge_pending_bake_part
-{
-	uint32_t vtx_count;
-	uint32_t idx_count;
-	uint32_t extra_vtx_rel_off;
-	uint32_t extra_idx_rel_off;
-	char shdr_path[128];
-	char bitm_path[128];
-};
-
 struct forge_pending_ocetags_gpart
 {
 	uint32_t tag_idx;
@@ -1064,13 +1042,10 @@ struct forge_pending_bake_obj
 {
 	uint32_t group_tag;
 	char tag_path[256];
-	float bounding_radius;
-	float u_scale;
-	float v_scale;
-	int part_count;
-	struct forge_pending_bake_part parts[32];
 	char *ocetags_json;
 	size_t ocetags_json_len;
+	long faber_profile_idx;
+	long faber_tag_idx;
 	char xbox_map_path[512];
 	int ocetags_gpart_count;
 	struct forge_pending_ocetags_gpart ocetags_gparts[256];
@@ -1143,6 +1118,57 @@ static void cb_sanitize_vertex_68(uint8_t *v)
 	write_s16(v + 0x3Au, 0);
 	write_f32(v + 0x3Cu, 1.0f);
 	write_f32(v + 0x40u, 0.0f);
+}
+
+static void cb_sanitize_faber_vertex_68(uint8_t *v, int32_t node_limit)
+{
+	float nx, ny, nz, bx, by, bz, tx, ty, tz;
+	int16_t n0, n1;
+	float w0, w1;
+
+	if (node_limit <= 0)
+		node_limit = 1;
+	nx = cb_clamp_unit_float(read_f32(v + 0x0Cu));
+	ny = cb_clamp_unit_float(read_f32(v + 0x10u));
+	nz = cb_clamp_unit_float(read_f32(v + 0x14u));
+	if (nx == 0.0f && ny == 0.0f && nz == 0.0f)
+		nz = 1.0f;
+	bx = cb_clamp_unit_float(read_f32(v + 0x18u));
+	by = cb_clamp_unit_float(read_f32(v + 0x1Cu));
+	bz = cb_clamp_unit_float(read_f32(v + 0x20u));
+	tx = cb_clamp_unit_float(read_f32(v + 0x24u));
+	ty = cb_clamp_unit_float(read_f32(v + 0x28u));
+	tz = cb_clamp_unit_float(read_f32(v + 0x2Cu));
+	write_f32(v + 0x0Cu, nx);
+	write_f32(v + 0x10u, ny);
+	write_f32(v + 0x14u, nz);
+	write_f32(v + 0x18u, bx);
+	write_f32(v + 0x1Cu, by);
+	write_f32(v + 0x20u, bz);
+	write_f32(v + 0x24u, tx);
+	write_f32(v + 0x28u, ty);
+	write_f32(v + 0x2Cu, tz);
+
+	n0 = read_s16(v + 0x38u);
+	n1 = read_s16(v + 0x3Au);
+	w0 = read_f32(v + 0x3Cu);
+	w1 = read_f32(v + 0x40u);
+	if (n0 < 0 || n0 >= node_limit)
+		n0 = 0;
+	if (n1 < 0 || n1 >= node_limit)
+	{
+		n1 = n0;
+		w0 = 1.0f;
+		w1 = 0.0f;
+	}
+	if (w0 != w0 || w0 < 0.0f || w0 > 1.0f)
+		w0 = 1.0f;
+	if (w1 != w1 || w1 < 0.0f || w1 > 1.0f)
+		w1 = 0.0f;
+	write_s16(v + 0x38u, n0);
+	write_s16(v + 0x3Au, n1);
+	write_f32(v + 0x3Cu, w0);
+	write_f32(v + 0x40u, w1);
 }
 
 static int32_t out_map_find_tag(
@@ -1223,230 +1249,6 @@ static int32_t out_map_alloc_tag_instance(
 	return idx;
 }
 
-static int32_t out_map_ensure_fbtm_bitmap_tag(
-	struct forge_byte_buf *out,
-	uint32_t tag_data_offset,
-	uint32_t scnr_off,
-	char const *bitm_path)
-{
-	int32_t existing;
-	char fbtm_disk[512];
-	FILE *bf;
-	uint32_t bmagic = 0, bver = 0, top_mip = 0;
-	uint16_t w = 0, h = 0, fmt = 0, bflags = 0;
-	uint32_t def_foff, bdata_foff, pix_foff;
-	uint32_t handle = 0, name_addr = 0;
-	int32_t new_idx;
-	uint16_t final_flags;
-
-	if (!bitm_path || !bitm_path[0])
-		return -1;
-
-	/* Prefer synthesized or native bitmap if already in out AND backed by local pixels or resource map */
-	cb_build_fbtm_path(bitm_path, fbtm_disk, sizeof(fbtm_disk));
-	bf = fopen(fbtm_disk, "rb");
-	existing = out_map_find_tag(out, tag_data_offset, 'bitm', bitm_path);
-	if (existing >= 0)
-	{
-		uint32_t io = tag_data_offset + 0x28u + (uint32_t)existing * 32u;
-		/* If it was already synthesized as an internal tag (in_resource_map == 0) or no .fbtm exists, reuse it */
-		if (read_u32(out->data + io + 0x18u) == 0u || !bf)
-		{
-			if (bf) fclose(bf);
-			return existing;
-		}
-	}
-	if (!bf)
-		return existing;
-
-	if (fread(&bmagic, 4, 1, bf) != 1 || bmagic != 0x4D544246u ||
-		fread(&bver, 4, 1, bf) != 1 || bver != 1u ||
-		fread(&w, 2, 1, bf) != 1 ||
-		fread(&h, 2, 1, bf) != 1 ||
-		fread(&fmt, 2, 1, bf) != 1 ||
-		fread(&bflags, 2, 1, bf) != 1 ||
-		fread(&top_mip, 4, 1, bf) != 1 ||
-		w == 0 || h == 0 || top_mip == 0 || top_mip > 16u * 1024u * 1024u)
-	{
-		fclose(bf);
-		return existing;
-	}
-
-	def_foff = buf_alloc(out, 0x6Cu, 4);
-	bdata_foff = buf_alloc(out, 0x30u, 4);
-	if (!def_foff || !bdata_foff || !out->data)
-	{
-		fclose(bf);
-		return existing;
-	}
-	{
-		uint8_t *tmp_pix = (uint8_t *)malloc(top_mip);
-		if (!tmp_pix || fread(tmp_pix, 1, top_mip, bf) != top_mip)
-		{
-			free(tmp_pix);
-			fclose(bf);
-			return existing;
-		}
-		fclose(bf);
-		cb_alloc_deferred_media(tmp_pix, top_mip, 32, bdata_foff + 0x18u);
-		free(tmp_pix);
-	}
-	pix_foff = 0u;
-
-	new_idx = out_map_alloc_tag_instance(
-		out, tag_data_offset, scnr_off,
-		'bitm', 0xFFFFFFFFu, 0xFFFFFFFFu,
-		bitm_path, def_foff, 0u,
-		&handle, &name_addr);
-	if (new_idx < 0)
-		return existing;
-
-	/* Populate bitmap_group (0x6C bytes) */
-	memset(out->data + def_foff, 0, 0x6Cu);
-	write_s32(out->data + def_foff + 0x60u, 1);
-	write_u32(out->data + def_foff + 0x64u, CE_TAG_BASE_ADDR + (bdata_foff - tag_data_offset));
-
-	/* Populate bitmap_data (0x30 bytes) with internal .map pixel offset */
-	final_flags = 0x0080u; /* _bitmap_cached_bit */
-	if ((w & (w - 1)) == 0 && (h & (h - 1)) == 0)
-		final_flags |= 0x0001u; /* _bitmap_has_power_of_two_dimensions_bit */
-	if (fmt >= 14 && fmt <= 16)
-		final_flags |= 0x0002u; /* _bitmap_compressed_bit */
-
-	memset(out->data + bdata_foff, 0, 0x30u);
-	write_u32(out->data + bdata_foff + 0x00u, 'bitm');
-	write_u16(out->data + bdata_foff + 0x04u, w);
-	write_u16(out->data + bdata_foff + 0x06u, h);
-	write_u16(out->data + bdata_foff + 0x08u, 1);
-	write_u16(out->data + bdata_foff + 0x0Au, 0);
-	write_u16(out->data + bdata_foff + 0x0Cu, fmt);
-	write_u16(out->data + bdata_foff + 0x0Eu, final_flags);
-	write_s16(out->data + bdata_foff + 0x14u, 0); /* mipmap_count = 0 */
-	write_u32(out->data + bdata_foff + 0x18u, pix_foff);
-	write_u32(out->data + bdata_foff + 0x1Cu, top_mip);
-	write_u32(out->data + bdata_foff + 0x20u, handle);
-	write_s16(out->data + bdata_foff + 0x24u, 0);
-	write_u32(out->data + bdata_foff + 0x28u, 0xFFFFFFFFu);
-
-	return new_idx;
-}
-
-static int32_t out_map_ensure_part_shader_tag(
-	struct forge_byte_buf *out,
-	uint32_t tag_data_offset,
-	uint32_t scnr_off,
-	char const *shdr_path,
-	char const *bitm_path)
-{
-	int32_t bitm_idx = -1;
-	int32_t shdr_idx = -1;
-	int32_t count, i;
-	uint32_t soso_foff, shdr_handle = 0, shdr_name_addr = 0;
-	char synth_shdr_name[256];
-
-	if (bitm_path && bitm_path[0])
-		bitm_idx = out_map_ensure_fbtm_bitmap_tag(out, tag_data_offset, scnr_off, bitm_path);
-
-	/* If no custom .fbtm was needed and the shader already exists in base_map, use it directly */
-	if (shdr_path && shdr_path[0])
-	{
-		static uint32_t const s_shdr_grps[] = { 'soso', 'senv', 'schi', 'scex', 'sgla', 'smet', 'spla', 'swat' };
-		size_t k;
-		for (k = 0; k < sizeof(s_shdr_grps) / sizeof(s_shdr_grps[0]); k++)
-		{
-			shdr_idx = out_map_find_tag(out, tag_data_offset, s_shdr_grps[k], shdr_path);
-			if (shdr_idx >= 0)
-			{
-				if (bitm_idx < 0 || read_u32(out->data + tag_data_offset + 0x28u + (uint32_t)bitm_idx * 32u + 0x18u) != 0u)
-					return shdr_idx;
-				break;
-			}
-		}
-	}
-
-	/* If no custom .fbtm was needed, reuse an existing model shader ('soso') in base_map */
-	count = read_s32(out->data + tag_data_offset + 0x0Cu);
-	if (bitm_idx < 0)
-	{
-		static char const *const s_fallback_soso[] = {
-			"vehicles\\warthog\\shaders\\warthog hull",
-			"characters\\cyborg\\shaders\\armor",
-			"vehicles\\ghost\\shaders\\ghost_hull",
-			"weapons\\assault rifle\\fp\\shaders\\metal"
-		};
-		size_t k;
-		for (k = 0; k < sizeof(s_fallback_soso) / sizeof(s_fallback_soso[0]); k++)
-		{
-			shdr_idx = out_map_find_tag(out, tag_data_offset, 'soso', s_fallback_soso[k]);
-			if (shdr_idx >= 0)
-				return shdr_idx;
-		}
-		for (i = 0; i < count; i++)
-		{
-			if (read_u32(out->data + tag_data_offset + 0x28u + (uint32_t)i * 32u) == 'soso')
-				return i;
-		}
-		return -1;
-	}
-
-	snprintf(synth_shdr_name, sizeof(synth_shdr_name), "forge_baked\\shaders\\%s",
-		(shdr_path && shdr_path[0]) ? shdr_path : (bitm_path ? bitm_path : "default"));
-	shdr_idx = out_map_find_tag(out, tag_data_offset, 'soso', synth_shdr_name);
-	if (shdr_idx >= 0)
-		return shdr_idx;
-
-	soso_foff = buf_alloc(out, 0x1B8u, 4);
-	if (!soso_foff || !out->data)
-		return -1;
-	memset(out->data + soso_foff, 0, 0x1B8u);
-
-	/* Copy baseline scalar properties from an existing 'soso' tag in base_map */
-	for (i = 0; i < count; i++)
-	{
-		uint32_t io = tag_data_offset + 0x28u + (uint32_t)i * 32u;
-		if (read_u32(out->data + io) == 'soso')
-		{
-			uint32_t daddr = read_u32(out->data + io + 0x14u);
-			if (daddr >= CE_TAG_BASE_ADDR && tag_data_offset + (daddr - CE_TAG_BASE_ADDR) + 0x1B8u <= out->size)
-			{
-				memcpy(out->data + soso_foff, out->data + tag_data_offset + (daddr - CE_TAG_BASE_ADDR), 0x1B8u);
-				break;
-			}
-		}
-	}
-
-	/* Clear all secondary tag_references in shader_model so only base_map (+0xA4) is active */
-	{
-		static uint32_t const s_ref_offs[] = { 0xA4u, 0xBCu, 0xDCu, 0x164u };
-		size_t k;
-		for (k = 0; k < sizeof(s_ref_offs) / sizeof(s_ref_offs[0]); k++)
-		{
-			uint32_t ro = soso_foff + s_ref_offs[k];
-			write_u32(out->data + ro + 0x00u, 0xFFFFFFFFu);
-			write_u32(out->data + ro + 0x04u, 0u);
-			write_u32(out->data + ro + 0x08u, 0u);
-			write_u32(out->data + ro + 0x0Cu, 0xFFFFFFFFu);
-		}
-	}
-
-	/* Bind bitm_idx to shader_model.maps.base_map (+0xA4) */
-	{
-		uint32_t bio = tag_data_offset + 0x28u + (uint32_t)bitm_idx * 32u;
-		uint32_t b_handle = read_u32(out->data + bio + 0x0Cu);
-		uint32_t b_name_addr = read_u32(out->data + bio + 0x10u);
-		write_u32(out->data + soso_foff + 0xA4u + 0x00u, 'bitm');
-		write_u32(out->data + soso_foff + 0xA4u + 0x04u, b_name_addr);
-		write_u32(out->data + soso_foff + 0xA4u + 0x08u, 0u);
-		write_u32(out->data + soso_foff + 0xA4u + 0x0Cu, b_handle);
-	}
-
-	return out_map_alloc_tag_instance(
-		out, tag_data_offset, scnr_off,
-		'soso', 'shdr', 0xFFFFFFFFu,
-		synth_shdr_name, soso_foff, 0u,
-		&shdr_handle, &shdr_name_addr);
-}
-
 static void out_map_init_schema_null_refs(
 	struct forge_byte_buf *out,
 	uint32_t tag_data_offset,
@@ -1516,242 +1318,6 @@ static void out_map_init_schema_null_refs(
 			}
 		}
 	}
-}
-
-static int32_t out_map_bake_collision_from_fcol(
-	struct forge_byte_buf *out,
-	uint32_t tag_data_offset,
-	uint32_t scnr_off,
-	uint32_t group_tag,
-	char const *tag_path,
-	uint8_t *out_offsets_24,
-	int32_t *out_mnode_count,
-	uint32_t *out_mnodes_foff)
-{
-	static uint32_t const s_bsp_strides[8] = { 12u, 16u, 8u, 8u, 20u, 12u, 24u, 16u };
-	char fcol_disk[512];
-	FILE *cf;
-	char magic[4];
-	uint32_t ver = 0;
-	uint8_t pf_box[24];
-	int32_t mnode_count = 0, cnode_count = 0, n;
-	uint32_t mnodes_foff, cnodes_foff, coll_foff, mat_foff, reg_foff;
-	char coll_name[256];
-
-	if (out_mnode_count) *out_mnode_count = 0;
-	if (out_mnodes_foff) *out_mnodes_foff = 0;
-	cb_build_fcol_path(group_tag, tag_path, fcol_disk, sizeof(fcol_disk));
-	cf = fopen(fcol_disk, "rb");
-	if (!cf)
-		return -1;
-
-	if (fread(magic, 1, 4, cf) != 4 || memcmp(magic, "FCOL", 4) != 0 ||
-		fread(&ver, 4, 1, cf) != 1 || ver != 1 ||
-		fread(out_offsets_24, 1, 24, cf) != 24 ||
-		fread(pf_box, 1, 24, cf) != 24 ||
-		fread(&mnode_count, 4, 1, cf) != 1 ||
-		mnode_count <= 0 || mnode_count > 64)
-	{
-		fclose(cf);
-		return -1;
-	}
-
-	mnodes_foff = buf_alloc(out, (uint32_t)mnode_count * 156u, 4);
-	if (!mnodes_foff || !out->data ||
-		fread(out->data + mnodes_foff, 156, (size_t)mnode_count, cf) != (size_t)mnode_count ||
-		fread(&cnode_count, 4, 1, cf) != 1 ||
-		cnode_count <= 0 || cnode_count > 64)
-	{
-		fclose(cf);
-		return -1;
-	}
-
-	/* Ensure every model_node has a valid unit quaternion and non-zero runtime_default_inverse_matrix */
-	for (n = 0; n < mnode_count; n++)
-	{
-		uint32_t mn_foff = mnodes_foff + (uint32_t)n * 156u;
-		float inv_scale = read_f32(out->data + mn_foff + 0x68u);
-		float qi = read_f32(out->data + mn_foff + 0x34u);
-		float qj = read_f32(out->data + mn_foff + 0x38u);
-		float qk = read_f32(out->data + mn_foff + 0x3Cu);
-		float qw = read_f32(out->data + mn_foff + 0x40u);
-		if (qi * qi + qj * qj + qk * qk + qw * qw < 0.01f || (qk == -1.0f && qw == 0.0f))
-		{
-			write_f32(out->data + mn_foff + 0x34u, 0.0f);
-			write_f32(out->data + mn_foff + 0x38u, 0.0f);
-			write_f32(out->data + mn_foff + 0x3Cu, 0.0f);
-			write_f32(out->data + mn_foff + 0x40u, 1.0f);
-		}
-		if (!(inv_scale > 0.01f && inv_scale < 100.0f))
-		{
-			memset(out->data + mn_foff + 0x68u, 0, 52u);
-			write_f32(out->data + mn_foff + 0x68u, 1.0f);
-			write_f32(out->data + mn_foff + 0x6Cu, 1.0f);
-			write_f32(out->data + mn_foff + 0x7Cu, 1.0f);
-			write_f32(out->data + mn_foff + 0x8Cu, 1.0f);
-		}
-	}
-	{
-		int pf_i;
-		for (pf_i = 0; pf_i < 6; pf_i++)
-		{
-			float pfv = read_f32(pf_box + (uint32_t)pf_i * 4u);
-			if (!(pfv >= -500.0f && pfv <= 500.0f))
-				write_f32(pf_box + (uint32_t)pf_i * 4u, (pf_i & 1) ? 2.5f : -2.5f);
-		}
-	}
-
-	cnodes_foff = buf_alloc(out, (uint32_t)cnode_count * 64u, 4);
-	if (!cnodes_foff || !out->data ||
-		fread(out->data + cnodes_foff, 64, (size_t)cnode_count, cf) != (size_t)cnode_count)
-	{
-		fclose(cf);
-		return -1;
-	}
-
-	for (n = 0; n < cnode_count; n++)
-	{
-		uint32_t cn_foff = cnodes_foff + (uint32_t)n * 64u;
-		int32_t has_bsp = 0;
-		int16_t reg_idx = read_s16(out->data + cn_foff + 0x20u);
-		if (reg_idx != -1 && (reg_idx < 0 || reg_idx >= 8))
-			write_s16(out->data + cn_foff + 0x20u, 0);
-		write_s16(out->data + cn_foff + 0x32u, -1);
-
-		if (fread(&has_bsp, 4, 1, cf) != 1)
-		{
-			write_s32(out->data + cn_foff + 0x34u, 0);
-			write_u32(out->data + cn_foff + 0x38u, 0u);
-			write_u32(out->data + cn_foff + 0x3Cu, 0u);
-			break;
-		}
-		if (has_bsp)
-		{
-			int32_t counts[8] = { 0 };
-			uint32_t bsp_foff = buf_alloc(out, 96u, 4);
-			int b, b_ok = 1;
-			if (!bsp_foff || !out->data || fread(counts, 4, 8, cf) != 8)
-			{
-				write_s32(out->data + cn_foff + 0x34u, 0);
-				write_u32(out->data + cn_foff + 0x38u, 0u);
-				write_u32(out->data + cn_foff + 0x3Cu, 0u);
-				break;
-			}
-			memset(out->data + bsp_foff, 0, 96u);
-			for (b = 0; b < 8; b++)
-			{
-				uint32_t blk_foff = 0;
-				if (counts[b] < 0 || counts[b] > 65536) { b_ok = 0; break; }
-				if (counts[b] > 0)
-				{
-					blk_foff = buf_alloc(out, (uint32_t)counts[b] * s_bsp_strides[b], 4);
-					if (!blk_foff || !out->data ||
-						fread(out->data + blk_foff, s_bsp_strides[b], (size_t)counts[b], cf) != (size_t)counts[b])
-					{
-						b_ok = 0;
-						break;
-					}
-					if (b == 5)
-					{
-						int32_t s;
-						for (s = 0; s < counts[b]; s++)
-						{
-							uint32_t sf = blk_foff + (uint32_t)s * 12u;
-							out->data[sf + 0x09u] = 0xFFu;
-							write_s16(out->data + sf + 0x0Au, 0);
-						}
-					}
-					else if (b == 7)
-					{
-						int32_t v_idx, c_idx;
-						for (v_idx = 0; v_idx < counts[b]; v_idx++)
-						{
-							uint32_t cv = blk_foff + (uint32_t)v_idx * 16u;
-							for (c_idx = 0; c_idx < 3; c_idx++)
-							{
-								float val = read_f32(out->data + cv + (uint32_t)c_idx * 4u);
-								if (!(val >= -500.0f && val <= 500.0f))
-								{
-									uint32_t raw_bits = read_u32(out->data + cv + (uint32_t)c_idx * 4u);
-									uint32_t fixed_bits = raw_bits - 0x0BDEA5CEu;
-									float fixed_val = 0.0f;
-									if (fixed_bits >= 0x40440000u && fixed_bits <= 0x41B40000u)
-										memcpy(&fixed_val, &fixed_bits, 4);
-									write_f32(out->data + cv + (uint32_t)c_idx * 4u, fixed_val);
-								}
-							}
-						}
-					}
-				}
-				write_s32(out->data + bsp_foff + (uint32_t)b * 12u + 0u, counts[b]);
-				write_u32(out->data + bsp_foff + (uint32_t)b * 12u + 4u,
-					blk_foff ? (CE_TAG_BASE_ADDR + (blk_foff - tag_data_offset)) : 0u);
-				write_u32(out->data + bsp_foff + (uint32_t)b * 12u + 8u, 0u);
-			}
-			if (b_ok)
-			{
-				write_s32(out->data + cn_foff + 0x34u, 1);
-				write_u32(out->data + cn_foff + 0x38u, CE_TAG_BASE_ADDR + (bsp_foff - tag_data_offset));
-				write_u32(out->data + cn_foff + 0x3Cu, 0u);
-			}
-			else
-			{
-				write_s32(out->data + cn_foff + 0x34u, 0);
-				write_u32(out->data + cn_foff + 0x38u, 0u);
-				write_u32(out->data + cn_foff + 0x3Cu, 0u);
-			}
-		}
-		else
-		{
-			write_s32(out->data + cn_foff + 0x34u, 0);
-			write_u32(out->data + cn_foff + 0x38u, 0u);
-			write_u32(out->data + cn_foff + 0x3Cu, 0u);
-		}
-	}
-	fclose(cf);
-
-	coll_foff = buf_alloc(out, 0x298u, 4);
-	mat_foff = buf_alloc(out, 0x48u, 4);
-	reg_foff = buf_alloc(out, 8u * 0x68u, 4);
-	if (!coll_foff || !mat_foff || !reg_foff || !out->data)
-		return -1;
-
-	memset(out->data + coll_foff, 0, 0x298u);
-	memset(out->data + mat_foff, 0, 0x48u);
-	memset(out->data + reg_foff, 0, 8u * 0x68u);
-
-	snprintf((char *)(out->data + mat_foff), 32, "default");
-	write_f32(out->data + mat_foff + 0x28u, 1.0f);
-	write_f32(out->data + mat_foff + 0x3Cu, 1.0f);
-	{
-		int r_idx;
-		for (r_idx = 0; r_idx < 8; r_idx++)
-		{
-			snprintf((char *)(out->data + reg_foff + (uint32_t)r_idx * 0x54u), 32, "default");
-		}
-	}
-	write_s32(out->data + coll_foff + 0x234u, 1);
-	write_u32(out->data + coll_foff + 0x238u, CE_TAG_BASE_ADDR + (mat_foff - tag_data_offset));
-	write_s32(out->data + coll_foff + 0x240u, 8);
-	write_u32(out->data + coll_foff + 0x244u, CE_TAG_BASE_ADDR + (reg_foff - tag_data_offset));
-	memcpy(out->data + coll_foff + 0x268u, pf_box, 24);
-	write_s32(out->data + coll_foff + 0x28Cu, cnode_count);
-	write_u32(out->data + coll_foff + 0x290u, CE_TAG_BASE_ADDR + (cnodes_foff - tag_data_offset));
-	{
-		struct tag_schema_group const *coll_schema = forge_schema_group_get('coll');
-		if (coll_schema && coll_schema->definition)
-			out_map_init_schema_null_refs(out, tag_data_offset, coll_schema->definition, coll_foff, 1);
-	}
-
-	if (out_mnode_count) *out_mnode_count = mnode_count;
-	if (out_mnodes_foff) *out_mnodes_foff = mnodes_foff;
-
-	snprintf(coll_name, sizeof(coll_name), "%s_baked_coll", tag_path);
-	return out_map_alloc_tag_instance(
-		out, tag_data_offset, scnr_off,
-		'coll', 0xFFFFFFFFu, 0xFFFFFFFFu,
-		coll_name, coll_foff, 0u,
-		NULL, NULL);
 }
 
 static void out_map_clone_schema_blocks(
@@ -2154,15 +1720,12 @@ static int cb_load_matching_ocetags_json(
 	char **out_json,
 	size_t *out_json_len)
 {
-#ifdef _WIN32
 	static char const *const s_dirs[] = {
 		"OpenCE Forge/custom_tags",
-		"OpenCE Forge/cached_tags",
-		"Faber_data/custom_tags",
 		"custom_tags",
-		"Faber_data/ocetags",
-		"Faber_data/cached_tags",
-		"Faber_data",
+		"OpenCE Forge/ocetags",
+		"OpenCE Forge/cached_tags",
+		"OpenCE Forge",
 		"ocetags",
 		"custom_maps",
 		"maps",
@@ -2180,19 +1743,19 @@ static int cb_load_matching_ocetags_json(
 	for (d = 0; d < (int)(sizeof(s_dirs) / sizeof(s_dirs[0])); d++)
 	{
 		char pattern[512];
-		struct _finddata_t fd;
-		intptr_t h;
+		WIN32_FIND_DATAA fd;
+		HANDLE h;
 		snprintf(pattern, sizeof(pattern), "%s/*.ocetags", s_dirs[d]);
-		h = _findfirst(pattern, &fd);
-		if (h != -1)
+		h = FindFirstFileA(pattern, &fd);
+		if (h != INVALID_HANDLE_VALUE)
 		{
 			do
 			{
-				if (!(fd.attrib & _A_SUBDIR))
+				if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
 				{
 					char full_path[512];
 					FILE *fp;
-					snprintf(full_path, sizeof(full_path), "%s/%s", s_dirs[d], fd.name);
+					snprintf(full_path, sizeof(full_path), "%s/%s", s_dirs[d], fd.cFileName);
 					fp = fopen(full_path, "rb");
 					if (fp)
 					{
@@ -2200,93 +1763,40 @@ static int cb_load_matching_ocetags_json(
 						fseek(fp, 0, SEEK_END);
 						fsz = ftell(fp);
 						fseek(fp, 0, SEEK_SET);
-						if (fsz > 16 && fsz <= 128 * 1024 * 1024)
+						if (fsz > 32 && fsz <= 128 * 1024 * 1024)
 						{
-							uint8_t magic_hdr[8];
-							size_t mn = fread(magic_hdr, 1, 8, fp);
-							fseek(fp, 0, SEEK_SET);
-							if (mn == 8 && *(uint32_t const *)magic_hdr == 0x5A45434Fu)
+							char peek[8193];
+							size_t pn = fread(peek, 1, 8192, fp);
+							peek[pn] = 0;
+							if (strstr(peek, "\"formatVersion\"") != NULL)
 							{
-								uint32_t uncomp_sz = *(uint32_t const *)(magic_hdr + 4);
-								if (uncomp_sz > 32u && uncomp_sz <= 256u * 1024u * 1024u)
+								size_t t_pos = 0;
+								if (cb_ocetags_find_key_range(peek, 0, pn, "tags", &t_pos))
 								{
-									uint8_t *comp_buf = (uint8_t *)malloc((size_t)fsz);
-									char *jbuf = (char *)malloc((size_t)uncomp_sz + 1u);
-									if (comp_buf && jbuf && fread(comp_buf, 1, (size_t)fsz, fp) == (size_t)fsz)
+									size_t p = t_pos + 1;
+									while (p < pn && peek[p] != '{') p++;
+									if (p < pn)
 									{
-										uLongf dst_len = (uLongf)uncomp_sz;
-										if (uncompress((Bytef *)jbuf, &dst_len, (Bytef const *)(comp_buf + 8), (uLong)((size_t)fsz - 8u)) == Z_OK)
+										char gstr[64], pstr[256];
+										gstr[0] = 0;
+										pstr[0] = 0;
+										cb_ocetags_get_str(peek, p, pn, "group", gstr, sizeof(gstr));
+										cb_ocetags_get_str(peek, p, pn, "path", pstr, sizeof(pstr));
+										if (cb_ocetags_group_str_to_fourcc(gstr) == req_group &&
+											_stricmp(pstr, req_path) == 0)
 										{
-											size_t pn = (dst_len < 8192u) ? (size_t)dst_len : 8192u;
-											jbuf[dst_len] = 0;
-											if (strstr(jbuf, "\"formatVersion\"") != NULL)
+											char *jbuf = (char *)malloc((size_t)fsz + 1u);
+											fseek(fp, 0, SEEK_SET);
+											if (jbuf && fread(jbuf, 1, (size_t)fsz, fp) == (size_t)fsz)
 											{
-												size_t t_pos = 0;
-												if (cb_ocetags_find_key_range(jbuf, 0, pn, "tags", &t_pos))
-												{
-													size_t p = t_pos + 1;
-													while (p < pn && jbuf[p] != '{') p++;
-													if (p < pn)
-													{
-														char gstr[64], pstr[256];
-														gstr[0] = 0;
-														pstr[0] = 0;
-														cb_ocetags_get_str(jbuf, p, pn, "group", gstr, sizeof(gstr));
-														cb_ocetags_get_str(jbuf, p, pn, "path", pstr, sizeof(pstr));
-														if (cb_ocetags_group_str_to_fourcc(gstr) == req_group &&
-															_stricmp(pstr, req_path) == 0)
-														{
-															free(comp_buf);
-															fclose(fp);
-															_findclose(h);
-															if (out_json) *out_json = jbuf;
-															if (out_json_len) *out_json_len = (size_t)dst_len;
-															return 1;
-														}
-													}
-												}
+												jbuf[fsz] = 0;
+												fclose(fp);
+												CloseHandle(h);
+												if (out_json) *out_json = jbuf;
+												if (out_json_len) *out_json_len = (size_t)fsz;
+												return 1;
 											}
-										}
-									}
-									free(comp_buf);
-									free(jbuf);
-								}
-							}
-							else if (fsz > 32)
-							{
-								char peek[8193];
-								size_t pn = fread(peek, 1, 8192, fp);
-								peek[pn] = 0;
-								if (strstr(peek, "\"formatVersion\"") != NULL)
-								{
-									size_t t_pos = 0;
-									if (cb_ocetags_find_key_range(peek, 0, pn, "tags", &t_pos))
-									{
-										size_t p = t_pos + 1;
-										while (p < pn && peek[p] != '{') p++;
-										if (p < pn)
-										{
-											char gstr[64], pstr[256];
-											gstr[0] = 0;
-											pstr[0] = 0;
-											cb_ocetags_get_str(peek, p, pn, "group", gstr, sizeof(gstr));
-											cb_ocetags_get_str(peek, p, pn, "path", pstr, sizeof(pstr));
-											if (cb_ocetags_group_str_to_fourcc(gstr) == req_group &&
-												_stricmp(pstr, req_path) == 0)
-											{
-												char *jbuf = (char *)malloc((size_t)fsz + 1u);
-												fseek(fp, 0, SEEK_SET);
-												if (jbuf && fread(jbuf, 1, (size_t)fsz, fp) == (size_t)fsz)
-												{
-													jbuf[fsz] = 0;
-													fclose(fp);
-													_findclose(h);
-													if (out_json) *out_json = jbuf;
-													if (out_json_len) *out_json_len = (size_t)fsz;
-													return 1;
-												}
-												free(jbuf);
-											}
+											free(jbuf);
 										}
 									}
 								}
@@ -2295,16 +1805,10 @@ static int cb_load_matching_ocetags_json(
 						fclose(fp);
 					}
 				}
-			} while (_findnext(h, &fd) == 0);
-			_findclose(h);
+			} while (FindNextFileA(h, &fd));
+			CloseHandle(h);
 		}
 	}
-#else
-	(void)req_group;
-	(void)req_path;
-	if (out_json) *out_json = NULL;
-	if (out_json_len) *out_json_len = 0;
-#endif
 	return 0;
 }
 
@@ -2848,6 +2352,47 @@ static int32_t out_map_bake_ocetags_package(
 				}
 			}
 			write_u32(out->data + pt->def_foff + 0x00u, read_u32(out->data + pt->def_foff + 0x00u) & ~0x02u); /* clear _gbxmodel_parts_have_local_nodes_bit */
+			write_f32(out->data + pt->def_foff + 0x08u, 0.0f); /* super_low detail_cutoff_pixels[0] = 0.0f */
+			{
+				int32_t reg_cnt = read_s32(out->data + pt->def_foff + 0xC4u);
+				uint32_t reg_addr = read_u32(out->data + pt->def_foff + 0xC8u);
+				int r_idx, pm_idx, lv;
+				if (reg_cnt > 0 && reg_cnt <= 32 && reg_addr >= CE_TAG_BASE_ADDR && geom_cnt > 0)
+				{
+					uint32_t reg_base = tag_data_offset + (reg_addr - CE_TAG_BASE_ADDR);
+					for (r_idx = 0; r_idx < reg_cnt; r_idx++)
+					{
+						uint32_t r_foff = reg_base + (uint32_t)r_idx * 76u;
+						int32_t pm_cnt = read_s32(out->data + r_foff + 0x40u);
+						uint32_t pm_addr = read_u32(out->data + r_foff + 0x44u);
+						if (pm_cnt <= 0 || pm_cnt > 32 || pm_addr < CE_TAG_BASE_ADDR)
+							continue;
+						for (pm_idx = 0; pm_idx < pm_cnt; pm_idx++)
+						{
+							uint32_t pm_foff = tag_data_offset + (pm_addr - CE_TAG_BASE_ADDR) + (uint32_t)pm_idx * 88u;
+							int16_t best_g = -1;
+							for (lv = 4; lv >= 0; lv--)
+							{
+								int16_t gi = read_s16(out->data + pm_foff + 0x40u + (uint32_t)lv * 2u);
+								if (gi >= 0 && gi < (int16_t)geom_cnt)
+								{
+									best_g = gi;
+									break;
+								}
+							}
+							if (best_g >= 0)
+							{
+								for (lv = 0; lv < 5; lv++)
+								{
+									int16_t gi = read_s16(out->data + pm_foff + 0x40u + (uint32_t)lv * 2u);
+									if (gi < 0 || gi >= (int16_t)geom_cnt)
+										write_s16(out->data + pm_foff + 0x40u + (uint32_t)lv * 2u, best_g);
+								}
+							}
+						}
+					}
+				}
+			}
 		}
 		else if (pt->fourcc == 'coll' && pt->raw_len >= 0x298u)
 		{
@@ -2907,6 +2452,13 @@ static int32_t out_map_bake_ocetags_package(
 					}
 				}
 			}
+		}
+		else if ((pt->fourcc == 'scen' || pt->fourcc == 'lifi' || pt->fourcc == 'mach') && pt->raw_len >= 0x17Cu)
+		{
+			if (read_f32(out->data + pt->def_foff + 0x04u) < 1.5f)
+				write_f32(out->data + pt->def_foff + 0x04u, 1.5f);
+			if (read_f32(out->data + pt->def_foff + 0x104u) < 8.0f)
+				write_f32(out->data + pt->def_foff + 0x104u, 8.0f);
 		}
 		else if (pt->fourcc == 'vehi' && pt->raw_len >= 0x3F0u)
 		{
@@ -2970,6 +2522,828 @@ struct cb_xbox_bake_tag
 	int is_reused_existing;
 };
 
+struct cb_faber_bake_tag
+{
+	uint32_t fourcc;
+	uint32_t p0;
+	uint32_t p1;
+	uint32_t root_off;
+	uint32_t root_sz;
+	char name[256];
+	uint32_t def_foff;
+	int32_t baked_tag_idx;
+	uint32_t baked_handle;
+	uint32_t baked_name_addr;
+};
+
+static int cb_find_faber_vault_bundle_for_tag(
+	uint32_t req_group,
+	char const *req_path,
+	long *out_profile,
+	long *out_tag)
+{
+	long pcount, p, tcount, t;
+
+	if (out_profile) *out_profile = -1;
+	if (out_tag) *out_tag = -1;
+	if (!req_path || !req_path[0])
+		return 0;
+
+	pcount = port_tag_profiles_count();
+	if (pcount <= 0)
+	{
+		port_tag_profiles_scan();
+		pcount = port_tag_profiles_count();
+	}
+	for (p = 0; p < pcount; p++)
+	{
+		tcount = port_tag_profiles_tag_count(p);
+		for (t = 0; t < tcount; t++)
+		{
+			uint32_t tgrp = (uint32_t)port_tag_profiles_tag_group(p, t);
+			char const *tnm = port_tag_profiles_tag_name(p, t);
+			if (tnm && tnm[0] && forge_groups_compatible(tgrp, req_group) &&
+				_stricmp(tnm, req_path) == 0)
+			{
+				if (out_profile) *out_profile = p;
+				if (out_tag) *out_tag = t;
+				return 1;
+			}
+		}
+	}
+	return 0;
+}
+
+static void cb_prescan_faber_vault_models(
+	long prof_idx,
+	long tag_idx,
+	struct forge_pending_bake_obj *pobj,
+	struct forge_byte_buf *extra_verts,
+	struct forge_byte_buf *extra_strips)
+{
+	unsigned long bundle_size = 0;
+	long b_handle = -1;
+	uint8_t header_bytes[TAG_BUNDLE_HEADER_BYTES];
+	uint32_t tags_size = 0;
+	uint8_t *bundle_bytes = NULL;
+	struct tag_bundle_loaded loaded;
+	int32_t ti;
+
+	if (!pobj || !extra_verts || !extra_strips || prof_idx < 0 || tag_idx < 0)
+		return;
+	b_handle = port_tag_profiles_bundle_open(prof_idx, tag_idx, &bundle_size);
+	if (b_handle < 0 || bundle_size < TAG_BUNDLE_HEADER_BYTES)
+	{
+		if (b_handle >= 0) port_tag_profiles_bundle_close(b_handle);
+		return;
+	}
+	if (!port_tag_profiles_bundle_read_at(b_handle, 0, header_bytes, TAG_BUNDLE_HEADER_BYTES))
+	{
+		port_tag_profiles_bundle_close(b_handle);
+		return;
+	}
+	tags_size = tag_bundle_file_data_offset(header_bytes);
+	if (!tags_size || tags_size > bundle_size)
+	{
+		port_tag_profiles_bundle_close(b_handle);
+		return;
+	}
+	bundle_bytes = (uint8_t *)malloc(tags_size);
+	if (!bundle_bytes || !port_tag_profiles_bundle_read_at(b_handle, 0, bundle_bytes, tags_size))
+	{
+		free(bundle_bytes);
+		port_tag_profiles_bundle_close(b_handle);
+		return;
+	}
+	memset(&loaded, 0, sizeof(loaded));
+	if (tag_bundle_load_tags(bundle_bytes, tags_size, (uint32_t)bundle_size, &loaded) != _tag_bundle_status_ok)
+	{
+		free(bundle_bytes);
+		port_tag_profiles_bundle_close(b_handle);
+		return;
+	}
+
+	for (ti = 0; ti < loaded.tag_count; ti++)
+	{
+		uint8_t const *ti_rec = loaded.tags + (uint32_t)ti * 32u;
+		uint32_t grp = read_u32(ti_rec + 0u);
+		uint32_t root_off = read_u32(ti_rec + 16u);
+		uint32_t root_sz = read_u32(ti_rec + 20u);
+
+		if (grp == 'mod2' && root_sz >= 0xE8u && root_off + 0xE8u <= loaded.data_size)
+		{
+			uint8_t const *mod2 = loaded.data + root_off;
+			uint32_t mod2_flags = read_u32(mod2 + 0x00u);
+			int local_nodes = (mod2_flags & 2u) != 0;
+			int32_t mnode_cnt = *(int32_t const *)(mod2 + 0xB8u);
+			int32_t geom_cnt = *(int32_t const *)(mod2 + 0xD0u);
+			uint8_t const *geom_ptr = *(uint8_t *const *)(mod2 + 0xD4u);
+			int32_t g_idx;
+
+			if (geom_cnt > 0 && geom_ptr >= loaded.data &&
+				geom_ptr + (uint64_t)(uint32_t)geom_cnt * 48u <= loaded.data + loaded.data_size)
+			{
+				for (g_idx = 0; g_idx < geom_cnt; g_idx++)
+				{
+					uint8_t const *geom = geom_ptr + (uint32_t)g_idx * 48u;
+					int32_t part_cnt = *(int32_t const *)(geom + 0x24u);
+					uint8_t const *part_ptr = *(uint8_t *const *)(geom + 0x28u);
+					int32_t p_idx;
+
+					if (part_cnt > 0 && part_ptr >= loaded.data &&
+						part_ptr + (uint64_t)(uint32_t)part_cnt * 132u <= loaded.data + loaded.data_size)
+					{
+						for (p_idx = 0; p_idx < part_cnt && pobj->ocetags_gpart_count < 256; p_idx++)
+						{
+							uint8_t const *part = part_ptr + (uint32_t)p_idx * 132u;
+							int32_t tri_cnt = read_s32(part + 0x48u);
+							uint32_t strip_off = read_u32(part + 0x4Cu);
+							int32_t vtx_cnt = read_s32(part + 0x58u);
+							uint32_t vtx_off = read_u32(part + 0x64u);
+							int32_t node_limit = local_nodes ? (int32_t)part[0x67u] : mnode_cnt;
+
+							if (node_limit <= 0)
+								node_limit = 1;
+							if (vtx_cnt > 0 && tri_cnt > 0)
+							{
+								uint32_t vc = (uint32_t)vtx_cnt;
+								uint32_t ic = (uint32_t)tri_cnt + 2u;
+								uint32_t v_bytes = vc * 68u;
+								uint32_t i_bytes = ic * 2u;
+
+								if ((uint64_t)vtx_off + v_bytes <= loaded.file_data_size &&
+									(uint64_t)strip_off + i_bytes <= loaded.file_data_size)
+								{
+									uint32_t v_rel = buf_alloc(extra_verts, v_bytes, 4);
+									uint32_t i_rel = buf_alloc(extra_strips, (ic + 2u) * 2u, 4);
+									if (extra_verts->data && extra_strips->data &&
+										port_tag_profiles_bundle_read_at(b_handle, loaded.file_data_offset + vtx_off, extra_verts->data + v_rel, v_bytes) &&
+										port_tag_profiles_bundle_read_at(b_handle, loaded.file_data_offset + strip_off, extra_strips->data + i_rel, i_bytes))
+									{
+										uint32_t k;
+										struct forge_pending_ocetags_gpart *ogp =
+											&pobj->ocetags_gparts[pobj->ocetags_gpart_count++];
+										for (k = 0; k < vc; k++)
+											cb_sanitize_faber_vertex_68(extra_verts->data + v_rel + k * 68u, node_limit);
+										for (k = 0; k < ic; k++)
+										{
+											uint16_t idx_val = read_u16(extra_strips->data + i_rel + k * 2u);
+											if (idx_val >= vc)
+											{
+												uint16_t safe_val = (k > 0) ? read_u16(extra_strips->data + i_rel + (k - 1u) * 2u) : 0u;
+												if (safe_val >= vc) safe_val = 0u;
+												write_u16(extra_strips->data + i_rel + k * 2u, safe_val);
+											}
+										}
+										write_u16(extra_strips->data + i_rel + ic * 2u, 0xFFFFu);
+										write_u16(extra_strips->data + i_rel + (ic + 1u) * 2u, 0xFFFFu);
+										ogp->tag_idx = (uint32_t)ti;
+										ogp->geom_idx = (uint32_t)g_idx;
+										ogp->part_idx = (uint32_t)p_idx;
+										ogp->vtx_count = vc;
+										ogp->idx_count = ic;
+										ogp->extra_vtx_rel_off = v_rel;
+										ogp->extra_idx_rel_off = i_rel;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	free(bundle_bytes);
+	port_tag_profiles_bundle_close(b_handle);
+}
+
+static void cb_faber_rebase_and_link_schema(
+	struct forge_byte_buf *out,
+	uint32_t tag_data_offset,
+	struct tag_bundle_loaded const *loaded,
+	uint32_t bundle_data_foff,
+	struct tag_schema_definition const *def,
+	uint32_t elem_rel_off,
+	int32_t elem_count,
+	struct cb_faber_bake_tag const *fb_tags,
+	int32_t fb_tag_count,
+	int depth)
+{
+	int32_t e;
+	struct tag_schema_field const *field;
+	uint32_t elem_size;
+
+	if (!out || !out->data || !loaded || !loaded->data || !def || !def->fields ||
+		elem_count <= 0 || def->size <= 0 || depth > 24)
+		return;
+
+	elem_size = (uint32_t)def->size;
+	for (e = 0; e < elem_count; e++)
+	{
+		uint32_t base_rel_off = elem_rel_off + (uint32_t)e * elem_size;
+		uint32_t base_foff = bundle_data_foff + base_rel_off;
+		if ((uint64_t)base_rel_off + elem_size > loaded->data_size ||
+			(uint64_t)base_foff + elem_size > out->size)
+			break;
+
+		for (field = def->fields; field->type != _tag_schema_terminator; field++)
+		{
+			int16_t k;
+			int16_t fcount = (field->count > 0) ? field->count : 1;
+			uint32_t fstride = (field->size > 0) ? (uint32_t)field->size : 0;
+
+			for (k = 0; k < fcount; k++)
+			{
+				uint32_t f_rel_off = base_rel_off + (uint32_t)field->offset + (uint32_t)k * fstride;
+				uint32_t f_foff = bundle_data_foff + f_rel_off;
+
+				if (field->type == _tag_schema_struct)
+				{
+					struct tag_schema_definition const *sub_def =
+						(struct tag_schema_definition const *)field->definition;
+					if (sub_def && (uint32_t)field->offset + (uint32_t)k * fstride + (uint32_t)sub_def->size <= elem_size)
+					{
+						cb_faber_rebase_and_link_schema(
+							out, tag_data_offset, loaded, bundle_data_foff,
+							sub_def, f_rel_off, 1, fb_tags, fb_tag_count, depth + 1);
+					}
+				}
+				else if (field->type == _tag_schema_block)
+				{
+					struct tag_schema_definition const *child_def =
+						(struct tag_schema_definition const *)field->definition;
+					if (child_def && child_def->size > 0 &&
+						f_rel_off + 12u <= loaded->data_size && f_foff + 12u <= out->size)
+					{
+						int32_t cnt = *(int32_t const *)(loaded->data + f_rel_off + 0u);
+						uint8_t const *ptr = *(uint8_t *const *)(loaded->data + f_rel_off + 4u);
+						uint32_t child_sz = (uint32_t)child_def->size;
+						if (cnt > 0 && ptr >= loaded->data &&
+							ptr + (uint64_t)(uint32_t)cnt * child_sz <= loaded->data + loaded->data_size)
+						{
+							uint32_t child_rel = (uint32_t)(ptr - loaded->data);
+							write_s32(out->data + f_foff + 0u, cnt);
+							write_u32(out->data + f_foff + 4u,
+								CE_TAG_BASE_ADDR + (bundle_data_foff + child_rel - tag_data_offset));
+							write_u32(out->data + f_foff + 8u, 0u);
+							cb_faber_rebase_and_link_schema(
+								out, tag_data_offset, loaded, bundle_data_foff,
+								child_def, child_rel, cnt, fb_tags, fb_tag_count, depth + 1);
+						}
+						else
+						{
+							memset(out->data + f_foff, 0, 12u);
+						}
+					}
+				}
+				else if (field->type == _tag_schema_data)
+				{
+					if (f_rel_off + 20u <= loaded->data_size && f_foff + 20u <= out->size)
+					{
+						int32_t sz = *(int32_t const *)(loaded->data + f_rel_off + 0u);
+						uint8_t const *ptr = *(uint8_t *const *)(loaded->data + f_rel_off + 12u);
+						if (sz > 0 && ptr >= loaded->data &&
+							ptr + (uint32_t)sz <= loaded->data + loaded->data_size)
+						{
+							uint32_t td_rel = (uint32_t)(ptr - loaded->data);
+							write_s32(out->data + f_foff + 0u, sz);
+							write_u32(out->data + f_foff + 4u, 0u);
+							write_u32(out->data + f_foff + 8u, 0u);
+							write_u32(out->data + f_foff + 12u,
+								CE_TAG_BASE_ADDR + (bundle_data_foff + td_rel - tag_data_offset));
+							write_u32(out->data + f_foff + 16u, 0u);
+						}
+						else
+						{
+							memset(out->data + f_foff, 0, 20u);
+						}
+					}
+				}
+				else if (field->type == _tag_schema_reference)
+				{
+					if (f_rel_off + 16u <= loaded->data_size && f_foff + 16u <= out->size)
+					{
+						int32_t b_idx = *(int32_t const *)(loaded->data + f_rel_off + 12u);
+						if (b_idx >= 0 && b_idx < fb_tag_count && fb_tags[b_idx].baked_tag_idx >= 0)
+						{
+							write_u32(out->data + f_foff + 0u, fb_tags[b_idx].fourcc);
+							write_u32(out->data + f_foff + 4u, fb_tags[b_idx].baked_name_addr);
+							write_s32(out->data + f_foff + 8u, 0);
+							write_u32(out->data + f_foff + 12u, fb_tags[b_idx].baked_handle);
+						}
+						else
+						{
+							write_u32(out->data + f_foff + 0u, 0xFFFFFFFFu);
+							write_u32(out->data + f_foff + 4u, 0u);
+							write_s32(out->data + f_foff + 8u, 0);
+							write_u32(out->data + f_foff + 12u, 0xFFFFFFFFu);
+						}
+					}
+				}
+				else if (field->type == _tag_schema_tag_index)
+				{
+					if (f_rel_off + 4u <= loaded->data_size && f_foff + 4u <= out->size)
+					{
+						int32_t b_idx = *(int32_t const *)(loaded->data + f_rel_off);
+						if (b_idx >= 0 && b_idx < fb_tag_count && fb_tags[b_idx].baked_tag_idx >= 0)
+							write_u32(out->data + f_foff, fb_tags[b_idx].baked_handle);
+						else
+							write_u32(out->data + f_foff, 0xFFFFFFFFu);
+					}
+				}
+			}
+		}
+	}
+}
+
+static int32_t out_map_bake_faber_vault_bundle(
+	struct forge_byte_buf *out,
+	uint32_t tag_data_offset,
+	uint32_t scnr_off,
+	uint32_t orig_vtx_size,
+	uint32_t orig_idx_size,
+	struct forge_pending_bake_obj const *pobj)
+{
+	unsigned long bundle_size = 0;
+	long b_handle = -1;
+	uint8_t header_bytes[TAG_BUNDLE_HEADER_BYTES];
+	uint32_t tags_size = 0;
+	uint8_t *bundle_bytes = NULL;
+	struct tag_bundle_loaded loaded;
+	struct cb_faber_bake_tag *fb_tags = NULL;
+	uint32_t bundle_data_foff;
+	int32_t ti;
+	int32_t root_baked_idx = -1;
+
+	if (!out || !out->data || !pobj || pobj->faber_profile_idx < 0 || pobj->faber_tag_idx < 0)
+		return -1;
+	b_handle = port_tag_profiles_bundle_open(pobj->faber_profile_idx, pobj->faber_tag_idx, &bundle_size);
+	if (b_handle < 0 || bundle_size < TAG_BUNDLE_HEADER_BYTES)
+	{
+		if (b_handle >= 0) port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+	if (!port_tag_profiles_bundle_read_at(b_handle, 0, header_bytes, TAG_BUNDLE_HEADER_BYTES))
+	{
+		port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+	tags_size = tag_bundle_file_data_offset(header_bytes);
+	if (!tags_size || tags_size > bundle_size)
+	{
+		port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+	bundle_bytes = (uint8_t *)malloc(tags_size);
+	if (!bundle_bytes || !port_tag_profiles_bundle_read_at(b_handle, 0, bundle_bytes, tags_size))
+	{
+		free(bundle_bytes);
+		port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+	memset(&loaded, 0, sizeof(loaded));
+	if (tag_bundle_load_tags(bundle_bytes, tags_size, (uint32_t)bundle_size, &loaded) != _tag_bundle_status_ok ||
+		loaded.tag_count <= 0 || loaded.data_size == 0)
+	{
+		free(bundle_bytes);
+		port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+
+	fb_tags = (struct cb_faber_bake_tag *)calloc((size_t)loaded.tag_count, sizeof(*fb_tags));
+	if (!fb_tags)
+	{
+		free(bundle_bytes);
+		port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+
+	bundle_data_foff = buf_alloc(out, loaded.data_size, 16);
+	if (!bundle_data_foff || !out->data)
+	{
+		free(fb_tags);
+		free(bundle_bytes);
+		port_tag_profiles_bundle_close(b_handle);
+		return -1;
+	}
+	memcpy(out->data + bundle_data_foff, loaded.data, loaded.data_size);
+
+	/* 1. Allocate tag_instances in out for all tags in the bundle */
+	for (ti = 0; ti < loaded.tag_count; ti++)
+	{
+		uint8_t const *ti_rec = loaded.tags + (uint32_t)ti * 32u;
+		struct cb_faber_bake_tag *ft = &fb_tags[ti];
+		uint32_t name_off = read_u32(ti_rec + 12u);
+		char const *tname = (name_off < loaded.names_size)
+			? (char const *)(loaded.names + name_off) : "forge\\custom_tag";
+		char alloc_name[256];
+
+		ft->fourcc = read_u32(ti_rec + 0u);
+		ft->p0 = read_u32(ti_rec + 4u);
+		ft->p1 = read_u32(ti_rec + 8u);
+		ft->root_off = read_u32(ti_rec + 16u);
+		ft->root_sz = read_u32(ti_rec + 20u);
+		ft->def_foff = bundle_data_foff + ft->root_off;
+		snprintf(ft->name, sizeof(ft->name), "%s", tname);
+
+		if (ft->fourcc == 'scex')
+		{
+			ft->p0 = 'shdr';
+			ft->p1 = 0xFFFFFFFFu;
+		}
+		if (ti > 0 && out_map_find_tag(out, tag_data_offset, ft->fourcc, ft->name) >= 0)
+		{
+			snprintf(alloc_name, sizeof(alloc_name), "%.220s__fb%d_%d",
+				ft->name, (int)pobj->faber_profile_idx, (int)pobj->faber_tag_idx);
+		}
+		else
+		{
+			snprintf(alloc_name, sizeof(alloc_name), "%s", ft->name);
+		}
+
+		ft->baked_tag_idx = out_map_alloc_tag_instance(
+			out, tag_data_offset, scnr_off,
+			ft->fourcc, ft->p0, ft->p1,
+			alloc_name, ft->def_foff, 0u,
+			&ft->baked_handle, &ft->baked_name_addr);
+	}
+
+	/* 2. Rebase all tag_blocks and tag_data to CE_TAG_BASE_ADDR and link all tag_references */
+	for (ti = 0; ti < loaded.tag_count; ti++)
+	{
+		struct cb_faber_bake_tag *ft = &fb_tags[ti];
+		struct tag_schema_group const *sgrp = forge_schema_group_get(ft->fourcc);
+		if (ft->baked_tag_idx < 0 || !sgrp || !sgrp->definition)
+			continue;
+		cb_faber_rebase_and_link_schema(
+			out, tag_data_offset, &loaded, bundle_data_foff,
+			sgrp->definition, ft->root_off, 1, fb_tags, loaded.tag_count, 0);
+	}
+
+	/* 3. Post-process mod2 geometry offsets, bitm pixels, snd! samples, shader types, and vehicle seats */
+	for (ti = 0; ti < loaded.tag_count; ti++)
+	{
+		struct cb_faber_bake_tag *ft = &fb_tags[ti];
+		uint32_t def_foff = ft->def_foff;
+		if (ft->baked_tag_idx < 0 || def_foff + ft->root_sz > out->size)
+			continue;
+
+		if (ft->fourcc == 'mod2' && ft->root_sz >= 0xE8u)
+		{
+			uint32_t mod2_flags = read_u32(out->data + def_foff + 0x00u);
+			int local_nodes = (mod2_flags & 2u) != 0;
+			int32_t mnode_cnt = read_s32(out->data + def_foff + 0xB8u);
+			int32_t geom_cnt = read_s32(out->data + def_foff + 0xD0u);
+			uint32_t geom_addr = read_u32(out->data + def_foff + 0xD4u);
+			int32_t shdr_cnt = read_s32(out->data + def_foff + 0xDCu);
+			int32_t g_idx;
+
+			if (geom_cnt > 0 && geom_addr >= CE_TAG_BASE_ADDR)
+			{
+				uint32_t geom_base = tag_data_offset + (geom_addr - CE_TAG_BASE_ADDR);
+				for (g_idx = 0; g_idx < geom_cnt; g_idx++)
+				{
+					uint32_t g_foff = geom_base + (uint32_t)g_idx * 48u;
+					int32_t part_cnt, p_idx;
+					uint32_t part_addr, part_base;
+
+					if (g_foff + 48u > out->size)
+						break;
+					part_cnt = read_s32(out->data + g_foff + 0x24u);
+					part_addr = read_u32(out->data + g_foff + 0x28u);
+					if (part_cnt <= 0 || part_addr < CE_TAG_BASE_ADDR)
+						continue;
+					part_base = tag_data_offset + (part_addr - CE_TAG_BASE_ADDR);
+					for (p_idx = 0; p_idx < part_cnt; p_idx++)
+					{
+						uint32_t p_foff = part_base + (uint32_t)p_idx * 132u;
+						int16_t s_idx, cp_node, cs_node;
+						int8_t prev_p, next_p;
+						int gp_i;
+
+						if (p_foff + 132u > out->size)
+							break;
+						s_idx = read_s16(out->data + p_foff + 0x04u);
+						if (s_idx < 0 || (shdr_cnt > 0 && s_idx >= shdr_cnt))
+							write_s16(out->data + p_foff + 0x04u, 0);
+						prev_p = (int8_t)out->data[p_foff + 0x06u];
+						next_p = (int8_t)out->data[p_foff + 0x07u];
+						if (prev_p < -1 || prev_p >= part_cnt)
+							out->data[p_foff + 0x06u] = 0xFFu;
+						if (next_p < -1 || next_p >= part_cnt)
+							out->data[p_foff + 0x07u] = 0xFFu;
+						cp_node = read_s16(out->data + p_foff + 0x08u);
+						cs_node = read_s16(out->data + p_foff + 0x0Au);
+						if (cp_node < 0 || (mnode_cnt > 0 && cp_node >= mnode_cnt))
+							write_s16(out->data + p_foff + 0x08u, 0);
+						if (cs_node < 0 || (mnode_cnt > 0 && cs_node >= mnode_cnt))
+							write_s16(out->data + p_foff + 0x0Au, 0);
+						if (local_nodes)
+						{
+							uint8_t lnc = out->data[p_foff + 0x67u];
+							uint8_t ni;
+							if (lnc == 0 || lnc > 22)
+							{
+								lnc = 1;
+								out->data[p_foff + 0x67u] = 1;
+								out->data[p_foff + 0x68u] = 0;
+							}
+							for (ni = 0; ni < lnc; ni++)
+							{
+								if (mnode_cnt > 0 && out->data[p_foff + 0x68u + ni] >= (uint8_t)mnode_cnt)
+									out->data[p_foff + 0x68u + ni] = 0;
+							}
+						}
+						memset(out->data + p_foff + 0x20u, 0, 36u);
+
+						for (gp_i = 0; gp_i < pobj->ocetags_gpart_count; gp_i++)
+						{
+							struct forge_pending_ocetags_gpart const *ogp = &pobj->ocetags_gparts[gp_i];
+							if (ogp->tag_idx == (uint32_t)ti &&
+								ogp->geom_idx == (uint32_t)g_idx &&
+								ogp->part_idx == (uint32_t)p_idx)
+							{
+								write_s16(out->data + p_foff + 0x44u, 1);
+								write_s32(out->data + p_foff + 0x48u,
+									(int32_t)(ogp->idx_count >= 2u ? (ogp->idx_count - 2u) : 1u));
+								write_u32(out->data + p_foff + 0x4Cu, orig_idx_size + ogp->extra_idx_rel_off);
+								write_u32(out->data + p_foff + 0x50u, orig_idx_size + ogp->extra_idx_rel_off);
+								write_s16(out->data + p_foff + 0x54u, 4);
+								write_s32(out->data + p_foff + 0x58u, (int32_t)ogp->vtx_count);
+								write_u32(out->data + p_foff + 0x5Cu, 0u);
+								write_u32(out->data + p_foff + 0x60u, orig_vtx_size + ogp->extra_vtx_rel_off);
+								write_u32(out->data + p_foff + 0x64u, orig_vtx_size + ogp->extra_vtx_rel_off);
+								break;
+							}
+						}
+					}
+				}
+			}
+		}
+		else if (ft->fourcc == 'bitm' && ft->root_sz >= 0x6Cu)
+		{
+			uint16_t bgrp_flags = read_u16(out->data + def_foff + 0x06u);
+			int32_t b_cnt = read_s32(out->data + def_foff + 0x60u);
+			uint32_t b_addr = read_u32(out->data + def_foff + 0x64u);
+			int32_t b_i;
+
+			/* Clear BITMAP_HALF_HUD_SCALE_BIT | BITMAP_FORCE_HUD_HIGH_RESOLUTION_SCALE_BIT so HUD scales are not halved twice */
+			write_u16(out->data + def_foff + 0x06u, (uint16_t)(bgrp_flags & ~0x0090u));
+			memset(out->data + def_foff + 0x1Cu, 0, 20u);
+
+			if (b_cnt > 0 && b_addr >= CE_TAG_BASE_ADDR)
+			{
+				uint32_t b_base = tag_data_offset + (b_addr - CE_TAG_BASE_ADDR);
+				for (b_i = 0; b_i < b_cnt; b_i++)
+				{
+					uint32_t bd_foff = b_base + (uint32_t)b_i * 48u;
+					uint16_t bd_flags;
+					uint32_t pix_off, pix_sz;
+
+					if (bd_foff + 48u > out->size)
+						break;
+					bd_flags = read_u16(out->data + bd_foff + 0x0Eu);
+					pix_off = read_u32(out->data + bd_foff + 0x18u);
+					pix_sz = read_u32(out->data + bd_foff + 0x1Cu);
+					bd_flags = (uint16_t)((bd_flags & ~0x0100u) | 0x0080u);
+					write_u16(out->data + bd_foff + 0x0Eu, bd_flags);
+					write_u32(out->data + bd_foff + 0x20u, ft->baked_handle);
+					write_u32(out->data + bd_foff + 0x24u, 0xFFFFFFFFu);
+					write_u32(out->data + bd_foff + 0x28u, 0u);
+					write_u32(out->data + bd_foff + 0x2Cu, 0u);
+
+					if (pix_sz > 0 && (uint64_t)pix_off + pix_sz <= loaded.file_data_size)
+					{
+						uint8_t *tmp_pix = (uint8_t *)malloc(pix_sz);
+						if (tmp_pix && port_tag_profiles_bundle_read_at(b_handle, loaded.file_data_offset + pix_off, tmp_pix, pix_sz))
+						{
+							write_u32(out->data + bd_foff + 0x18u, 0u);
+							cb_alloc_deferred_media(tmp_pix, pix_sz, 32, bd_foff + 0x18u);
+						}
+						free(tmp_pix);
+					}
+					else
+					{
+						write_u32(out->data + bd_foff + 0x18u, 0u);
+						write_u32(out->data + bd_foff + 0x1Cu, 0u);
+					}
+				}
+			}
+		}
+		else if (ft->fourcc == 'snd!' && ft->root_sz >= 0xA4u)
+		{
+			int32_t pr_cnt = read_s32(out->data + def_foff + 0x98u);
+			uint32_t pr_addr = read_u32(out->data + def_foff + 0x9Cu);
+			int32_t pr_i;
+
+			write_u32(out->data + def_foff + 0x70u, 0xFFFFFFFFu);
+			write_u32(out->data + def_foff + 0x74u, 0u);
+			write_u32(out->data + def_foff + 0x78u, 0u);
+			write_u32(out->data + def_foff + 0x7Cu, 0xFFFFFFFFu);
+			write_s16(out->data + def_foff + 0x80u, 0);
+
+			if (pr_cnt > 0 && pr_addr >= CE_TAG_BASE_ADDR)
+			{
+				uint32_t pr_base = tag_data_offset + (pr_addr - CE_TAG_BASE_ADDR);
+				for (pr_i = 0; pr_i < pr_cnt; pr_i++)
+				{
+					uint32_t pr_foff = pr_base + (uint32_t)pr_i * 72u;
+					int32_t pm_cnt, pm_i;
+					uint32_t pm_addr, pm_base;
+
+					if (pr_foff + 72u > out->size)
+						break;
+					pm_cnt = read_s32(out->data + pr_foff + 0x3Cu);
+					pm_addr = read_u32(out->data + pr_foff + 0x40u);
+					if (pm_cnt <= 0 || pm_addr < CE_TAG_BASE_ADDR)
+						continue;
+					pm_base = tag_data_offset + (pm_addr - CE_TAG_BASE_ADDR);
+					for (pm_i = 0; pm_i < pm_cnt; pm_i++)
+					{
+						uint32_t pm_foff = pm_base + (uint32_t)pm_i * 124u;
+						int32_t smp_sz;
+						uint32_t smp_off;
+
+						if (pm_foff + 124u > out->size)
+							break;
+						smp_sz = read_s32(out->data + pm_foff + 0x40u);
+						smp_off = read_u32(out->data + pm_foff + 0x48u);
+						write_u32(out->data + pm_foff + 0x2Cu, 0xFFFFFFFFu);
+						write_u32(out->data + pm_foff + 0x30u, 0u);
+						write_u32(out->data + pm_foff + 0x34u, ft->baked_handle);
+						write_u32(out->data + pm_foff + 0x3Cu, ft->baked_handle);
+
+						if (smp_sz > 0 && (uint64_t)smp_off + (uint32_t)smp_sz <= loaded.file_data_size)
+						{
+							uint8_t *tmp_snd = (uint8_t *)malloc((uint32_t)smp_sz);
+							if (tmp_snd && port_tag_profiles_bundle_read_at(
+								b_handle, loaded.file_data_offset + smp_off, tmp_snd, (uint32_t)smp_sz))
+							{
+								write_s32(out->data + pm_foff + 0x40u, smp_sz);
+								write_u32(out->data + pm_foff + 0x44u, 0u);
+								write_u32(out->data + pm_foff + 0x48u, 0u);
+								write_u32(out->data + pm_foff + 0x4Cu, 0u);
+								write_u32(out->data + pm_foff + 0x50u, 0u);
+								cb_alloc_deferred_media(tmp_snd, (uint32_t)smp_sz, 16, pm_foff + 0x48u);
+							}
+							free(tmp_snd);
+						}
+						else
+						{
+							memset(out->data + pm_foff + 0x40u, 0, 20u);
+						}
+					}
+				}
+			}
+		}
+		else if (ft->fourcc == 'swat' && ft->root_sz >= 0x28u)
+			write_u16(out->data + def_foff + 0x24u, 8u);
+		else if (ft->fourcc == 'sgla' && ft->root_sz >= 0x28u)
+			write_u16(out->data + def_foff + 0x24u, 9u);
+		else if (ft->fourcc == 'smet' && ft->root_sz >= 0x28u)
+			write_u16(out->data + def_foff + 0x24u, 10u);
+		else if (ft->fourcc == 'spla' && ft->root_sz >= 0x28u)
+			write_u16(out->data + def_foff + 0x24u, 11u);
+		else if (ft->fourcc == 'ligh' && ft->root_sz >= 0x58u)
+		{
+			uint32_t flags = read_u32(out->data + def_foff + 0x00u);
+			float rad = read_f32(out->data + def_foff + 0x04u);
+			write_u32(out->data + def_foff + 0x00u, flags | 0x01u);
+			if (rad < 4.5f)
+				write_f32(out->data + def_foff + 0x04u, 4.5f);
+		}
+		else if ((ft->fourcc == 'scen' || ft->fourcc == 'lifi' || ft->fourcc == 'mach') && ft->root_sz >= 0x17Cu) { if (read_f32(out->data + def_foff + 0x04u) < 1.5f) write_f32(out->data + def_foff + 0x04u, 1.5f); if (read_f32(out->data + def_foff + 0x104u) < 8.0f) write_f32(out->data + def_foff + 0x104u, 8.0f); } else if (0)
+		{
+			if (read_f32(out->data + def_foff + 0x04u) < 0.45f)
+				write_f32(out->data + def_foff + 0x04u, 0.45f);
+			if (read_f32(out->data + def_foff + 0x104u) < 1.5f)
+				write_f32(out->data + def_foff + 0x104u, 1.5f);
+		}
+		else if (ft->fourcc == 'vehi' && ft->root_sz >= 0x3F0u)
+		{
+			int32_t seat_cnt = read_s32(out->data + def_foff + 0x2DCu);
+			uint32_t seat_addr = read_u32(out->data + def_foff + 0x2E0u);
+			write_u32(out->data + def_foff + 0x17Cu,
+				read_u32(out->data + def_foff + 0x17Cu) | (1u << 29) | (1u << 4));
+			if (seat_cnt > 0 && seat_addr >= CE_TAG_BASE_ADDR)
+			{
+				uint32_t s0_foff = tag_data_offset + (seat_addr - CE_TAG_BASE_ADDR);
+				if (s0_foff + 284u <= out->size)
+				{
+					uint32_t sflags = read_u32(out->data + s0_foff + 0x00u);
+					char const *slabel = (char const *)(out->data + s0_foff + 0x04u);
+					sflags &= ~0x01u;
+					sflags |= (1u << 2) | (1u << 4) | (1u << 5);
+					write_u32(out->data + s0_foff + 0x00u, sflags);
+					if (_stricmp(slabel, "W-driver") != 0 &&
+						_stricmp(slabel, "G-driver") != 0 &&
+						_stricmp(slabel, "B-driver") != 0 &&
+						_stricmp(slabel, "S-driver") != 0 &&
+						_stricmp(slabel, "R-driver") != 0 &&
+						_stricmp(slabel, "scorpion-driver") != 0 &&
+						_stricmp(slabel, "CT-driver") != 0)
+					{
+						memset(out->data + s0_foff + 0x04u, 0, 32u);
+						memcpy(out->data + s0_foff + 0x04u, "W-driver", 8u);
+					}
+				}
+			}
+		}
+	}
+
+	root_baked_idx = fb_tags[0].baked_tag_idx;
+	free(fb_tags);
+	free(bundle_bytes);
+	port_tag_profiles_bundle_close(b_handle);
+	return root_baked_idx;
+}
+
+static int cb_xbox_map_contains_tag_fast(
+	char const *cand_path,
+	uint32_t group_tag,
+	char const *tag_path)
+{
+	FILE *f;
+	uint8_t hdr[0x800];
+	long fsz;
+	uint32_t tag_data_off, tag_data_sz;
+	uint8_t *tag_buf;
+	uint32_t inst_addr, base_addr, inst_off;
+	int32_t tag_count, i;
+	int found = 0;
+
+	f = fopen(cand_path, "rb");
+	if (!f)
+		return 0;
+	if (fseek(f, 0, SEEK_END) != 0 || (fsz = ftell(f)) < 0x800L ||
+		fseek(f, 0, SEEK_SET) != 0 || fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr))
+	{
+		fclose(f);
+		return 0;
+	}
+	if (read_u32(hdr) != CACHE_HEADER_SIGNATURE || read_s32(hdr + 0x04) != CACHE_VERSION_XBOX)
+	{
+		fclose(f);
+		return 0;
+	}
+	tag_data_off = read_u32(hdr + 0x10);
+	tag_data_sz = read_u32(hdr + 0x14);
+	if ((uint64_t)tag_data_off + (uint64_t)tag_data_sz > (uint64_t)fsz)
+	{
+		struct forge_source_map xmap;
+		fclose(f);
+		if (!forge_source_map_open(cand_path, &xmap))
+			return 0;
+		found = (xmap.version == CACHE_VERSION_XBOX && src_map_find_tag_or_variant(&xmap, group_tag, tag_path) >= 0);
+		forge_source_map_close(&xmap);
+		return found;
+	}
+	if (tag_data_sz < 0x28u || tag_data_sz > 64u * 1024u * 1024u)
+	{
+		fclose(f);
+		return 0;
+	}
+	tag_buf = (uint8_t *)malloc(tag_data_sz);
+	if (!tag_buf)
+	{
+		fclose(f);
+		return 0;
+	}
+	if (fseek(f, (long)tag_data_off, SEEK_SET) != 0 || fread(tag_buf, 1, tag_data_sz, f) != tag_data_sz)
+	{
+		free(tag_buf);
+		fclose(f);
+		return 0;
+	}
+	fclose(f);
+
+	inst_addr = read_u32(tag_buf + 0x00);
+	tag_count = read_s32(tag_buf + 0x0C);
+	base_addr = (inst_addr >= 0x24u) ? (inst_addr - 0x24u) : XBOX_TAG_BASE_ADDR;
+	inst_off = inst_addr - base_addr;
+	if (tag_count > 0 && tag_count <= 65535 && inst_off + (uint32_t)tag_count * 32u <= tag_data_sz)
+	{
+		for (i = 0; i < tag_count; i++)
+		{
+			uint8_t const *inst = tag_buf + inst_off + (uint32_t)i * 32u;
+			uint32_t grp = read_u32(inst + 0x00);
+			uint32_t naddr = read_u32(inst + 0x10);
+			if (forge_groups_compatible(grp, group_tag) && naddr >= base_addr && (naddr - base_addr) < tag_data_sz)
+			{
+				char const *nm = (char const *)(tag_buf + (naddr - base_addr));
+				if (_stricmp(nm, tag_path) == 0)
+				{
+					found = 1;
+					break;
+				}
+			}
+		}
+	}
+	free(tag_buf);
+	return found;
+}
+
 static int cb_find_xbox_donor_map_for_tag(
 	uint32_t group_tag,
 	char const *tag_path,
@@ -2985,11 +3359,10 @@ static int cb_find_xbox_donor_map_for_tag(
 		"sidewinder.map", "wizard.map"
 	};
 	static char const *const map_dirs[] = {
+		"OpenCE Forge/cached_tags/xbox_cache",
 		"maps",
 		"assets/maps",
-		"../assets/maps",
-		"../FORGE CODE/GAME MAPS/XBOX DEFAULT MAPS",
-		"FORGE CODE/GAME MAPS/XBOX DEFAULT MAPS"
+		"../assets/maps"
 	};
 	size_t m, d;
 
@@ -2997,24 +3370,85 @@ static int cb_find_xbox_donor_map_for_tag(
 		return 0;
 	out_map_path[0] = '\0';
 
-	for (m = 0; m < sizeof(map_files) / sizeof(map_files[0]); m++)
+	/* 1. Check .fxtg compressed Xbox tag bundles in OpenCE Forge/custom_tags/ */
 	{
-		for (d = 0; d < sizeof(map_dirs) / sizeof(map_dirs[0]); d++)
+		WIN32_FIND_DATAA fd;
+		HANDLE h = FindFirstFileA("OpenCE Forge/custom_tags/*.fxtg", &fd);
+		if (h != INVALID_HANDLE_VALUE)
+		{
+			do
+			{
+				if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
+				{
+					char fxtg_path[512];
+					FILE *fp;
+					snprintf(fxtg_path, sizeof(fxtg_path), "OpenCE Forge/custom_tags/%s", fd.cFileName);
+					fp = fopen(fxtg_path, "rb");
+					if (fp)
+					{
+						uint8_t fhdr[304];
+						if (fread(fhdr, 1, sizeof(fhdr), fp) == sizeof(fhdr) &&
+							memcmp(fhdr, "FXTG", 4) == 0 && read_u32(fhdr + 4) == 1u)
+						{
+							uint32_t fgrp = read_u32(fhdr + 8);
+							char const *fpath = (char const *)(fhdr + 12);
+							uint32_t uncomp_sz = read_u32(fhdr + 296);
+							uint32_t comp_sz = read_u32(fhdr + 300);
+							if (forge_groups_compatible(fgrp, group_tag) &&
+								_stricmp(fpath, tag_path) == 0 &&
+								uncomp_sz >= 0x800u && uncomp_sz <= 512u * 1024u * 1024u && comp_sz > 0)
+							{
+								uint8_t *cbuf = (uint8_t *)malloc(comp_sz);
+								uint8_t *ubuf = (uint8_t *)malloc(uncomp_sz);
+								uLongf dst_len = (uLongf)uncomp_sz;
+								if (cbuf && ubuf &&
+									fread(cbuf, 1, comp_sz, fp) == comp_sz &&
+									uncompress(ubuf, &dst_len, cbuf, (uLong)comp_sz) == Z_OK &&
+									dst_len == (uLongf)uncomp_sz)
+								{
+									char tmp_donor[512];
+									FILE *df;
+									FORGE_MKDIR("OpenCE Forge/cached_tags");
+									FORGE_MKDIR("OpenCE Forge/cached_tags/xbox_cache");
+									snprintf(tmp_donor, sizeof(tmp_donor),
+										"OpenCE Forge/cached_tags/xbox_cache/_fxtg_bake_donor.map");
+									df = fopen(tmp_donor, "wb");
+									if (df)
+									{
+										fwrite(ubuf, 1, uncomp_sz, df);
+										fclose(df);
+										snprintf(out_map_path, out_map_path_sz, "%s", tmp_donor);
+										free(cbuf);
+										free(ubuf);
+										fclose(fp);
+										CloseHandle(h);
+										return 1;
+									}
+								}
+								free(cbuf);
+								free(ubuf);
+							}
+						}
+						fclose(fp);
+					}
+				}
+			} while (FindNextFileA(h, &fd));
+			CloseHandle(h);
+		}
+	}
+
+	for (d = 0; d < sizeof(map_dirs) / sizeof(map_dirs[0]); d++)
+	{
+		for (m = 0; m < sizeof(map_files) / sizeof(map_files[0]); m++)
 		{
 			char cand[512];
-			struct forge_source_map xmap;
 
 			snprintf(cand, sizeof(cand), "%s/%s", map_dirs[d], map_files[m]);
-			if (!forge_source_map_open(cand, &xmap))
-				continue;
-			if (xmap.version == CACHE_VERSION_XBOX &&
-				src_map_find_tag_or_variant(&xmap, group_tag, tag_path) >= 0)
+			if (cb_xbox_map_contains_tag_fast(cand, group_tag, tag_path))
 			{
 				snprintf(out_map_path, out_map_path_sz, "%s", cand);
-				forge_source_map_close(&xmap);
 				return 1;
 			}
-			forge_source_map_close(&xmap);
 		}
 	}
 	return 0;
@@ -4376,7 +4810,7 @@ static int32_t out_map_bake_xbox_tag_closure(
 				}
 			}
 		}
-		else if (xt->fourcc == 'scen' || xt->fourcc == 'lifi')
+		else if (xt->fourcc == 'scen' || xt->fourcc == 'lifi') { if (read_f32(out->data + xt->def_foff + 0x04u) < 1.5f) write_f32(out->data + xt->def_foff + 0x04u, 1.5f); if (read_f32(out->data + xt->def_foff + 0x104u) < 8.0f) write_f32(out->data + xt->def_foff + 0x104u, 8.0f); } else if (0)
 		{
 			if (read_f32(out->data + xt->def_foff + 0x04u) < 0.45f)
 				write_f32(out->data + xt->def_foff + 0x04u, 0.45f);
@@ -4386,6 +4820,10 @@ static int32_t out_map_bake_xbox_tag_closure(
 		else if (xt->fourcc == 'mach')
 		{
 			int16_t mtype = read_s16(out->data + xt->def_foff + 0x290u);
+			if (read_f32(out->data + xt->def_foff + 0x04u) < 1.5f)
+				write_f32(out->data + xt->def_foff + 0x04u, 1.5f);
+			if (read_f32(out->data + xt->def_foff + 0x104u) < 8.0f)
+				write_f32(out->data + xt->def_foff + 0x104u, 8.0f);
 			if (read_f32(out->data + xt->def_foff + 0x04u) < 0.45f)
 				write_f32(out->data + xt->def_foff + 0x04u, 0.45f);
 			if (read_f32(out->data + xt->def_foff + 0x104u) < 1.5f)
@@ -4590,44 +5028,39 @@ static int32_t out_map_create_item_collection_for_tag(
 	uint32_t *out_itmc_handle,
 	uint32_t *out_itmc_name_addr)
 {
-	uint32_t io, item_handle, item_naddr;
+	uint32_t io, item_handle, item_name_addr;
 	uint32_t itmc_foff, perm_foff;
 	char itmc_name[128];
 
+	if (out_itmc_handle) *out_itmc_handle = 0xFFFFFFFFu;
+	if (out_itmc_name_addr) *out_itmc_name_addr = 0u;
 	if (!out || !out->data || item_tag_idx < 0)
 		return -1;
 	io = tag_data_offset + 0x28u + (uint32_t)item_tag_idx * 32u;
 	if (io + 32u > out->size)
 		return -1;
 	item_handle = read_u32(out->data + io + 0x0Cu);
-	item_naddr = read_u32(out->data + io + 0x10u);
+	item_name_addr = read_u32(out->data + io + 0x10u);
 
-	itmc_foff = buf_alloc(out, 128u, 4);
-	perm_foff = buf_alloc(out, 84u, 4);
+	itmc_foff = buf_alloc(out, (uint32_t)sizeof(struct item_collection_definition), 4);
+	perm_foff = buf_alloc(out, (uint32_t)sizeof(struct item_permutation_definition), 4);
 	if (!itmc_foff || !perm_foff || !out->data)
 		return -1;
 
-	memset(out->data + itmc_foff, 0, 128u);
-	memset(out->data + perm_foff, 0, 84u);
-
-	/* item_collection (128 bytes):
-	 * +0x00: permutations tag_block (count=1, address=perm_foff)
-	 * +0x0C: default_spawn_time (int16 = 30 seconds) */
+	memset(out->data + itmc_foff, 0, sizeof(struct item_collection_definition));
 	write_s32(out->data + itmc_foff + 0x00u, 1);
 	write_u32(out->data + itmc_foff + 0x04u, CE_TAG_BASE_ADDR + (perm_foff - tag_data_offset));
 	write_u32(out->data + itmc_foff + 0x08u, 0u);
-	write_s16(out->data + itmc_foff + 0x0Cu, 30);
+	write_s16(out->data + itmc_foff + 0x0Cu, 30); /* spawn_time = 30s */
 
-	/* item_permutation (84 bytes):
-	 * +0x20: weight (float = 100.0f)
-	 * +0x24: item tag_reference (group_tag, name_addr, 0, handle) */
-	write_f32(out->data + perm_foff + 0x20u, 100.0f);
+	memset(out->data + perm_foff, 0, sizeof(struct item_permutation_definition));
+	write_f32(out->data + perm_foff + 0x20u, 100.0f); /* weight = 100.0f */
 	write_u32(out->data + perm_foff + 0x24u, item_group);
-	write_u32(out->data + perm_foff + 0x28u, item_naddr);
-	write_u32(out->data + perm_foff + 0x2Cu, 0u);
+	write_u32(out->data + perm_foff + 0x28u, item_name_addr);
+	write_s32(out->data + perm_foff + 0x2Cu, 0);
 	write_u32(out->data + perm_foff + 0x30u, item_handle);
 
-	snprintf(itmc_name, sizeof(itmc_name), "forge\\item_collections\\placed_item_%d", (int)unique_seq);
+	snprintf(itmc_name, sizeof(itmc_name), "forge\\items\\placed_item_%d", (int)unique_seq);
 	return out_map_alloc_tag_instance(
 		out, tag_data_offset, scnr_off,
 		'itmc', 0xFFFFFFFFu, 0xFFFFFFFFu,
@@ -4637,27 +5070,12 @@ static int32_t out_map_create_item_collection_for_tag(
 
 static int32_t out_map_bake_non_native_object(
 	struct forge_byte_buf *out,
-	struct forge_source_map const *base_map,
 	uint32_t tag_data_offset,
 	uint32_t scnr_off,
 	uint32_t orig_vtx_size,
 	uint32_t orig_idx_size,
 	struct forge_pending_bake_obj const *pobj)
 {
-	int32_t tmpl_idx = -1;
-	uint32_t tmpl_grp = pobj ? pobj->group_tag : 0;
-	int32_t i, p;
-	uint32_t mod2_foff, nodes_foff = 0, reg_foff, perm_foff, geom_foff, parts_foff, shdrs_foff;
-	int32_t mnode_count = 1;
-	int32_t coll_tag_idx = -1;
-	uint8_t coll_offsets_24[24];
-	int32_t has_coll_offsets = 0;
-	int32_t mod2_tag_idx;
-	uint32_t mod2_handle = 0, mod2_name_addr = 0;
-	char mod2_name[256];
-	uint32_t obj_def_foff;
-	uint32_t tmpl_io, tmpl_daddr;
-
 	if (!pobj)
 		return -1;
 	if (pobj->ocetags_json && pobj->ocetags_json_len > 0)
@@ -4665,435 +5083,17 @@ static int32_t out_map_bake_non_native_object(
 		return out_map_bake_ocetags_package(
 			out, tag_data_offset, scnr_off, orig_vtx_size, orig_idx_size, pobj);
 	}
+	if (pobj->faber_profile_idx >= 0 && pobj->faber_tag_idx >= 0)
+	{
+		return out_map_bake_faber_vault_bundle(
+			out, tag_data_offset, scnr_off, orig_vtx_size, orig_idx_size, pobj);
+	}
 	if (pobj->xbox_map_path[0])
 	{
 		return out_map_bake_xbox_tag_closure(
 			out, tag_data_offset, scnr_off, orig_vtx_size, orig_idx_size, pobj);
 	}
-	if (pobj->part_count <= 0)
-		return -1;
-
-	/* 1. Choose a valid template object tag in base_map */
-	if (pobj->group_tag == 'vehi')
-	{
-		if (strstr(pobj->tag_path, "wraith") || strstr(pobj->tag_path, "ghost") || strstr(pobj->tag_path, "turret"))
-			tmpl_idx = src_map_find_tag_or_variant(base_map, 'vehi', "vehicles\\ghost\\ghost_mp");
-		else if (strstr(pobj->tag_path, "banshee") || strstr(pobj->tag_path, "pelican") ||
-				 strstr(pobj->tag_path, "dropship") || strstr(pobj->tag_path, "lifepod"))
-			tmpl_idx = src_map_find_tag_or_variant(base_map, 'vehi', "vehicles\\banshee\\banshee_mp");
-		else if (strstr(pobj->tag_path, "scorpion") || strstr(pobj->tag_path, "tank"))
-			tmpl_idx = src_map_find_tag_or_variant(base_map, 'vehi', "vehicles\\scorpion\\scorpion_mp");
-		if (tmpl_idx < 0)
-			tmpl_idx = src_map_find_tag_or_variant(base_map, 'vehi', "vehicles\\warthog\\mp_warthog");
-	}
-	if (tmpl_idx < 0)
-	{
-		for (i = 0; i < base_map->tag_count; i++)
-		{
-			uint8_t const *inst = src_tag_instance(base_map, i);
-			if (inst && read_u32(inst) == pobj->group_tag)
-			{
-				uint32_t daddr = read_u32(inst + 0x14u);
-				if (daddr >= CE_TAG_BASE_ADDR && (daddr - CE_TAG_BASE_ADDR) + 0x17Cu <= base_map->tag_data_size)
-				{
-					tmpl_idx = i;
-					if (read_s32(base_map->data + base_map->tag_data_offset + (daddr - CE_TAG_BASE_ADDR) + 0x7Cu) != -1)
-						break;
-				}
-			}
-		}
-	}
-	if (tmpl_idx < 0)
-	{
-		for (i = 0; i < base_map->tag_count; i++)
-		{
-			uint8_t const *inst = src_tag_instance(base_map, i);
-			if (inst && (read_u32(inst) == 'scen' || read_u32(inst) == 'vehi' || read_u32(inst) == 'weap'))
-			{
-				tmpl_idx = i;
-				tmpl_grp = read_u32(inst);
-				break;
-			}
-		}
-	}
-	if (tmpl_idx < 0)
-		return -1;
-
-	tmpl_io = tag_data_offset + 0x28u + (uint32_t)tmpl_idx * 32u;
-	tmpl_daddr = read_u32(out->data + tmpl_io + 0x14u);
-	if (tmpl_daddr < CE_TAG_BASE_ADDR)
-		return -1;
-
-	/* 2. Bake collision (.fcol) if present (for scenery/weapons/objects or Wraith) */
-	if (pobj->group_tag != 'vehi' || strstr(pobj->tag_path, "wraith") != NULL)
-	{
-		coll_tag_idx = out_map_bake_collision_from_fcol(
-			out, tag_data_offset, scnr_off,
-			pobj->group_tag, pobj->tag_path,
-			coll_offsets_24, &mnode_count, &nodes_foff);
-		if (coll_tag_idx >= 0)
-			has_coll_offsets = 1;
-	}
-
-	/* If no .fcol nodes were loaded, copy the template object's model nodes into a fresh buffer (or create 1 default node) */
-	if (nodes_foff == 0 || mnode_count <= 0)
-	{
-		int32_t tmpl_mod2_idx = read_s32(out->data + tag_data_offset + (tmpl_daddr - CE_TAG_BASE_ADDR) + 0x34u) & 0xFFFF;
-		if (tmpl_mod2_idx >= 0 && tmpl_mod2_idx < base_map->tag_count)
-		{
-			uint32_t mio = tag_data_offset + 0x28u + (uint32_t)tmpl_mod2_idx * 32u;
-			uint32_t mdaddr = read_u32(out->data + mio + 0x14u);
-			if (mdaddr >= CE_TAG_BASE_ADDR && tag_data_offset + (mdaddr - CE_TAG_BASE_ADDR) + 0xE8u <= out->size)
-			{
-				uint32_t mfoff = tag_data_offset + (mdaddr - CE_TAG_BASE_ADDR);
-				int32_t ncnt = read_s32(out->data + mfoff + 0xB8u);
-				uint32_t naddr = read_u32(out->data + mfoff + 0xBCu);
-				if (ncnt > 0 && ncnt <= 64 && naddr >= CE_TAG_BASE_ADDR &&
-					tag_data_offset + (naddr - CE_TAG_BASE_ADDR) + (uint32_t)ncnt * 156u <= out->size)
-				{
-					uint32_t src_nodes_foff = tag_data_offset + (naddr - CE_TAG_BASE_ADDR);
-					uint32_t cloned_nodes_foff = buf_alloc(out, (uint32_t)ncnt * 156u, 4);
-					if (cloned_nodes_foff && out->data)
-					{
-						memcpy(out->data + cloned_nodes_foff, out->data + src_nodes_foff, (size_t)ncnt * 156u);
-						mnode_count = ncnt;
-						nodes_foff = cloned_nodes_foff;
-					}
-				}
-			}
-		}
-		if (nodes_foff == 0)
-		{
-			mnode_count = 1;
-			nodes_foff = buf_alloc(out, 156u, 4);
-			if (!nodes_foff || !out->data)
-				return -1;
-			memset(out->data + nodes_foff, 0, 156u);
-			snprintf((char *)(out->data + nodes_foff), 32, "frame");
-			write_s16(out->data + nodes_foff + 0x20u, -1);
-			write_s16(out->data + nodes_foff + 0x22u, -1);
-			write_s16(out->data + nodes_foff + 0x24u, -1);
-			write_f32(out->data + nodes_foff + 0x40u, 1.0f); /* default_rotation.w = 1.0f */
-			write_f32(out->data + nodes_foff + 0x68u, 1.0f); /* runtime_default_inverse_matrix.scale = 1.0f */
-			write_f32(out->data + nodes_foff + 0x6Cu, 1.0f); /* forward.i = 1.0f */
-			write_f32(out->data + nodes_foff + 0x7Cu, 1.0f); /* left.j = 1.0f */
-			write_f32(out->data + nodes_foff + 0x8Cu, 1.0f); /* up.k = 1.0f */
-		}
-	}
-
-	/* 3. Synthesize a valid 'mod2' (gbxmodel, 0xE8 bytes) tag with pobj->part_count parts */
-	mod2_foff = buf_alloc(out, 0xE8u, 4);
-	reg_foff = buf_alloc(out, 76u, 4);
-	perm_foff = buf_alloc(out, 88u, 4);
-	geom_foff = buf_alloc(out, 48u, 4);
-	parts_foff = buf_alloc(out, (uint32_t)pobj->part_count * 132u, 4);
-	shdrs_foff = buf_alloc(out, (uint32_t)pobj->part_count * 32u, 4);
-	if (!mod2_foff || !reg_foff || !perm_foff || !geom_foff || !parts_foff || !shdrs_foff || !out->data)
-		return -1;
-
-	memset(out->data + mod2_foff, 0, 0xE8u);
-	memset(out->data + reg_foff, 0, 76u);
-	memset(out->data + perm_foff, 0, 88u);
-	memset(out->data + geom_foff, 0, 48u);
-	memset(out->data + parts_foff, 0, (size_t)pobj->part_count * 132u);
-	memset(out->data + shdrs_foff, 0, (size_t)pobj->part_count * 32u);
-
-	/* Populate mod2 header (0xE8 bytes):
-	 * +0x00: flags (0), +0x04: node_list_checksum (0),
-	 * +0x08..+0x1B: detail_cutoff_pixels[5] (0.0f so render_model draws at all distances),
-	 * +0x1C..+0x25: detail_node_counts[5],
-	 * +0x30: base_map_u_scale, +0x34: base_map_v_scale, +0xAC: markers (count=0, address=0) */
-	write_f32(out->data + mod2_foff + 0x08u, 0.0f);
-	write_f32(out->data + mod2_foff + 0x0Cu, 0.0f);
-	write_f32(out->data + mod2_foff + 0x10u, 0.0f);
-	write_f32(out->data + mod2_foff + 0x14u, 0.0f);
-	write_f32(out->data + mod2_foff + 0x18u, 0.0f);
-	for (i = 0; i < 5; i++)
-		write_s16(out->data + mod2_foff + 0x1Cu + (uint32_t)i * 2u, (int16_t)mnode_count);
-	write_f32(out->data + mod2_foff + 0x30u, (pobj->u_scale > 0.0001f) ? pobj->u_scale : 1.0f);
-	write_f32(out->data + mod2_foff + 0x34u, (pobj->v_scale > 0.0001f) ? pobj->v_scale : 1.0f);
-	write_s32(out->data + mod2_foff + 0xB8u, mnode_count);
-	write_u32(out->data + mod2_foff + 0xBCu, CE_TAG_BASE_ADDR + (nodes_foff - tag_data_offset));
-	write_s32(out->data + mod2_foff + 0xC4u, 1); /* 1 region */
-	write_u32(out->data + mod2_foff + 0xC8u, CE_TAG_BASE_ADDR + (reg_foff - tag_data_offset));
-	write_s32(out->data + mod2_foff + 0xD0u, 1); /* 1 geometry */
-	write_u32(out->data + mod2_foff + 0xD4u, CE_TAG_BASE_ADDR + (geom_foff - tag_data_offset));
-	write_s32(out->data + mod2_foff + 0xDCu, pobj->part_count); /* shaders.count */
-	write_u32(out->data + mod2_foff + 0xE0u, CE_TAG_BASE_ADDR + (shdrs_foff - tag_data_offset));
-
-	/* Region ("default", 1 permutation) */
-	snprintf((char *)(out->data + reg_foff), 32, "default");
-	write_s32(out->data + reg_foff + 0x40u, 1);
-	write_u32(out->data + reg_foff + 0x44u, CE_TAG_BASE_ADDR + (perm_foff - tag_data_offset));
-
-	/* Permutation ("base", all 5 LODs -> geometry 0) */
-	snprintf((char *)(out->data + perm_foff), 32, "base");
-	for (i = 0; i < 5; i++)
-		write_s16(out->data + perm_foff + 0x40u + (uint32_t)i * 2u, 0);
-
-	/* Geometry (pobj->part_count parts) */
-	write_s32(out->data + geom_foff + 0x24u, pobj->part_count);
-	write_u32(out->data + geom_foff + 0x28u, CE_TAG_BASE_ADDR + (parts_foff - tag_data_offset));
-
-	for (p = 0; p < pobj->part_count; p++)
-	{
-		struct forge_pending_bake_part const *pt = &pobj->parts[p];
-		int32_t shdr_idx = out_map_ensure_part_shader_tag(out, tag_data_offset, scnr_off, pt->shdr_path, pt->bitm_path);
-		uint32_t po_foff = parts_foff + (uint32_t)p * 132u;
-		uint32_t so_foff = shdrs_foff + (uint32_t)p * 32u;
-
-		/* Write shader reference entry (32 bytes) */
-		if (shdr_idx >= 0)
-		{
-			uint32_t sio = tag_data_offset + 0x28u + (uint32_t)shdr_idx * 32u;
-			write_u32(out->data + so_foff + 0x00u, read_u32(out->data + sio + 0x00u));
-			write_u32(out->data + so_foff + 0x04u, read_u32(out->data + sio + 0x10u));
-			write_u32(out->data + so_foff + 0x08u, 0u);
-			write_u32(out->data + so_foff + 0x0Cu, read_u32(out->data + sio + 0x0Cu));
-		}
-		else
-		{
-			write_u32(out->data + so_foff + 0x00u, 'soso');
-			write_u32(out->data + so_foff + 0x0Cu, 0xFFFFFFFFu);
-		}
-
-		/* Write custom_edition_model_part (132 bytes) matching custom_edition_model_part_verify */
-		write_u32(out->data + po_foff + 0x00u, 0u);          /* flags */
-		write_s16(out->data + po_foff + 0x04u, (int16_t)p);  /* shader_index */
-		out->data[po_foff + 0x06u] = 0xFFu;                  /* previous_part_index = -1 */
-		out->data[po_foff + 0x07u] = 0xFFu;                  /* next_part_index = -1 */
-		write_s16(out->data + po_foff + 0x08u, 0);           /* centroid_primary_node_index = 0 */
-		write_s16(out->data + po_foff + 0x0Au, 0);           /* centroid_secondary_node_index = 0 */
-		write_f32(out->data + po_foff + 0x0Cu, 1.0f);        /* centroid_primary_node_weight = 1.0 */
-		write_s16(out->data + po_foff + 0x44u, 1);           /* strip_type = TRIANGLE_BUFFER_TYPE_PRECOMPILED_STRIP (1) */
-		write_s32(out->data + po_foff + 0x48u, (int32_t)(pt->idx_count >= 2u ? (pt->idx_count - 2u) : 1u)); /* triangle_count */
-		write_u32(out->data + po_foff + 0x4Cu, orig_idx_size + pt->extra_idx_rel_off); /* strip_offset */
-		write_u32(out->data + po_foff + 0x50u, orig_idx_size + pt->extra_idx_rel_off); /* strip_offset_again */
-		write_s16(out->data + po_foff + 0x54u, 4);           /* vertex_type = VERTEX_TYPE_MODEL_UNCOMPRESSED (4) */
-		write_s32(out->data + po_foff + 0x58u, (int32_t)pt->vtx_count); /* vertex_count */
-		write_u32(out->data + po_foff + 0x60u, orig_vtx_size + pt->extra_vtx_rel_off); /* vertex_offset */
-		write_u32(out->data + po_foff + 0x64u, orig_vtx_size + pt->extra_vtx_rel_off); /* vertex_offset_again */
-	}
-
-	snprintf(mod2_name, sizeof(mod2_name), "%s_baked_mod2", pobj->tag_path);
-	mod2_tag_idx = out_map_alloc_tag_instance(
-		out, tag_data_offset, scnr_off,
-		'mod2', 0xFFFFFFFFu, 0xFFFFFFFFu,
-		mod2_name, mod2_foff, 0u,
-		&mod2_handle, &mod2_name_addr);
-	if (mod2_tag_idx < 0)
-		return -1;
-
-	/* 4. Clone the template object definition and all of its nested tag_blocks/tag_data using OpenCE's official tag_schema */
-	{
-		struct tag_schema_group const *obj_schema = forge_schema_group_get(tmpl_grp);
-		uint32_t obj_def_bytes = (obj_schema && obj_schema->definition && obj_schema->definition->size > 0)
-			? (uint32_t)obj_schema->definition->size : 1280u;
-		obj_def_foff = buf_alloc(out, obj_def_bytes, 4);
-		if (!obj_def_foff || !out->data)
-			return -1;
-		memcpy(out->data + obj_def_foff, out->data + tag_data_offset + (tmpl_daddr - CE_TAG_BASE_ADDR), obj_def_bytes);
-
-		if (obj_schema && obj_schema->definition)
-		{
-			out_map_clone_schema_blocks(out, tag_data_offset, obj_schema->definition, obj_def_foff, 1);
-		}
-	}
-
-	/* Ensure object.type (+0x00, int16_t) matches pobj->group_tag and set _object_does_not_cast_shadow_bit (+0x02, bit 0) */
-	{
-		int16_t expected_obj_type = 6; /* _object_type_scenery */
-		if (pobj->group_tag == 'bipd') expected_obj_type = 0;
-		else if (pobj->group_tag == 'vehi') expected_obj_type = 1;
-		else if (pobj->group_tag == 'weap') expected_obj_type = 2;
-		else if (pobj->group_tag == 'eqip') expected_obj_type = 3;
-		else if (pobj->group_tag == 'garb') expected_obj_type = 4;
-		else if (pobj->group_tag == 'proj') expected_obj_type = 5;
-		else if (pobj->group_tag == 'scen') expected_obj_type = 6;
-		else if (pobj->group_tag == 'mach') expected_obj_type = 7;
-		else if (pobj->group_tag == 'ctrl') expected_obj_type = 8;
-		else if (pobj->group_tag == 'lifi') expected_obj_type = 9;
-		write_s16(out->data + obj_def_foff + 0x00u, expected_obj_type);
-		write_u16(out->data + obj_def_foff + 0x02u, read_u16(out->data + obj_def_foff + 0x02u) | (1u << 0));
-	}
-	if (pobj->bounding_radius > 0.1f)
-		write_f32(out->data + obj_def_foff + 0x04u, pobj->bounding_radius);
-	if (has_coll_offsets)
-		memcpy(out->data + obj_def_foff + 0x08u, coll_offsets_24, 24);
-
-	/* Bind mod2 at +0x28 */
-	write_u32(out->data + obj_def_foff + 0x28u, 'mod2');
-	write_u32(out->data + obj_def_foff + 0x2Cu, mod2_name_addr);
-	write_u32(out->data + obj_def_foff + 0x30u, 0u);
-	write_u32(out->data + obj_def_foff + 0x34u, mod2_handle);
-
-	/* Clear animation_graph (+0x38..+0x44) on non-vehicles so template animations don't distort custom node counts */
-	if (pobj->group_tag != 'vehi' || strstr(pobj->tag_path, "wraith") != NULL)
-	{
-		write_u32(out->data + obj_def_foff + 0x38u, 0xFFFFFFFFu);
-		write_u32(out->data + obj_def_foff + 0x3Cu, 0u);
-		write_u32(out->data + obj_def_foff + 0x40u, 0u);
-		write_u32(out->data + obj_def_foff + 0x44u, 0xFFFFFFFFu);
-	}
-
-	/* Zero out base object tag_blocks (+0x140..+0x17B: attachments, widgets, functions, change_colors, predicted_resources)
-	 * so custom objects do not inherit template attachments/widgets */
-	memset(out->data + obj_def_foff + 0x140u, 0, 60u);
-
-	if (tmpl_grp == 'vehi' || tmpl_grp == 'bipd')
-	{
-		/* Zero dialogue_variants (+0x2A8) */
-		memset(out->data + obj_def_foff + 0x2A8u, 0, 12u);
-		if (!strstr(pobj->tag_path, "warthog"))
-			memset(out->data + obj_def_foff + 0x2D8u, 0, 12u);
-
-		/* Ensure baked vehicles have a powered seat (+0x2CC) and an enterable driver seat (+0x2E4) */
-		if (tmpl_grp == 'vehi')
-		{
-			int32_t seat_cnt = read_s32(out->data + obj_def_foff + 0x2E4u);
-			uint32_t seat_addr = read_u32(out->data + obj_def_foff + 0x2E8u);
-			write_u32(out->data + obj_def_foff + 0x17Cu, read_u32(out->data + obj_def_foff + 0x17Cu) | (1u << 4));
-			if (read_s32(out->data + obj_def_foff + 0x2CCu) <= 0)
-			{
-				uint32_t ps_foff = buf_alloc(out, 68u, 4);
-				if (ps_foff && out->data)
-				{
-					memset(out->data + ps_foff, 0, 68u);
-					write_f32(out->data + ps_foff + 0x04u, 0.5f);
-					write_f32(out->data + ps_foff + 0x08u, 0.5f);
-					write_s32(out->data + obj_def_foff + 0x2CCu, 1);
-					write_u32(out->data + obj_def_foff + 0x2D0u, CE_TAG_BASE_ADDR + (ps_foff - tag_data_offset));
-					write_u32(out->data + obj_def_foff + 0x2D4u, 0u);
-				}
-			}
-			if (seat_cnt > 0 && seat_addr >= CE_TAG_BASE_ADDR)
-			{
-				uint32_t seat_foff = tag_data_offset + (seat_addr - CE_TAG_BASE_ADDR);
-				if (seat_foff + 284u <= out->size)
-				{
-					uint32_t sflags = read_u32(out->data + seat_foff + 0x00u);
-					sflags &= ~(1u << 0); /* clear _unit_seat_invisible_bit */
-					sflags |= (1u << 2) | (1u << 3) | (1u << 4) | (1u << 9); /* driver | gunner | third_person_camera | third_person_on_enter */
-					write_u32(out->data + seat_foff + 0x00u, sflags);
-					if (!strstr(pobj->tag_path, "warthog") && !strstr(pobj->tag_path, "scorpion"))
-						write_s32(out->data + obj_def_foff + 0x2E4u, 1);
-				}
-			}
-		}
-	}
-	else if (tmpl_grp == 'weap')
-	{
-		/* Zero weapon predicted_resources (+0x4E0) */
-		memset(out->data + obj_def_foff + 0x4E0u, 0, 12u);
-	}
-
-	/* Bind baked coll at +0x70 if present */
-	if (coll_tag_idx >= 0)
-	{
-		uint32_t cio = tag_data_offset + 0x28u + (uint32_t)coll_tag_idx * 32u;
-		write_u32(out->data + obj_def_foff + 0x70u, 'coll');
-		write_u32(out->data + obj_def_foff + 0x74u, read_u32(out->data + cio + 0x10u));
-		write_u32(out->data + obj_def_foff + 0x78u, 0u);
-		write_u32(out->data + obj_def_foff + 0x7Cu, read_u32(out->data + cio + 0x0Cu));
-	}
-
-	/* Apply vehicle physics overrides for baked custom/SP vehicles (Pelican, Wraith, Mongoose, etc.) */
-	if (tmpl_grp == 'vehi')
-	{
-		uint8_t *vd = out->data + obj_def_foff;
-		/* Remove template vehicle's attached child weapons (e.g. Warthog chaingun) unless Warthog */
-		if (!strstr(pobj->tag_path, "warthog"))
-		{
-			write_s32(vd + 0x2D8u, 0);
-			write_u32(vd + 0x2DCu, 0u);
-		}
-		if (strstr(pobj->tag_path, "banshee") || strstr(pobj->tag_path, "pelican") ||
-			strstr(pobj->tag_path, "dropship") || strstr(pobj->tag_path, "lifepod") ||
-			strstr(pobj->tag_path, "fighter"))
-		{
-			int is_heavy = (strstr(pobj->tag_path, "pelican") || strstr(pobj->tag_path, "dropship") || strstr(pobj->tag_path, "lifepod")) ? 1 : 0;
-			write_s16(vd + 0x2F4u, 5); /* _vehicle_type_alien_fighter */
-			write_f32(vd + 0x2F8u, is_heavy ? 0.28f : 0.25f);
-			write_f32(vd + 0x2FCu, is_heavy ? -0.10f : -0.05f);
-			write_f32(vd + 0x300u, 0.009f);
-			write_f32(vd + 0x304u, 0.009f);
-			write_f32(vd + 0x308u, 45.0f);
-			write_f32(vd + 0x30Cu, -45.0f);
-			write_f32(vd + 0x314u, is_heavy ? 65.0f : 90.0f);
-			write_f32(vd + 0x330u, 0.14f);
-			write_f32(vd + 0x334u, 0.14f);
-			write_f32(vd + 0x364u, -0.1745f);
-			write_u32(vd + 0x3BCu, 0xFFFFFFFFu);
-			write_u32(vd + 0x3DCu, 0xFFFFFFFFu);
-			write_u32(vd + 0x3ECu, 0xFFFFFFFFu);
-
-			/* Clone the template physics ('phys') tag via OpenCE's schema and set low flight gravity_scale */
-			{
-				uint32_t phys_ref_handle = read_u32(vd + 0x8Cu);
-				int32_t phys_src_idx = (phys_ref_handle != 0xFFFFFFFFu) ? (int32_t)(phys_ref_handle & 0xFFFFu) : -1;
-				int32_t cur_tag_cnt = read_s32(out->data + tag_data_offset + 0x0Cu);
-				if (phys_src_idx >= 0 && phys_src_idx < cur_tag_cnt)
-				{
-					uint32_t pio = tag_data_offset + 0x28u + (uint32_t)phys_src_idx * 32u;
-					uint32_t phys_daddr = read_u32(out->data + pio + 0x14u);
-					struct tag_schema_group const *phys_schema = forge_schema_group_get('phys');
-					uint32_t phys_def_bytes = (phys_schema && phys_schema->definition && phys_schema->definition->size > 0)
-						? (uint32_t)phys_schema->definition->size : 128u;
-					if (phys_daddr >= CE_TAG_BASE_ADDR && tag_data_offset + (phys_daddr - CE_TAG_BASE_ADDR) + phys_def_bytes <= out->size)
-					{
-						uint32_t new_phys_foff = buf_alloc(out, phys_def_bytes, 4);
-						if (new_phys_foff && out->data)
-						{
-							char phys_name[256];
-							uint32_t new_phys_handle = 0xFFFFFFFFu, new_phys_naddr = 0u;
-							int32_t new_phys_idx;
-							memcpy(out->data + new_phys_foff, out->data + tag_data_offset + (phys_daddr - CE_TAG_BASE_ADDR), phys_def_bytes);
-							if (phys_schema && phys_schema->definition)
-								out_map_clone_schema_blocks(out, tag_data_offset, phys_schema->definition, new_phys_foff, 1);
-							write_f32(out->data + new_phys_foff + 0x1Cu, 0.12f);  /* gravity_scale for smooth flight */
-							write_f32(out->data + new_phys_foff + 0x20u, 0.002f); /* ground_friction */
-							snprintf(phys_name, sizeof(phys_name), "%s_baked_phys", pobj->tag_path);
-							new_phys_idx = out_map_alloc_tag_instance(
-								out, tag_data_offset, scnr_off,
-								'phys', 0xFFFFFFFFu, 0xFFFFFFFFu,
-								phys_name, new_phys_foff, 0u,
-								&new_phys_handle, &new_phys_naddr);
-							if (new_phys_idx >= 0 && out->data)
-							{
-								vd = out->data + obj_def_foff;
-								write_u32(vd + 0x80u, 'phys');
-								write_u32(vd + 0x84u, new_phys_naddr);
-								write_u32(vd + 0x88u, 0u);
-								write_u32(vd + 0x8Cu, new_phys_handle);
-							}
-						}
-					}
-				}
-			}
-		}
-		else if (strstr(pobj->tag_path, "wraith") || strstr(pobj->tag_path, "ghost"))
-		{
-			write_s16(vd + 0x2F4u, 4); /* _vehicle_type_alien_scout */
-			write_f32(vd + 0x2F8u, 0.18f);
-			write_f32(vd + 0x2FCu, -0.08f);
-			write_f32(vd + 0x300u, 0.005f);
-			write_f32(vd + 0x304u, 0.005f);
-			write_f32(vd + 0x330u, 0.10f);
-			write_f32(vd + 0x334u, 0.10f);
-			write_u32(vd + 0x3DCu, 0xFFFFFFFFu);
-			write_u32(vd + 0x3ECu, 0xFFFFFFFFu);
-		}
-	}
-
-	return out_map_alloc_tag_instance(
-		out, tag_data_offset, scnr_off,
-		pobj->group_tag,
-		(pobj->group_tag == 'vehi' || pobj->group_tag == 'bipd') ? 'unit' :
-		((pobj->group_tag == 'weap' || pobj->group_tag == 'eqip') ? 'item' : 'obje'),
-		(pobj->group_tag == 'vehi' || pobj->group_tag == 'bipd' ||
-		 pobj->group_tag == 'weap' || pobj->group_tag == 'eqip') ? 'obje' : 0xFFFFFFFFu,
-		pobj->tag_path, obj_def_foff, 0u,
-		NULL, NULL);
+	return -1;
 }
 
 static uint32_t compute_ce_map_checksum(uint8_t const *map_bytes, uint32_t map_size, uint32_t tag_data_offset, uint32_t scnr_foff)
@@ -5293,82 +5293,25 @@ static void inplace_apply_default_object_edit(
 	}
 }
 
-static int forge_build_xbox_flg1_map(
-	char const *want_file,
-	char const *base_map_path,
+static int append_forge_map_metadata_and_preview_trailer(
+	struct forge_byte_buf *out,
 	char const *output_map_name,
-	struct forge_scenario_edit_state const *edits)
+	char const *base_map_label,
+	char const *blueprint_map_path,
+	struct forge_scenario_edit_state const *edits,
+	struct forge_source_map const *ce_base_map,
+	struct forge_pending_bake_obj const *pending_objs,
+	int pending_count)
 {
-	char xbox_path[512];
-	char base_stem[64];
-	char custom_bmp_hint[512];
-	char map_path[512];
-	char desc_buf[512];
-	char line[512];
-	FILE *in_f = NULL;
-	FILE *out_f = NULL;
-	long raw_sz = 0;
-	struct forge_byte_buf out;
 	struct forge_byte_buf state_buf;
 	struct forge_map_blueprint_data *bp = NULL;
+	char custom_bmp_hint[512];
+	char desc_buf[512];
+	char line[512];
 	uint8_t *bmp_mem = NULL;
 	uint32_t bmp_size = 0, desc_len = 0;
 	uint32_t state_foff = 0, state_size = 0, bmp_foff = 0, desc_foff = 0;
-	int line_len, i;
-
-	snprintf(base_stem, sizeof(base_stem), "%s", want_file);
-	{
-		char *dot = strrchr(base_stem, '.');
-		if (dot)
-			*dot = '\0';
-	}
-	if (!base_stem[0])
-		snprintf(base_stem, sizeof(base_stem), "bloodgulch");
-
-	snprintf(xbox_path, sizeof(xbox_path), "maps/%s.map", base_stem);
-	in_f = fopen(xbox_path, "rb");
-	if (!in_f && base_map_path && base_map_path[0])
-	{
-		snprintf(xbox_path, sizeof(xbox_path), "%s", base_map_path);
-		in_f = fopen(xbox_path, "rb");
-	}
-	if (!in_f)
-		return 0;
-
-	if (fseek(in_f, 0, SEEK_END) != 0 || (raw_sz = ftell(in_f)) < 0x800L || fseek(in_f, 0, SEEK_SET) != 0)
-	{
-		fclose(in_f);
-		return 0;
-	}
-
-	/* If in_f is an already-saved FLG1 Xbox map, strip its previous trailer at 0x1E4 */
-	{
-		uint8_t hdr_peek[0x200];
-		if (fread(hdr_peek, 1, sizeof(hdr_peek), in_f) == sizeof(hdr_peek))
-		{
-			uint32_t prev_sig = read_u32(hdr_peek + 0x1FCu);
-			uint32_t prev_st = read_u32(hdr_peek + 0x1E4u);
-			if (prev_sig == 0x464C4731u && prev_st >= 0x800u && (long)prev_st < raw_sz)
-				raw_sz = (long)prev_st;
-		}
-		fseek(in_f, 0, SEEK_SET);
-	}
-
-	buf_init(&out, (uint32_t)raw_sz + 65536u);
-	if (!out.data || fread(out.data, 1, (size_t)raw_sz, in_f) != (size_t)raw_sz)
-	{
-		fclose(in_f);
-		buf_free(&out);
-		return 0;
-	}
-	fclose(in_f);
-	out.size = (uint32_t)raw_sz;
-
-	if (read_u32(out.data + 0x00u) != CACHE_HEADER_SIGNATURE || read_s32(out.data + 0x04u) != CACHE_VERSION_XBOX)
-	{
-		buf_free(&out);
-		return 0;
-	}
+	int line_len, i, j;
 
 	buf_init(&state_buf, 16384u);
 	line_len = snprintf(line, sizeof(line),
@@ -5376,12 +5319,12 @@ static int forge_build_xbox_flg1_map(
 		"ForgeSource=UserCreated\r\n"
 		"Map Name: %s\r\n"
 		"Base Map: %s\r\n"
-		"Author: OpenCE : Faber Creator\r\n"
+		"Author: OpenCE : Forge Creator\r\n"
 		"Objects Placed: %d\r\n"
 		"AI Squads: %d\r\n"
 		"[ForgeState]\r\n",
 		output_map_name,
-		base_stem,
+		base_map_label,
 		edits ? (int)edits->placed_object_count : 0,
 		edits ? (int)edits->ai_spawn_count : 0);
 	if (line_len > 0 && state_buf.data)
@@ -5412,12 +5355,40 @@ static int forge_build_xbox_flg1_map(
 		for (i = 0; i < edits->placed_object_count; i++)
 		{
 			struct forge_placed_object_entry const *po = &edits->placed_objects[i];
+			int baked = 0;
 			if (!po->tag_path[0] || po->x < -90000.0f)
 				continue;
+			if (ce_base_map)
+			{
+				uint32_t g = po->group_tag;
+				if (g == 'mach' || g == 'lifi' || g == 'ctrl')
+					;
+				else if (g == 'scen' || po->category == _forge_object_scenery) g = 'scen';
+				else if (g == 'bipd' || po->category == _forge_object_biped) g = 'bipd';
+				else if (g == 'vehi' || po->category == _forge_object_vehicle) g = 'vehi';
+				else if (g == 'weap' || po->category == _forge_object_weapon) g = 'weap';
+				else if (g == 'eqip' || po->category == _forge_object_equipment) g = 'eqip';
+				if (src_map_find_tag_or_variant(ce_base_map, g, po->tag_path) >= 0)
+					baked = 1;
+				else
+				{
+					for (j = 0; j < pending_count; j++)
+					{
+						if (pending_objs[j].group_tag == g &&
+							_stricmp(pending_objs[j].tag_path, po->tag_path) == 0 &&
+							pending_objs[j].baked_tag_idx >= 0)
+						{
+							baked = 1;
+							break;
+						}
+					}
+				}
+			}
 			line_len = snprintf(line, sizeof(line),
-				"OBJECT|%u|%d|0|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%d|%s\r\n",
+				"OBJECT|%u|%d|%d|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%d|%s\r\n",
 				(unsigned)po->group_tag,
 				(int)po->source_cache_id,
+				baked,
 				po->x, po->y, po->z,
 				po->yaw, po->pitch, po->roll,
 				(int)po->team_index,
@@ -5462,68 +5433,188 @@ static int forge_build_xbox_flg1_map(
 	}
 
 	desc_len = (uint32_t)snprintf(desc_buf, sizeof(desc_buf),
-		"OpenCE : Faber Map: %s\r\n"
+		"OpenCE : Forge Map: %s\r\n"
 		"Base Map: %s\r\n"
-		"Author: OpenCE : Faber Creator\r\n"
+		"Author: OpenCE : Forge Creator\r\n"
 		"Objects Placed: %d\r\n",
 		output_map_name,
-		base_stem,
+		base_map_label,
 		edits ? (int)edits->placed_object_count : 0);
 
-	snprintf(custom_bmp_hint, sizeof(custom_bmp_hint), "Faber_data/custom_bmp/%s.bmp", output_map_name);
+	snprintf(custom_bmp_hint, sizeof(custom_bmp_hint), "OpenCE Forge/custom_bmp/%s.bmp", output_map_name);
 	bp = (struct forge_map_blueprint_data *)calloc(1, sizeof(*bp));
 	if (bp)
 	{
-		forge_load_map_blueprint(xbox_path, bp);
+		forge_load_map_blueprint(blueprint_map_path, bp);
 		bmp_mem = build_blueprint_bmp_buffer(custom_bmp_hint, bp, edits, &bmp_size);
 		forge_free_map_blueprint(bp);
 		free(bp);
 		bp = NULL;
 	}
 
-	buf_alloc(&out, 0, 32);
+	if (!ce_base_map)
+		buf_alloc(out, 0, 32);
+
 	if (state_buf.data && state_buf.size > 0)
 	{
 		state_size = state_buf.size;
-		state_foff = buf_alloc(&out, state_size + 1u, 4);
-		if (state_foff && out.data)
+		state_foff = buf_alloc(out, state_size + 1u, 4);
+		if (state_foff && out->data)
 		{
-			memcpy(out.data + state_foff, state_buf.data, state_size);
-			out.data[state_foff + state_size] = 0;
+			memcpy(out->data + state_foff, state_buf.data, state_size);
+			out->data[state_foff + state_size] = 0;
 		}
 	}
 	buf_free(&state_buf);
 
 	if (bmp_mem && bmp_size > 0)
 	{
-		bmp_foff = buf_alloc(&out, bmp_size, 4);
-		if (bmp_foff && out.data)
-			memcpy(out.data + bmp_foff, bmp_mem, bmp_size);
+		bmp_foff = buf_alloc(out, bmp_size, 4);
+		if (bmp_foff && out->data)
+			memcpy(out->data + bmp_foff, bmp_mem, bmp_size);
 		free(bmp_mem);
 	}
 
 	if (desc_len > 0)
 	{
-		desc_foff = buf_alloc(&out, desc_len + 1u, 4);
-		if (desc_foff && out.data)
+		desc_foff = buf_alloc(out, desc_len + 1u, 4);
+		if (desc_foff && out->data)
 		{
-			memcpy(out.data + desc_foff, desc_buf, desc_len);
-			out.data[desc_foff + desc_len] = 0;
+			memcpy(out->data + desc_foff, desc_buf, desc_len);
+			out->data[desc_foff + desc_len] = 0;
 		}
 	}
 
-	if (!out.data)
+	if (ce_base_map)
+		buf_alloc(out, 0, 32);
+
+	if (!out->data)
 		return 0;
 
-	memset(out.data + 0x20u, 0, 32);
-	snprintf((char *)(out.data + 0x20u), 32, "%s", output_map_name);
-	write_u32(out.data + 0x1E4u, state_foff);
-	write_u32(out.data + 0x1E8u, state_size);
-	write_u32(out.data + 0x1ECu, bmp_foff);
-	write_u32(out.data + 0x1F0u, bmp_size);
-	write_u32(out.data + 0x1F4u, desc_foff);
-	write_u32(out.data + 0x1F8u, desc_len);
-	write_u32(out.data + 0x1FCu, 0x464C4731u); /* 'FLG1' OpenCE : Faber map signature */
+	memset(out->data + 0x20u, 0, 32);
+	snprintf((char *)(out->data + 0x20u), 32, "%s", output_map_name);
+	write_u32(out->data + 0x1E4u, state_foff);
+	write_u32(out->data + 0x1E8u, state_size);
+	write_u32(out->data + 0x1ECu, bmp_foff);
+	write_u32(out->data + 0x1F0u, bmp_size);
+	write_u32(out->data + 0x1F4u, desc_foff);
+	write_u32(out->data + 0x1F8u, desc_len);
+	write_u32(out->data + 0x1FCu, 0x464C4731u); /* 'FLG1' OpenCE : Forge map signature */
+	return 1;
+}
+
+static int forge_build_xbox_flg1_map(
+	char const *want_file,
+	char const *base_map_path,
+	char const *output_map_name,
+	struct forge_scenario_edit_state const *edits)
+{
+	char xbox_path[512];
+	char base_stem[64];
+	char map_path[512];
+	FILE *in_f = NULL;
+	FILE *out_f = NULL;
+	long raw_sz = 0;
+	struct forge_byte_buf out;
+
+	snprintf(base_stem, sizeof(base_stem), "%s", want_file);
+	{
+		char *dot = strrchr(base_stem, '.');
+		if (dot)
+			*dot = '\0';
+	}
+	if (!base_stem[0])
+		snprintf(base_stem, sizeof(base_stem), "bloodgulch");
+
+	snprintf(xbox_path, sizeof(xbox_path), "maps/%s.map", base_stem);
+	in_f = fopen(xbox_path, "rb");
+	if (!in_f && base_map_path && base_map_path[0])
+	{
+		snprintf(xbox_path, sizeof(xbox_path), "%s", base_map_path);
+		in_f = fopen(xbox_path, "rb");
+	}
+	if (!in_f)
+		return 0;
+
+	if (fseek(in_f, 0, SEEK_END) != 0 || (raw_sz = ftell(in_f)) < 0x800L || fseek(in_f, 0, SEEK_SET) != 0)
+	{
+		fclose(in_f);
+		return 0;
+	}
+
+	/* If in_f is an already-saved FLG1 Xbox map, strip its previous trailer at 0x1E4 and preserve its Base Map stem */
+	{
+		uint8_t hdr_peek[0x200];
+		if (fread(hdr_peek, 1, sizeof(hdr_peek), in_f) == sizeof(hdr_peek))
+		{
+			uint32_t prev_sig = read_u32(hdr_peek + 0x1FCu);
+			uint32_t prev_st = read_u32(hdr_peek + 0x1E4u);
+			uint32_t prev_st_sz = read_u32(hdr_peek + 0x1E8u);
+			if (prev_sig == 0x464C4731u && prev_st >= 0x800u && (long)prev_st < raw_sz)
+			{
+				if (prev_st_sz > 0 && prev_st_sz < 262144u && (long)(prev_st + prev_st_sz) <= raw_sz)
+				{
+					char *st_buf = (char *)malloc(prev_st_sz + 1u);
+					if (st_buf)
+					{
+						if (fseek(in_f, (long)prev_st, SEEK_SET) == 0 &&
+							fread(st_buf, 1, prev_st_sz, in_f) == prev_st_sz)
+						{
+							char const *bm;
+							st_buf[prev_st_sz] = '\0';
+							bm = strstr(st_buf, "Base Map: ");
+							if (bm)
+							{
+								size_t bi = 0;
+								bm += 10;
+								while (bm[bi] && bm[bi] != '\r' && bm[bi] != '\n' && bi + 1 < sizeof(base_stem))
+								{
+									base_stem[bi] = bm[bi];
+									bi++;
+								}
+								base_stem[bi] = '\0';
+							}
+						}
+						free(st_buf);
+					}
+				}
+				raw_sz = (long)prev_st;
+			}
+		}
+		fseek(in_f, 0, SEEK_SET);
+	}
+
+	buf_init(&out, (uint32_t)raw_sz + 65536u);
+	if (!out.data || fread(out.data, 1, (size_t)raw_sz, in_f) != (size_t)raw_sz)
+	{
+		fclose(in_f);
+		buf_free(&out);
+		return 0;
+	}
+	fclose(in_f);
+	out.size = (uint32_t)raw_sz;
+
+	if (read_u32(out.data + 0x00u) != CACHE_HEADER_SIGNATURE ||
+		read_s32(out.data + 0x04u) != CACHE_VERSION_XBOX ||
+		read_s16(out.data + 0x60u) != 1)
+	{
+		buf_free(&out);
+		return 0;
+	}
+
+	if (!append_forge_map_metadata_and_preview_trailer(
+			&out,
+			output_map_name,
+			base_stem,
+			xbox_path,
+			edits,
+			NULL,
+			NULL,
+			0))
+	{
+		buf_free(&out);
+		return 0;
+	}
 
 	snprintf(map_path, sizeof(map_path), "custom_maps/%s.map", output_map_name);
 	out_f = fopen(map_path, "wb");
@@ -5543,6 +5634,178 @@ static int forge_build_xbox_flg1_map(
 	return 1;
 }
 
+static void cb_neutralize_baked_object_placement(
+	struct forge_byte_buf *out,
+	uint32_t tag_data_offset,
+	uint32_t scnr_foff,
+	uint32_t group_tag,
+	float x,
+	float y,
+	float z)
+{
+	uint32_t place_field_off = 0, place_elem_sz = 0;
+	int is_netgame_eq = 0;
+	int32_t cnt, k, best_k = -1;
+	uint32_t addr, arr_foff;
+	float best_d2 = 0.05f;
+
+	if (!out || !out->data)
+		return;
+
+	if (group_tag == 0x77656170u || group_tag == 0x65716970u)
+	{
+		is_netgame_eq = 1;
+		place_field_off = (uint32_t)offsetof(struct scenario, netgame_equipment);
+		place_elem_sz = 144u;
+	}
+	else if (group_tag == 0x76656869u)
+	{
+		place_field_off = (uint32_t)offsetof(struct scenario, vehicles);
+		place_elem_sz = 120u;
+	}
+	else if (group_tag == 0x62697064u)
+	{
+		place_field_off = (uint32_t)offsetof(struct scenario, bipeds);
+		place_elem_sz = 120u;
+	}
+	else
+	{
+		place_field_off = (uint32_t)offsetof(struct scenario, scenery);
+		place_elem_sz = 72u;
+	}
+
+	if (scnr_foff + place_field_off + 12u > out->size)
+		return;
+	cnt = read_s32(out->data + scnr_foff + place_field_off + 0u);
+	addr = read_u32(out->data + scnr_foff + place_field_off + 4u);
+	if (cnt <= 0 || addr < CE_TAG_BASE_ADDR)
+		return;
+	arr_foff = tag_data_offset + (addr - CE_TAG_BASE_ADDR);
+	if (arr_foff + (uint32_t)cnt * place_elem_sz > out->size)
+		return;
+
+	for (k = 0; k < cnt; k++)
+	{
+		uint32_t eo = arr_foff + (uint32_t)k * place_elem_sz;
+		uint32_t pos_off = is_netgame_eq ? 0x40u : 0x08u;
+		float ex, ey, ez, dx, dy, dz, d2;
+		if (is_netgame_eq)
+		{
+			if (read_s32(out->data + eo + 0x5Cu) == -1)
+				continue;
+		}
+		else
+		{
+			if (read_s16(out->data + eo + 0x00u) < 0)
+				continue;
+		}
+		ex = read_f32(out->data + eo + pos_off + 0u);
+		ey = read_f32(out->data + eo + pos_off + 4u);
+		ez = read_f32(out->data + eo + pos_off + 8u);
+		dx = ex - x;
+		dy = ey - y;
+		dz = ez - z;
+		d2 = dx * dx + dy * dy + dz * dz;
+		if (d2 <= best_d2)
+		{
+			best_d2 = d2;
+			best_k = k;
+		}
+	}
+
+	if (best_k >= 0)
+	{
+		uint32_t eo = arr_foff + (uint32_t)best_k * place_elem_sz;
+		if (is_netgame_eq)
+		{
+			memset(out->data + eo + 0x50u, 0, 16u);
+			write_s32(out->data + eo + 0x5Cu, -1);
+			write_f32(out->data + eo + 0x40u, -99999.0f);
+			write_f32(out->data + eo + 0x44u, -99999.0f);
+			write_f32(out->data + eo + 0x48u, -99999.0f);
+		}
+		else
+		{
+			write_s16(out->data + eo + 0x00u, -1);
+			write_s16(out->data + eo + 0x02u, -1);
+			write_f32(out->data + eo + 0x08u, -99999.0f);
+			write_f32(out->data + eo + 0x0Cu, -99999.0f);
+			write_f32(out->data + eo + 0x10u, -99999.0f);
+		}
+	}
+}
+
+static void cb_undo_previous_flg1_edits(
+	struct forge_byte_buf *out,
+	uint32_t tag_data_offset,
+	uint32_t scnr_foff,
+	char const *prev_state_text)
+{
+	char const *cur = prev_state_text;
+	char line[512];
+
+	if (!out || !out->data || !prev_state_text)
+		return;
+
+	while (*cur)
+	{
+		size_t len = 0;
+		while (cur[len] && cur[len] != '\n' && cur[len] != '\r')
+			len++;
+		if (len > 0 && len < sizeof(line))
+		{
+			memcpy(line, cur, len);
+			line[len] = '\0';
+			if (strncmp(line, "DEFAULT_EDIT|", 13) == 0)
+			{
+				unsigned int grp = 0;
+				int del_flag = 0;
+				float ox = 0.0f, oy = 0.0f, oz = 0.0f;
+				float nx = 0.0f, ny = 0.0f, nz = 0.0f;
+				float nyaw = 0.0f, npitch = 0.0f, nroll = 0.0f;
+				if (sscanf(line + 13, "%x|%d|%f|%f|%f|%f|%f|%f|%f|%f|%f",
+						&grp, &del_flag, &ox, &oy, &oz, &nx, &ny, &nz, &nyaw, &npitch, &nroll) >= 8 &&
+					!del_flag)
+				{
+					struct forge_default_object_edit rev;
+					memset(&rev, 0, sizeof(rev));
+					rev.group_tag = (uint32_t)grp;
+					rev.orig_x = nx;
+					rev.orig_y = ny;
+					rev.orig_z = nz;
+					rev.new_x = ox;
+					rev.new_y = oy;
+					rev.new_z = oz;
+					rev.new_yaw = nyaw;
+					rev.new_pitch = npitch;
+					rev.new_roll = nroll;
+					rev.deleted = 0;
+					inplace_apply_default_object_edit(out, tag_data_offset, scnr_foff, &rev);
+				}
+			}
+			else if (strncmp(line, "OBJECT|", 7) == 0)
+			{
+				char const *p1 = strchr(line + 7, '|');
+				char const *p2 = p1 ? strchr(p1 + 1, '|') : NULL;
+				if (p1 && p2)
+				{
+					unsigned int grp = 0;
+					int baked_flag = 0;
+					float ox = 0.0f, oy = 0.0f, oz = 0.0f;
+					sscanf(line + 7, "%x", &grp);
+					if (sscanf(p2 + 1, "%d|%f|%f|%f", &baked_flag, &ox, &oy, &oz) == 4 && baked_flag == 1)
+					{
+						cb_neutralize_baked_object_placement(out, tag_data_offset, scnr_foff, (uint32_t)grp, ox, oy, oz);
+					}
+				}
+			}
+		}
+		cur += len;
+		while (*cur == '\r' || *cur == '\n')
+			cur++;
+	}
+}
+
 int forge_export_scenario_map(
 	char const *base_map_path,
 	struct forge_scenario_edit_state const *edits,
@@ -5554,12 +5817,15 @@ int forge_export_scenario_map(
 	struct forge_byte_buf extra_strips;
 	struct forge_pending_bake_obj *pending_objs = NULL;
 	int pending_count = 0;
-	struct forge_map_blueprint_data *bp = NULL;
 	char map_path[512];
 	uint8_t const *scnr_inst;
 	uint32_t scnr_addr, scnr_off, scnr_foff;
 	uint32_t orig_vtx_off, orig_vtx_size, orig_model_size, orig_idx_off, orig_idx_size;
 	uint32_t tag_data_offset;
+	uint32_t orig_tag_end = 0;
+	uint8_t *prev_media_buf = NULL;
+	uint32_t prev_media_size = 0;
+	char *prev_state_text = NULL;
 	int32_t i, j;
 	FILE *f;
 
@@ -5568,6 +5834,7 @@ int forge_export_scenario_map(
 
 #undef _mkdir
 #undef mkdir
+	FORGE_MKDIR("d:\\custom_maps");
 	FORGE_MKDIR("custom_maps");
 
 	/* Ensure we open a Custom Edition (v609) base map container matching the current map (or fall back to OpenCE's Xbox v5 map) */
@@ -5630,6 +5897,47 @@ int forge_export_scenario_map(
 	orig_model_size = read_u32(base_map.data + base_map.tag_data_offset + 0x20u);
 	orig_idx_off = orig_vtx_off + orig_vtx_size;
 	orig_idx_size = (orig_model_size >= orig_vtx_size) ? (orig_model_size - orig_vtx_size) : 0u;
+	orig_tag_end = base_map.tag_data_offset + base_map.tag_data_size;
+
+	/* If base_map is already an FLG1 v609 map, strip its previous trailer and preserve any deferred raw media */
+	if (read_u32(base_map.data + 0x1FCu) == 0x464C4731u)
+	{
+		uint32_t prev_st_foff = read_u32(base_map.data + 0x1E4u);
+		uint32_t prev_st_size = read_u32(base_map.data + 0x1E8u);
+		if (prev_st_foff >= orig_tag_end && prev_st_foff <= base_map.file_size)
+		{
+			if (prev_st_size > 0 && prev_st_size < 262144u && prev_st_foff + prev_st_size <= base_map.file_size)
+			{
+				prev_state_text = (char *)malloc(prev_st_size + 1u);
+				if (prev_state_text)
+				{
+					char const *bm;
+					memcpy(prev_state_text, base_map.data + prev_st_foff, prev_st_size);
+					prev_state_text[prev_st_size] = '\0';
+					bm = strstr(prev_state_text, "Base Map: ");
+					if (bm)
+					{
+						size_t bi = 0;
+						bm += 10;
+						while (bm[bi] && bm[bi] != '\r' && bm[bi] != '\n' && bi + 1 < sizeof(base_map.map_name))
+						{
+							base_map.map_name[bi] = bm[bi];
+							bi++;
+						}
+						base_map.map_name[bi] = '\0';
+					}
+				}
+			}
+			if (prev_st_foff > orig_tag_end)
+			{
+				prev_media_size = prev_st_foff - orig_tag_end;
+				prev_media_buf = (uint8_t *)malloc(prev_media_size);
+				if (prev_media_buf)
+					memcpy(prev_media_buf, base_map.data + orig_tag_end, prev_media_size);
+			}
+			base_map.file_size = orig_tag_end;
+		}
+	}
 
 	buf_init(&extra_verts, 65536u);
 	buf_init(&extra_strips, 32768u);
@@ -5680,11 +5988,10 @@ int forge_export_scenario_map(
 						memset(pobj, 0, sizeof(*pobj));
 						pobj->group_tag = g;
 						snprintf(pobj->tag_path, sizeof(pobj->tag_path), "%s", po->tag_path);
-						pobj->bounding_radius = 1.5f;
-						pobj->u_scale = 1.0f;
-						pobj->v_scale = 1.0f;
 						pobj->ocetags_json = oce_json;
 						pobj->ocetags_json_len = oce_json_len;
+						pobj->faber_profile_idx = -1;
+						pobj->faber_tag_idx = -1;
 						pobj->baked_tag_idx = -1;
 
 						if (cb_ocetags_find_key_range(oce_json, 0, oce_json_len, "tags", &t_pos) &&
@@ -5782,7 +6089,26 @@ int forge_export_scenario_map(
 				if (src_map_find_tag_or_variant(&base_map, g, po->tag_path) >= 0)
 					continue;
 
-				/* 2. Otherwise locate the tag in an Xbox donor map (campaign or other MP map)
+				/* 2. Try baking from a Faber Tag Vault bundle (.fbrtag / faber_vault.bin) */
+				{
+					long fb_prof = -1, fb_tag = -1;
+					if (cb_find_faber_vault_bundle_for_tag(g, po->tag_path, &fb_prof, &fb_tag) &&
+						fb_prof >= 0 && fb_tag >= 0)
+					{
+						struct forge_pending_bake_obj *pobj = &pending_objs[pending_count];
+						memset(pobj, 0, sizeof(*pobj));
+						pobj->group_tag = g;
+						snprintf(pobj->tag_path, sizeof(pobj->tag_path), "%s", po->tag_path);
+						pobj->faber_profile_idx = fb_prof;
+						pobj->faber_tag_idx = fb_tag;
+						pobj->baked_tag_idx = -1;
+						cb_prescan_faber_vault_models(fb_prof, fb_tag, pobj, &extra_verts, &extra_strips);
+						pending_count++;
+						continue;
+					}
+				}
+
+				/* 3. Otherwise locate the tag in an Xbox donor map (campaign, MP map, or .fxtg bundle)
 				 * and pre-scan its 'mode' geometry so the full Xbox tag closure is baked into the saved .map! */
 				{
 					char xbox_path[512];
@@ -5799,9 +6125,8 @@ int forge_export_scenario_map(
 								pobj->group_tag = g;
 								snprintf(pobj->tag_path, sizeof(pobj->tag_path), "%s", po->tag_path);
 								snprintf(pobj->xbox_map_path, sizeof(pobj->xbox_map_path), "%s", xbox_path);
-								pobj->bounding_radius = 1.5f;
-								pobj->u_scale = 1.0f;
-								pobj->v_scale = 1.0f;
+								pobj->faber_profile_idx = -1;
+								pobj->faber_tag_idx = -1;
 								pobj->baked_tag_idx = -1;
 								cb_prescan_xbox_models(&xmap, root_idx, pobj, &extra_verts, &extra_strips);
 								pending_count++;
@@ -5824,6 +6149,8 @@ int forge_export_scenario_map(
 		buf_free(&extra_verts);
 		buf_free(&extra_strips);
 		free(pending_objs);
+		free(prev_media_buf);
+		free(prev_state_text);
 		forge_source_map_close(&base_map);
 		return 0;
 	}
@@ -5874,6 +6201,95 @@ int forge_export_scenario_map(
 	buf_free(&extra_strips);
 	scnr_foff = tag_data_offset + scnr_off;
 
+	if (prev_media_buf && prev_media_size > 0)
+	{
+		uint32_t prev_media_rel = buf_alloc(&s_cb_raw_media, prev_media_size, 32);
+		if (s_cb_raw_media.data)
+		{
+			memcpy(s_cb_raw_media.data + prev_media_rel, prev_media_buf, prev_media_size);
+			for (i = 0; i < base_map.tag_count; i++)
+			{
+				uint32_t io = tag_data_offset + 0x28u + (uint32_t)i * 32u;
+				uint32_t gtag, taddr, t_foff;
+				if (io + 32u > out.size || read_u32(out.data + io + 0x18u) != 0)
+					continue;
+				gtag = read_u32(out.data + io + 0x00u);
+				taddr = read_u32(out.data + io + 0x14u);
+				if (taddr < CE_TAG_BASE_ADDR)
+					continue;
+				t_foff = tag_data_offset + (taddr - CE_TAG_BASE_ADDR);
+				if (gtag == 0x6269746Du && t_foff + 0x6Cu <= out.size)
+				{
+					int32_t bd_cnt = read_s32(out.data + t_foff + 0x60u);
+					uint32_t bd_addr = read_u32(out.data + t_foff + 0x64u);
+					if (bd_cnt > 0 && bd_addr >= CE_TAG_BASE_ADDR)
+					{
+						uint32_t bd_arr = tag_data_offset + (bd_addr - CE_TAG_BASE_ADDR);
+						int32_t bi;
+						for (bi = 0; bi < bd_cnt && bd_arr + (uint32_t)(bi + 1) * 48u <= out.size; bi++)
+						{
+							uint32_t bd_foff = bd_arr + (uint32_t)bi * 48u;
+							uint16_t bflags = read_u16(out.data + bd_foff + 0x0Eu);
+							uint32_t px_off = read_u32(out.data + bd_foff + 0x18u);
+							if (!(bflags & (1u << 8)) && px_off >= orig_tag_end && px_off < orig_tag_end + prev_media_size &&
+								s_cb_media_patch_count < 4096)
+							{
+								s_cb_media_patches[s_cb_media_patch_count].field_foff = bd_foff + 0x18u;
+								s_cb_media_patches[s_cb_media_patch_count].media_rel_off = prev_media_rel + (px_off - orig_tag_end);
+								s_cb_media_patch_count++;
+							}
+						}
+					}
+				}
+				else if (gtag == 0x736E6421u && t_foff + 0xA4u <= out.size)
+				{
+					int32_t pr_cnt = read_s32(out.data + t_foff + 0x98u);
+					uint32_t pr_addr = read_u32(out.data + t_foff + 0x9Cu);
+					if (pr_cnt > 0 && pr_addr >= CE_TAG_BASE_ADDR)
+					{
+						uint32_t pr_arr = tag_data_offset + (pr_addr - CE_TAG_BASE_ADDR);
+						int32_t pri;
+						for (pri = 0; pri < pr_cnt && pr_arr + (uint32_t)(pri + 1) * 72u <= out.size; pri++)
+						{
+							uint32_t pr_foff = pr_arr + (uint32_t)pri * 72u;
+							int32_t pm_cnt = read_s32(out.data + pr_foff + 0x3Cu);
+							uint32_t pm_addr = read_u32(out.data + pr_foff + 0x40u);
+							if (pm_cnt > 0 && pm_addr >= CE_TAG_BASE_ADDR)
+							{
+								uint32_t pm_arr = tag_data_offset + (pm_addr - CE_TAG_BASE_ADDR);
+								int32_t pmi;
+								for (pmi = 0; pmi < pm_cnt && pm_arr + (uint32_t)(pmi + 1) * 124u <= out.size; pmi++)
+								{
+									uint32_t pm_foff = pm_arr + (uint32_t)pmi * 124u;
+									uint32_t ext_fl = read_u32(out.data + pm_foff + 0x44u + 4u);
+									uint32_t smp_off = read_u32(out.data + pm_foff + 0x44u + 8u);
+									if (!(ext_fl & 1u) && smp_off >= orig_tag_end && smp_off < orig_tag_end + prev_media_size &&
+										s_cb_media_patch_count < 4096)
+									{
+										s_cb_media_patches[s_cb_media_patch_count].field_foff = pm_foff + 0x44u + 8u;
+										s_cb_media_patches[s_cb_media_patch_count].media_rel_off = prev_media_rel + (smp_off - orig_tag_end);
+										s_cb_media_patch_count++;
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	if (prev_media_buf)
+	{
+		free(prev_media_buf);
+		prev_media_buf = NULL;
+	}
+	if (prev_state_text)
+	{
+		cb_undo_previous_flg1_edits(&out, tag_data_offset, scnr_foff, prev_state_text);
+		free(prev_state_text);
+		prev_state_text = NULL;
+	}
+
 	/* Relocate existing tag_instance name strings to the end of tag_data
 	 * to free contiguous 32-byte tag_instance slots after base_map.tag_count, then bake each object! */
 	if (pending_count > 0 || (edits && edits->placed_object_count > 0))
@@ -5898,7 +6314,7 @@ int forge_export_scenario_map(
 		for (j = 0; j < pending_count; j++)
 		{
 			pending_objs[j].baked_tag_idx = out_map_bake_non_native_object(
-				&out, &base_map, tag_data_offset, scnr_off,
+				&out, tag_data_offset, scnr_off,
 				orig_vtx_size, orig_idx_size, &pending_objs[j]);
 			free(pending_objs[j].ocetags_json);
 			pending_objs[j].ocetags_json = NULL;
@@ -6020,9 +6436,6 @@ int forge_export_scenario_map(
 			}
 		}
 
-		if (edits->replace_netgame_equipment)
-			write_s32(out.data + scnr_foff + (uint32_t)offsetof(struct scenario, netgame_equipment), 0);
-
 		/* 3. Append all placed objects (both native base_map tags and newly baked non-native tags) */
 		for (i = 0; i < edits->placed_object_count; i++)
 		{
@@ -6091,6 +6504,39 @@ int forge_export_scenario_map(
 				if (tag_idx >= 0)
 				{
 					int16_t pal;
+					if (g == 'weap' || g == 'eqip')
+					{
+						uint32_t itmc_handle = 0xFFFFFFFFu, itmc_name_addr = 0u;
+						int32_t itmc_idx = out_map_create_item_collection_for_tag(
+							&out, tag_data_offset, scnr_off, g, tag_idx, i,
+							&itmc_handle, &itmc_name_addr);
+						if (itmc_idx >= 0 && itmc_handle != 0xFFFFFFFFu)
+						{
+							uint32_t ne_eo = inplace_append_scenario_element(
+								&out, tag_data_offset, scnr_foff,
+								(uint32_t)offsetof(struct scenario, netgame_equipment), 144u);
+							if (ne_eo > 0 && out.data)
+							{
+								memset(out.data + ne_eo, 0, 144u);
+								write_u32(out.data + ne_eo + 0x00u, 0u);
+								write_s16(out.data + ne_eo + 0x04u, 12); /* _game_engine_all */
+								write_s16(out.data + ne_eo + 0x06u, 0);
+								write_s16(out.data + ne_eo + 0x08u, 0);
+								write_s16(out.data + ne_eo + 0x0Au, 0);
+								write_s16(out.data + ne_eo + 0x0Cu, po->team_index);
+								write_s16(out.data + ne_eo + 0x0Eu, 30); /* spawn_time = 30s */
+								write_f32(out.data + ne_eo + 0x40u, po->x);
+								write_f32(out.data + ne_eo + 0x44u, po->y);
+								write_f32(out.data + ne_eo + 0x48u, po->z);
+								write_f32(out.data + ne_eo + 0x4Cu, po->yaw);
+								write_u32(out.data + ne_eo + 0x50u, 'itmc');
+								write_u32(out.data + ne_eo + 0x54u, itmc_name_addr);
+								write_s32(out.data + ne_eo + 0x58u, 0);
+								write_u32(out.data + ne_eo + 0x5Cu, itmc_handle);
+								continue;
+							}
+						}
+					}
 					if (g == 'vehi')
 						tag_idx = out_map_clone_vehicle_tag_for_mp(&out, tag_data_offset, scnr_off, tag_idx, i);
 					pal = inplace_ensure_scenario_palette_entry(
@@ -6136,39 +6582,6 @@ int forge_export_scenario_map(
 								write_f32(out.data + eo + 0x50u, 1.0f);
 								write_f32(out.data + eo + 0x54u, 1.2f);
 							}
-
-							/* Also synthesize an 'itmc' (item_collection) and append a scenario_netgame_equipment
-							 * entry for every placed weapon ('weap') and equipment ('eqip') so standard Halo CE
-							 * multiplayer spawns and respawns them natively! */
-							if (g == 'weap' || g == 'eqip')
-							{
-								uint32_t itmc_handle = 0xFFFFFFFFu;
-								uint32_t itmc_naddr = 0u;
-								int32_t itmc_idx = out_map_create_item_collection_for_tag(
-									&out, tag_data_offset, scnr_off, g, tag_idx, i,
-									&itmc_handle, &itmc_naddr);
-								if (itmc_idx >= 0 && itmc_handle != 0xFFFFFFFFu)
-								{
-									uint32_t neo = inplace_append_scenario_element(
-										&out, tag_data_offset, scnr_foff,
-										(uint32_t)offsetof(struct scenario, netgame_equipment), 144u);
-									if (neo > 0 && out.data)
-									{
-										memset(out.data + neo, 0, 144u);
-										write_s16(out.data + neo + 0x04u, 12); /* type0 = 12 (All Games) */
-										write_s16(out.data + neo + 0x0Cu, 0);  /* team_index = 0 */
-										write_s16(out.data + neo + 0x0Eu, 30); /* spawn_time = 30 seconds */
-										write_f32(out.data + neo + 0x40u, po->x);
-										write_f32(out.data + neo + 0x44u, po->y);
-										write_f32(out.data + neo + 0x48u, po->z);
-										write_f32(out.data + neo + 0x4Cu, po->yaw);
-										write_u32(out.data + neo + 0x50u, 'itmc');
-										write_u32(out.data + neo + 0x54u, itmc_naddr);
-										write_u32(out.data + neo + 0x58u, 0u);
-										write_u32(out.data + neo + 0x5Cu, itmc_handle);
-									}
-								}
-							}
 						}
 					}
 				}
@@ -6181,16 +6594,6 @@ int forge_export_scenario_map(
 	 * so no external .bmp or .txt files are ever created! */
 	{
 		uint32_t tag_data_end_foff = buf_alloc(&out, 0, 32);
-		struct forge_byte_buf state_buf;
-		char desc_buf[512];
-		uint32_t desc_len = 0;
-		uint8_t *bmp_mem = NULL;
-		uint32_t bmp_size = 0;
-		uint32_t state_foff = 0, state_size = 0;
-		uint32_t bmp_foff = 0, desc_foff = 0;
-		char custom_bmp_hint[512];
-		char line[512];
-		int line_len;
 
 		/* Append deferred raw bitmap pixels and sound samples AFTER tag_data_end_foff so
 		 * tag_data_size never exceeds lowest_structure_bsp_address - CE_TAG_BASE_ADDR */
@@ -6212,181 +6615,15 @@ int forge_export_scenario_map(
 		buf_free(&s_cb_raw_media);
 		s_cb_media_patch_count = 0;
 
-		buf_init(&state_buf, 16384u);
-		line_len = snprintf(line, sizeof(line),
-			"[OpenCE Forge Map]\r\n"
-			"ForgeSource=UserCreated\r\n"
-			"Map Name: %s\r\n"
-			"Base Map: %s\r\n"
-			"Author: OpenCE : Faber Creator\r\n"
-			"Objects Placed: %d\r\n"
-			"AI Squads: %d\r\n",
-			output_map_name,
-			base_map.map_name,
-			edits ? (int)edits->placed_object_count : 0,
-			edits ? (int)edits->ai_spawn_count : 0);
-		if (line_len > 0 && state_buf.data)
-		{
-			uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-			if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
-		}
-		if (edits)
-		{
-			line_len = snprintf(line, sizeof(line), "[ForgeState]\r\n");
-			if (line_len > 0 && state_buf.data)
-			{
-				uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
-			}
-			for (i = 0; i < edits->default_edit_count; i++)
-			{
-				struct forge_default_object_edit const *de = &edits->default_edits[i];
-				if (!de->active)
-					continue;
-				line_len = snprintf(line, sizeof(line),
-					"DEFAULT_EDIT|%u|%d|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%s\r\n",
-					(unsigned)de->group_tag, (int)de->deleted,
-					de->orig_x, de->orig_y, de->orig_z,
-					de->new_x, de->new_y, de->new_z,
-					de->new_yaw, de->new_pitch, de->new_roll,
-					de->tag_path);
-				if (line_len > 0 && state_buf.data)
-				{
-					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-					if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
-				}
-			}
-			for (i = 0; i < edits->placed_object_count; i++)
-			{
-				struct forge_placed_object_entry const *po = &edits->placed_objects[i];
-				uint32_t g = po->group_tag;
-				int baked = 0;
-				if (!po->tag_path[0] || po->x < -90000.0f)
-					continue;
-				if (g == 'mach' || g == 'lifi' || g == 'ctrl')
-					;
-				else if (g == 'scen' || po->category == _forge_object_scenery) g = 'scen';
-				else if (g == 'bipd' || po->category == _forge_object_biped) g = 'bipd';
-				else if (g == 'vehi' || po->category == _forge_object_vehicle) g = 'vehi';
-				else if (g == 'weap' || po->category == _forge_object_weapon) g = 'weap';
-				else if (g == 'eqip' || po->category == _forge_object_equipment) g = 'eqip';
-				if (src_map_find_tag_or_variant(&base_map, g, po->tag_path) >= 0)
-					baked = 1;
-				else
-				{
-					for (j = 0; j < pending_count; j++)
-					{
-						if (pending_objs[j].group_tag == g &&
-							_stricmp(pending_objs[j].tag_path, po->tag_path) == 0 &&
-							pending_objs[j].baked_tag_idx >= 0)
-						{
-							baked = 1;
-							break;
-						}
-					}
-				}
-				line_len = snprintf(line, sizeof(line),
-					"OBJECT|%u|%d|%d|%.4f|%.4f|%.4f|%.4f|%.4f|%.4f|%d|%s\r\n",
-					(unsigned)po->group_tag,
-					(int)po->source_cache_id,
-					baked,
-					po->x, po->y, po->z,
-					po->yaw, po->pitch, po->roll,
-					(int)po->team_index,
-					po->tag_path);
-				if (line_len > 0 && state_buf.data)
-				{
-					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-					if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
-				}
-			}
-			for (i = 0; i < edits->ai_spawn_count; i++)
-			{
-				struct forge_ai_spawn_entry const *ai = &edits->ai_spawns[i];
-				if (!ai->actor_variant_path[0])
-					continue;
-				line_len = snprintf(line, sizeof(line),
-					"AI|%.4f|%.4f|%.4f|%.4f|%d|%s\r\n",
-					ai->x, ai->y, ai->z, ai->yaw,
-					(int)ai->team_designator,
-					ai->actor_variant_path);
-				if (line_len > 0 && state_buf.data)
-				{
-					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-					if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
-				}
-			}
-			for (i = 0; i < edits->netgame_flag_count; i++)
-			{
-				struct forge_netgame_flag_entry const *nf = &edits->netgame_flags[i];
-				if (nf->type != 15)
-					continue;
-				line_len = snprintf(line, sizeof(line),
-					"FF_SPAWN|%.4f|%.4f|%.4f|%.4f|%d\r\n",
-					nf->x, nf->y, nf->z, nf->yaw,
-					(int)nf->usage_id);
-				if (line_len > 0 && state_buf.data)
-				{
-					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-					if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
-				}
-			}
-		}
-
-		desc_len = (uint32_t)snprintf(desc_buf, sizeof(desc_buf),
-			"OpenCE : Faber Map: %s\r\n"
-			"Base Map: %s\r\n"
-			"Author: OpenCE : Faber Creator\r\n"
-			"Objects Placed: %d\r\n",
-			output_map_name,
-			base_map.map_name,
-			edits ? (int)edits->placed_object_count : 0);
-
-		/* Build 140x114 BMP blueprint in memory (using base_map's BSP wireframe + placed objects, or user custom .bmp if present) */
-		snprintf(custom_bmp_hint, sizeof(custom_bmp_hint), "Faber_data/custom_bmp/%s.bmp", output_map_name);
-		bp = (struct forge_map_blueprint_data *)calloc(1, sizeof(*bp));
-		if (bp)
-		{
-			forge_load_map_blueprint(base_map_path, bp);
-			bmp_mem = build_blueprint_bmp_buffer(custom_bmp_hint, bp, edits, &bmp_size);
-			forge_free_map_blueprint(bp);
-			free(bp);
-			bp = NULL;
-		}
-
-		if (state_buf.data && state_buf.size > 0)
-		{
-			state_size = state_buf.size;
-			state_foff = buf_alloc(&out, state_size + 1u, 4);
-			if (state_foff && out.data)
-			{
-				memcpy(out.data + state_foff, state_buf.data, state_size);
-				out.data[state_foff + state_size] = 0;
-			}
-		}
-		buf_free(&state_buf);
-
-		if (bmp_mem && bmp_size > 0)
-		{
-			bmp_foff = buf_alloc(&out, bmp_size, 4);
-			if (bmp_foff && out.data)
-				memcpy(out.data + bmp_foff, bmp_mem, bmp_size);
-			free(bmp_mem);
-		}
-
-		if (desc_len > 0)
-		{
-			desc_foff = buf_alloc(&out, desc_len + 1u, 4);
-			if (desc_foff && out.data)
-			{
-				memcpy(out.data + desc_foff, desc_buf, desc_len);
-				out.data[desc_foff + desc_len] = 0;
-			}
-		}
-
-		/* Align file end to 32 bytes and update cache header fields */
-		buf_alloc(&out, 0, 32);
-		if (!out.data)
+		if (!append_forge_map_metadata_and_preview_trailer(
+				&out,
+				output_map_name,
+				base_map.map_name,
+				base_map_path,
+				edits,
+				&base_map,
+				pending_objs,
+				pending_count))
 		{
 			free(pending_objs);
 			forge_source_map_close(&base_map);
@@ -6398,20 +6635,9 @@ int forge_export_scenario_map(
 		write_u32(out.data + 0x0Cu, 0);
 		write_u32(out.data + 0x10u, tag_data_offset);
 		write_u32(out.data + 0x14u, tag_data_end_foff - tag_data_offset);
-		memset(out.data + 0x20u, 0, 32);
-		snprintf((char *)(out.data + 0x20u), 32, "%s", output_map_name);
 		write_s16(out.data + 0x60u, 1); /* _scenario_type_multiplayer */
 		if (scnr_foff + 4u <= out.size)
 			write_s16(out.data + scnr_foff + 0x00u, 1);
-
-		/* Record embedded Forge state, BMP preview, and menu description offsets in header 0x1E4..0x1FC */
-		write_u32(out.data + 0x1E4u, state_foff);
-		write_u32(out.data + 0x1E8u, state_size);
-		write_u32(out.data + 0x1ECu, bmp_foff);
-		write_u32(out.data + 0x1F0u, bmp_size);
-		write_u32(out.data + 0x1F4u, desc_foff);
-		write_u32(out.data + 0x1F8u, desc_len);
-		write_u32(out.data + 0x1FCu, 0x464C4731u); /* 'FLG1' OpenCE : Faber map signature */
 		write_u32(out.data + 0x7FCu, CACHE_FOOTER_SIGNATURE);
 
 		/* Update Custom Edition CRC-32 checksum (+0x64) across BSPs + model data + tag data */
@@ -6472,4 +6698,3 @@ int forge_export_scenario_map(
 	forge_source_map_close(&base_map);
 	return 1;
 }
-

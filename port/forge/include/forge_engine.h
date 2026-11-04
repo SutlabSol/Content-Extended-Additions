@@ -14,9 +14,9 @@
 extern "C" {
 #endif
 
-/* ---------- Forge Release Version & Network Protocol Isolation (v2.2.6, 0x4628) */
+/* ---------- Forge Release Version & Network Protocol Isolation (v2.3.2, 0x4628) */
 
-#define FORGE_VERSION_STRING "2.2.6"
+#define FORGE_VERSION_STRING "2.3.2"
 #define FORGE_NETWORK_VERSION 0x4628
 /* Standard (non-Forge) sessions use OpenCE's own HALO_PORT_NETWORK_VERSION
  * (port/linux/include/halo_port_limits.h), read in forge_get_network_version(),
@@ -29,6 +29,8 @@ long forge_get_network_version(void);
 /* Engine function (source/main/main.h) used by several Forge modules */
 char *main_get_map_name(void);
 char const *forge_get_active_map_name(void);
+void *forge_host_fopen(char const *path, char const *mode);
+int forge_host_remove(char const *path);
 
 #ifdef _WIN32
 __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
@@ -429,6 +431,15 @@ void forge_3d_apply_monitor_camera(short local_player_index);
 int forge_3d_fill_live_observer_result(void *out_observer_result);
 int forge_is_main_menu_active(void);
 void forge_3d_draw_hud(short local_player_index, short window_x0, short window_y0, short window_x1, short window_y1, long font_index, short line_height);
+int32_t forge_3d_spawn_object_at_slot(
+	int32_t forced_live_idx,
+	uint32_t group_tag,
+	char const *tag_path,
+	uint8_t source_cache_id,
+	float x, float y, float z,
+	float yaw, float pitch, float roll,
+	int16_t team_designator,
+	int broadcast_net);
 int32_t forge_3d_spawn_object_at(
 	uint32_t group_tag,
 	char const *tag_path,
@@ -446,6 +457,8 @@ void forge_render_begin_monitor_visibility(void);
 void forge_render_end_monitor_visibility(void);
 void forge_apply_host_player_monitor_state(int player_abs_idx, int is_monitor, float x, float y, float z, float yaw, float pitch);
 int32_t forge_3d_adopt_or_find_object_instance(long object_index);
+void forge_init_map_scenario_entities(void);
+void forge_3d_reset_session_tracking(void);
 void forge_cancel_or_release_held_item(void);
 int forge_has_held_item_to_cancel(void);
 

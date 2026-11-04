@@ -4229,11 +4229,12 @@ static boolean find_closest_player_callback(
 static void game_engine_update_purge(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: Forge session check */
 	long cutoff_time = game_time_get() - 900;
 
 	/* (a client of the distributed netcode removes items when the host does,
 	port/linux/game/network_distributed.c) */
-	if (!network_game_distributed_client())
+	if (!network_game_distributed_client() && !g_forge_session_enabled) /* port: keep Forge-placed weapons & equipment from despawning after 30s */
 	{
 		struct object_iterator item_iterator;
 
@@ -5339,11 +5340,12 @@ static long game_engine_vehicle_home_current(
 static void game_engine_update_vehicle_respawn(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: Forge session check */
 	long respawn_ticks = game_variant_options_get()->vehicle_respawn_time * TICKS_PER_SECOND;
 	long now = game_time_get();
 	short index;
 
-	if (respawn_ticks <= 0 || network_game_distributed_client() || now % TICKS_PER_SECOND)
+	if (respawn_ticks <= 0 || network_game_distributed_client() || g_forge_session_enabled || now % TICKS_PER_SECOND) /* port: disable automatic vehicle home reset in Forge */
 		return;
 	if (firefight_active() && global_scenario_get()->type == _scenario_type_multiplayer)
 		return;
@@ -6246,7 +6248,12 @@ void game_engine_playlist_next(
 boolean game_engine_should_end_game(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: port/forge/src/forge_runtime_tags.c */
 	boolean should_end_game = FALSE;
+
+	/* port: Forge sessions continue indefinitely until ended from the menu */
+	if (g_forge_session_enabled)
+		return FALSE;
 
 	/* port: firefight */
 	if (firefight_active())
@@ -7628,9 +7635,10 @@ long game_engine_did_player_win(
 boolean multiple_teams_alive(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: port/forge/src/forge_runtime_tags.c */
 	boolean result = FALSE;
 
-	if (players_in_game() <= 1)
+	if (g_forge_session_enabled || players_in_game() <= 1)
 		return TRUE;
 	else
 	{
