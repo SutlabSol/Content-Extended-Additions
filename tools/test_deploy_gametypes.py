@@ -24,6 +24,9 @@ OPENCE_ENGINES = {
     "swat": "slayer", "infection": "slayer", "gun_game": "slayer", "hardcore": "slayer",
     "hardcore_ctf": "ctf", "hardcore_oddball": "oddball", "hardcore_king": "king",
     "floodfection": "slayer", "tag_gun_game": "slayer",
+    # (Content Extended's Firefight: an engine of its own, with no table of
+    # rules in gametype files, server_toml.c's engine_tables)
+    "firefight": None,
 }
 
 

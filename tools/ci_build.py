@@ -49,6 +49,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from tools.linux_build import GAME_DATA_FILES  # noqa: E402
 
 # what each port's build leaves, and what goes into dist/
 OUTPUTS = {
@@ -140,6 +142,11 @@ def copy_notices(platform, dist):
     # Android's APK has its own copy)
     if platform != "android":
         shutil.copy2(ROOT / "port/assets/network/brokers.txt", dist / "brokers.txt")
+        # the game's data files beside it too (tools/linux_build.py's
+        # GAME_DATA_FILES; Android's APK has its own copies, and the web
+        # site carries them)
+        for source in GAME_DATA_FILES:
+            shutil.copy2(ROOT / source, dist / source.name)
         # the master servers that list dedicated servers, for the server
         # browser and the dedicated server (network.masters_file and
         # server.masters_file, docs/dedicated_server.md)

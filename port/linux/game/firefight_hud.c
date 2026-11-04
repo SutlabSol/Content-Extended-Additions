@@ -48,9 +48,92 @@ Halo 1 CE-styled Firefight HUD module:
 #include "rasterizer/rasterizer_swizzle.h"
 #include <xtl.h>
 #include "rasterizer/xbox/rasterizer_xbox.h"
-#include "mcc_rank_icons_data.h"
+#include <stdlib.h>
 
 unsigned long system_milliseconds(void);
+/* the platform layer's (port_config.c) */
+void config_folder(char *path, size_t size);
+char *config_file_read(const char *path, size_t *size);
+void platform_log(char const *format, ...);
+
+/* ---------- the rank icons' pictures, read from a file
+
+Each tour's 30 ranks (MCC's progression, 11 tours) and Halo 3's 42 ranked
+ranks, 32x32 indexed pictures with their palettes: rank_icons.bin
+(port/assets/firefight/rank_icons.bin), beside config.toml, where every build
+puts it. Read the first time an icon is drawn, kept on the heap and not in the
+game's image (Android's room for it is full). Its layout, little-endian:
+"FFRI", then 32-bit version (1), tours (11), ranks per tour (30), Halo 3's
+ranks (42) and pixels per picture (1024); each tour's 256 ARGB colors; each
+tour's pictures, a byte per pixel; Halo 3's 256 colors; Halo 3's pictures.
+Without the file (logged once) no rank icon is drawn. */
+#define FF_RANK_ICONS_FILE "rank_icons.bin"
+#define FF_RANK_ICONS_VERSION 1
+#define FF_TOURS 11
+#define FF_TOUR_RANKS 30
+#define FF_H3_RANKS 42
+#define FF_ICON_PIXELS 1024
+
+struct ff_rank_icons
+{
+	unsigned long tour_palettes[FF_TOURS][256];
+	unsigned char tour_indices[FF_TOURS][FF_TOUR_RANKS][FF_ICON_PIXELS];
+	unsigned long h3_palette[256];
+	unsigned char h3_indices[FF_H3_RANKS][FF_ICON_PIXELS];
+};
+
+static unsigned long ff_read_u32(unsigned char const *bytes)
+{
+	return (unsigned long)bytes[0] | ((unsigned long)bytes[1] << 8) |
+		((unsigned long)bytes[2] << 16) | ((unsigned long)bytes[3] << 24);
+}
+
+static void ff_read_palette(unsigned long *palette, unsigned char const **cursor)
+{
+	int index;
+
+	for (index = 0; index < 256; index++, *cursor += 4)
+		palette[index] = ff_read_u32(*cursor);
+}
+
+static struct ff_rank_icons const *ff_rank_icons(void)
+{
+	static struct ff_rank_icons *icons;
+	static boolean tried;
+	char path[1024];
+	size_t size = 0, expected;
+	unsigned char *file;
+	unsigned char const *cursor;
+	int tour;
+
+	if (icons || tried)
+		return icons;
+	tried = TRUE;
+	config_folder(path, sizeof(path));
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "%s", FF_RANK_ICONS_FILE);
+	file = (unsigned char *)config_file_read(path, &size);
+	expected = 24 + (FF_TOURS * 256 * 4) + (FF_TOURS * FF_TOUR_RANKS * FF_ICON_PIXELS) + (256 * 4) +
+		(FF_H3_RANKS * FF_ICON_PIXELS);
+	if (!file || size != expected || memcmp(file, "FFRI", 4) ||
+		ff_read_u32(file + 4) != FF_RANK_ICONS_VERSION || ff_read_u32(file + 8) != FF_TOURS ||
+		ff_read_u32(file + 12) != FF_TOUR_RANKS || ff_read_u32(file + 16) != FF_H3_RANKS ||
+		ff_read_u32(file + 20) != FF_ICON_PIXELS || !(icons = malloc(sizeof(*icons))))
+	{
+		platform_log("Firefight: the rank icons' file %s %s, so no rank icon is drawn", path,
+			!file ? "cannot be read" : "is not one this game reads");
+		free(file);
+		return NULL;
+	}
+	cursor = file + 24;
+	for (tour = 0; tour < FF_TOURS; tour++)
+		ff_read_palette(icons->tour_palettes[tour], &cursor);
+	memcpy(icons->tour_indices, cursor, sizeof(icons->tour_indices));
+	cursor += sizeof(icons->tour_indices);
+	ff_read_palette(icons->h3_palette, &cursor);
+	memcpy(icons->h3_indices, cursor, sizeof(icons->h3_indices));
+	free(file);
+	return icons;
+}
 void draw_quad(rectangle2d const *bounds, pixel32 color);
 struct bitmap_data *bitmap_group_try_and_get_bitmap(long bitmap_group_index, short bitmap_index);
 short find_nav_point(char const *name);
@@ -1459,6 +1542,29 @@ static boolean mcc_point_in_star(real nx, real ny, real cx, real cy, real radius
 #define FF_ICON_GRID_DIM 16
 #define FF_ICON_MAX_RECTS 128
 
+/* the icons' working pictures (a 32x32 source scaled up to 128x128, and its
+smaller mips): one icon is made at a time, so one set, on the heap when first
+needed rather than in the game's image */
+struct ff_icon_scratch
+{
+	pixel32 src32[FF_ICON_TEX_DIM * FF_ICON_TEX_DIM];
+	pixel32 buf64[64 * 64];
+	pixel32 raw128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
+	pixel32 pixels128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
+	pixel32 mip64[64 * 64];
+	pixel32 mip32[32 * 32];
+	pixel32 mip16[16 * 16];
+};
+
+static struct ff_icon_scratch *ff_icon_scratch(void)
+{
+	static struct ff_icon_scratch *scratch;
+
+	if (!scratch)
+		scratch = malloc(sizeof(*scratch));
+	return scratch;
+}
+
 struct ff_hw_icon_entry
 {
 	boolean valid;
@@ -1962,9 +2068,10 @@ static boolean ff_draw_hw_icon_pixels(
 
 	if (!entry && pixels_128x128)
 	{
-		static pixel32 s_mip64[64 * 64];
-		static pixel32 s_mip32[32 * 32];
-		static pixel32 s_mip16[16 * 16];
+		struct ff_icon_scratch *scratch = ff_icon_scratch();
+		pixel32 *s_mip64 = scratch->mip64;
+		pixel32 *s_mip32 = scratch->mip32;
+		pixel32 *s_mip16 = scratch->mip16;
 		pixel32 const *mip_ptrs[FF_ICON_HI_MIPS];
 		short mip_dims[FF_ICON_HI_MIPS] = { 128, 64, 32, 16 };
 		short mip;
@@ -2173,21 +2280,28 @@ void firefight_draw_mcc_rank_icon(
 	short t_idx = (short)PIN(tour_number - 1, 0, 10);
 	short r_idx = (short)PIN(rank_in_tour - 1, 0, 29);
 	unsigned long key = ((unsigned long)t_idx << 8) | (unsigned long)r_idx | 0x80000000UL;
-	unsigned long const *pal = s_mcc_tour_palettes[t_idx];
-	unsigned char const *idx_buf = s_mcc_rank_icon_indices[t_idx][r_idx];
+	struct ff_rank_icons const *icons = ff_rank_icons();
+	struct ff_icon_scratch *scratch = ff_icon_scratch();
+	unsigned long const *pal;
+	unsigned char const *idx_buf;
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
 
+	if (!icons)
+		return;
+	pal = icons->tour_palettes[t_idx];
+	idx_buf = icons->tour_indices[t_idx][r_idx];
 	if (global_d3d_device)
 	{
 		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
 			return;
+		if (scratch)
 		{
-			static pixel32 s_shield32[32 * 32];
-			static pixel32 s_buf64[64 * 64];
-			static pixel32 s_raw128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
-			static pixel32 s_pixels128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
-			unsigned char const *r0_buf = s_mcc_rank_icon_indices[t_idx][0];
+			pixel32 *s_shield32 = scratch->src32;
+			pixel32 *s_buf64 = scratch->buf64;
+			pixel32 *s_raw128 = scratch->raw128;
+			pixel32 *s_pixels128 = scratch->pixels128;
+			unsigned char const *r0_buf = icons->tour_indices[t_idx][0];
 			pixel32 cav_top = (pixel32)pal[r0_buf[8 * 32 + 12]];
 			pixel32 cav_bot = (pixel32)pal[r0_buf[9 * 32 + 11]];
 			real inv = 2.0f / (real)FF_ICON_HI_DIM;
@@ -2326,20 +2440,27 @@ void firefight_draw_h3_ranked_icon(
 {
 	short idx = (short)PIN(ranked_index, 0, 41);
 	unsigned long key = 0x20000000UL | (unsigned long)idx;
-	unsigned long const *pal = s_h3_ranked_palette;
-	unsigned char const *idx_buf = s_h3_ranked_icon_indices[idx];
+	struct ff_rank_icons const *icons = ff_rank_icons();
+	struct ff_icon_scratch *scratch = ff_icon_scratch();
+	unsigned long const *pal;
+	unsigned char const *idx_buf;
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
 
+	if (!icons)
+		return;
+	pal = icons->h3_palette;
+	idx_buf = icons->h3_indices[idx];
 	if (global_d3d_device)
 	{
 		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
 			return;
+		if (scratch)
 		{
-			static pixel32 s_src32[32 * 32];
-			static pixel32 s_buf64[64 * 64];
-			static pixel32 s_raw128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
-			static pixel32 s_pixels128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
+			pixel32 *s_src32 = scratch->src32;
+			pixel32 *s_buf64 = scratch->buf64;
+			pixel32 *s_raw128 = scratch->raw128;
+			pixel32 *s_pixels128 = scratch->pixels128;
 
 			for (i = 0; i < 32 * 32; i++)
 				s_src32[i] = (pixel32)pal[idx_buf[i]];
@@ -2663,6 +2784,7 @@ void firefight_draw_player_emblem(
 	unsigned long c_sec = (unsigned long)PIN(e->secondary_color, 0, 17);
 	unsigned long c_bg = (unsigned long)PIN(e->background_color, 0, 17);
 	unsigned long key = 0x40000000UL | (fg << 24) | (bg << 19) | (sec << 18) | (c_pri << 12) | (c_sec << 6) | c_bg;
+	struct ff_icon_scratch *scratch = ff_icon_scratch();
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
 
@@ -2670,8 +2792,9 @@ void firefight_draw_player_emblem(
 	{
 		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
 			return;
+		if (scratch)
 		{
-			static pixel32 s_pixels128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
+			pixel32 *s_pixels128 = scratch->pixels128;
 			pixel32 col_pri = s_halo_emblem_colors[c_pri];
 			pixel32 col_sec = s_halo_emblem_colors[c_sec];
 			pixel32 col_bg = s_halo_emblem_colors[c_bg];

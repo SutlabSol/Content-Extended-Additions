@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional
 
 from .android_build import VARIADIC_PROTOTYPE_FILES
 from .embed_assets import hud_assets_build, hud_configure_inputs
-from .linux_build import (EXPAT_DIR, EXPAT_SOURCES, KCP_DIR, MONOCYPHER_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, TOML_DIR,
+from .linux_build import (GAME_DATA_FILES, EXPAT_DIR, EXPAT_SOURCES, KCP_DIR, MONOCYPHER_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, TOML_DIR,
                           XDK_INCLUDE, ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources,
                           opus_cflags, opus_sources, updater_defines, xdk_headers)
@@ -362,6 +362,13 @@ def generate_web_build(n: Writer, sln: Any) -> None:
     for name in SITE_FONTS:
         target = site_dir / "fonts" / name
         n.build(outputs=target, rule="web_copy", inputs=Path("port/assets/fonts") / name)
+        site_files.append(target)
+    # the game's data files that builds put beside config.toml, which the
+    # page writes into the private storage before the game starts (app.js's
+    # GAME_FILES)
+    for source in GAME_DATA_FILES:
+        target = site_dir / source.name
+        n.build(outputs=target, rule="web_copy", inputs=source)
         site_files.append(target)
     licenses = site_dir / "licenses.txt"
     n.rule(

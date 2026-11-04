@@ -22,7 +22,7 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS_SOURCE, WINDOWS_PROFILE, XDK_INCLUDE,
+from .linux_build import (GAME_DATA_FILES, LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS_SOURCE, WINDOWS_PROFILE, XDK_INCLUDE,
                           build_repository,
                           lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources, opus_cflags,
@@ -749,6 +749,10 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     # (network.masters_file, server.masters_file)
     masters = BUILD / "masters.txt"
     n.build(outputs=masters, rule="windows_copy", inputs=Path("port/assets/network/masters.txt"))
+    # (and the game's data files, beside it too: GAME_DATA_FILES)
+    data_files = [BUILD / source.name for source in GAME_DATA_FILES]
+    for source, target in zip(GAME_DATA_FILES, data_files):
+        n.build(outputs=target, rule="windows_copy", inputs=source)
     if (FORGE_DIR / "assets").is_dir():
         faber_data = BUILD / "Faber_data"
         faber_marker = faber_data / "credits.md"
@@ -770,8 +774,8 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
             ),
             description="WINDOWS FABER PACKAGE build/windows/halo.exe + Faber_data/",
         )
-        n.build(outputs=faber_marker, rule="windows_faber_package", inputs=[output, sdl_dll, brokers, masters])
-        n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters, faber_marker])
+        n.build(outputs=faber_marker, rule="windows_faber_package", inputs=[output, sdl_dll, brokers, masters, *data_files])
+        n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters, *data_files, faber_marker])
     else:
-        n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters])
+        n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters, *data_files])
     n.newline()

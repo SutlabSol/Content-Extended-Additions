@@ -86,7 +86,8 @@ def test_randomizer_hooks():
                  "tag_campaign_actor_variant(", "tag_campaign_pickup(", "tag_campaign_enemy_weapon("):
         assert call in randomizer, call
     loaded = randomizer.split("void randomizer_tags_loaded(", 1)[1]
-    assert "if (!game && !network_game_distributed_client() && !community_challenge_running())\n\t\t" \
+    # (not in a Firefight game, which plays the map's own: Content Extended's)
+    assert "if (!firefight && !game && !network_game_distributed_client() && !community_challenge_running())\n\t\t" \
         "campaign_profile = tag_campaign_level_profile();" in loaded
     actors = (ROOT / "source/ai/actors.c").read_text()
     assert "extern long randomizer_enemy_weapon(long, long, long, long);" in actors

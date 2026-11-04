@@ -54,7 +54,7 @@ from .android_build import GLSLANG_DIR as ANDROID_GLSLANG_DIR
 from .android_build import GLSLANG_TAG, GLSLANG_URL, MUSL_URL, MUSL_VERSION, fetch_third_party, generate_guest_image
 from .android_build import ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES
 from .guest_arch import X32
-from .linux_build import MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources, updater_defines
+from .linux_build import GAME_DATA_FILES, MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, miniupnpc_sources, updater_defines
 from .ninja_syntax import Writer, escape
 
 # the pins: what phase 0 B of port/ps5/PS5.md built and ran on the console
@@ -847,12 +847,16 @@ def _generate(n: Writer, sln: Any, config_path: Path) -> None:
     # each start (port/ps5/host/host_net_ps5.c)
     brokers = title / "brokers.txt"
     n.build(outputs=brokers, rule="ps5_copy", inputs=root / "port" / "assets" / "network" / "brokers.txt")
+    # (and the game's data files, which it writes there too: GAME_DATA_FILES)
+    data_files = [title / source.name for source in GAME_DATA_FILES]
+    for source, data_file in zip(GAME_DATA_FILES, data_files):
+        n.build(outputs=data_file, rule="ps5_copy", inputs=root / source)
     # the roots the updater's HTTPS trusts (host_update_ps5.c): the console
     # has no store of them a title can read
     certificates = title / "certificates.pem"
     n.build(outputs=certificates, rule="ps5_copy", inputs=root / PORT_DIR / "release" / "certificates.pem")
 
-    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers, certificates,
+    n.build(outputs="ps5", rule="phony", inputs=[eboot, param, icon, libc, guest_image, notice, brokers, *data_files, certificates,
                                               *release_files])
     n.newline()
 

@@ -15,7 +15,7 @@ which the menu says under it.
 
 /* the tag_preview widget's size in the menus' 640x480
 (tools/port_settings.py), which the picture is drawn in the shape of */
-#define TAG_PREVIEW_WIDTH 200
+#define TAG_PREVIEW_WIDTH 194
 #define TAG_PREVIEW_HEIGHT 80
 
 /* what is known of the needs of the tag the preview is of

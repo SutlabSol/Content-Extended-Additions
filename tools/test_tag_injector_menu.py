@@ -204,7 +204,7 @@ def test_a_tag_s_model_is_previewed_under_its_details():
     # (within the frame, below the details' lines above it, and above the
     # lines of what the tag needs)
     lines = int(re.search(r"#define TAG_PREVIEW_DETAILS_LINES (\d+)", functions).group(1))
-    assert left == 412 and 130 + lines * 272 / 13 <= top
+    assert left == port_settings.DETAILS_LEFT and 130 + lines * 272 / 13 <= top
     needs_left, needs_top, needs_width, needs_height = port_settings.TAG_NEEDS_BOUNDS
     needs_lines = int(re.search(r"#define TAG_NEEDS_LINES (\d+)", functions).group(1))
     assert needs_left == left and needs_width == width and top + height <= needs_top

@@ -133,9 +133,18 @@ CHILD_OFFSETS = {
      "ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\server_count_label"): (410, 60),
     # the server browser's Filters' rows, closed up where PING and TEAMPLAY
     # OPTIONS were (LEFT_OUT)
+    # (and in by ten, the button bar where the port's screens have theirs:
+    # Content Extended's)
     **{("ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\filters_options_menu",
-        f"ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\op_{row}"): (54, 133 + 30 * index)
-       for index, row in enumerate(("game_type", "installed_maps"))},
+        f"ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\op_{row}"): (64, 73 + 30 * index)
+       for index, row in enumerate(("empty_servers", "full_servers", "game_type", "installed_maps"))},
+    ("ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\filters_options_menu",
+     "ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\filters_button_bar"): (0, 414),
+    # (OK left by ten, as the port's screens have it: Content Extended's)
+    ("ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\filters_button_bar",
+     "ui\\shell\\main_menu\\multiplayer_type_select\\join_game\\filters\\filters_button_ok"): (370, 1),
+    ("ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\mp_map_select_button_bar",
+     "ui\\shell\\main_menu\\multiplayer_type_select\\mp_map_select\\mp_map_select_button_ok"): (370, 1),
     # the map lists' first row, the SINGLEPLAYER or MULTIPLAYER chooser
     # (port_settings.MAP_KIND_CHOOSER), where the gametype list has its own
     **{(f"ui\\shell\\main_menu\\{list_tag}", "ui\\shell\\main_menu\\new_select\\list_item_0"): (82, 73)
@@ -455,12 +464,35 @@ class Art:
                 self.xbox_frames.append((name, tag, XBOX_FRAMES[name]))
                 lines.append(f"\t\t<frame{attributes([('map', tag), ('index', XBOX_FRAMES[name])])}/>")
                 continue
+            patched = port_settings.BITMAP_FRAME_PATCHES.get(our_name(tag), {}).get(index - indices[0])
+            if patched:
+                lines.append(self.frame(*patched))
+                continue
             png = f"ce/{relative}__{index}.png"
             self.draw(relative, index, len(data), width, height, MENUS / png, self.shown.get(tag, []))
             self.pngs.append(png)
             lines.append(f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>")
+        # (and the port's frames after them: port_settings.BITMAP_FRAME_PATCHES)
+        patches = port_settings.BITMAP_FRAME_PATCHES.get(our_name(tag), {})
+        lines += [self.frame(*patches[index]) for index in sorted(patches) if index >= len(indices)]
         lines.append("\t</bitmap>")
         return "\n".join(lines)
+
+    def frame(self, png: str, width: int, height: int) -> str:
+        """a <frame> of a PNG of the port's (port_settings.BITMAP_FRAME_PATCHES
+        and PORT_BITMAPS): one under ce/port/ copied from
+        port_settings.CONTENT_EXTENDED_ART, any other already the menus'"""
+        if png.startswith("ce/port/"):
+            source = MENUS / port_settings.CONTENT_EXTENDED_ART / png[len("ce/port/"):]
+            (MENUS / png).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, MENUS / png)
+            self.pngs.append(png)
+        return f"\t\t<frame{attributes([('png', png), ('width', width), ('height', height)])}/>"
+
+    def port_frames(self, name: str, frames: list) -> str:
+        """a <bitmap> of the port's PNGs (port_settings.PORT_BITMAPS)"""
+        return "\n".join([f"\t<bitmap{attributes([('name', name)])}>", *(self.frame(*frame) for frame in frames),
+                          "\t</bitmap>"])
 
     def draw(self, relative: str, index: int, count: int, width: int, height: int, output: Path,
              shown: list) -> None:
@@ -749,11 +781,12 @@ def main() -> None:
     lines.append(art.port_picture("main_menu/menu_theater", port_settings.menu_item_frames("THEATER", art.redraws)))
     # (and its PLAY, Campaign's and Multiplayer's: port_settings._play)
     lines.append(art.port_picture("main_menu/menu_play", port_settings.menu_item_frames("PLAY", art.redraws)))
-    # (and the items not there yet, greyed: the main menu's FORGE, PLAY's FIREFIGHT)
-    lines.append(art.port_picture("main_menu/menu_forge",
-                                  port_settings.menu_item_frames("FORGE", art.redraws, disabled=True)))
+    # (and Content Extended's: the main menu's FORGE, PLAY's FIREFIGHT)
+    lines.append(art.port_picture("main_menu/menu_forge", port_settings.menu_item_frames("FORGE", art.redraws)))
     lines.append(art.port_picture("main_menu/menu_firefight",
-                                  port_settings.menu_item_frames("FIREFIGHT", art.redraws, disabled=True)))
+                                  port_settings.menu_item_frames("FIREFIGHT", art.redraws)))
+    # (and its pictures of PNGs: port_settings.PORT_BITMAPS)
+    lines += [art.port_frames(name, frames) for name, frames in port_settings.PORT_BITMAPS.items()]
     lines.append(art.port_picture("mods/status", port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide")))
     lines.append(art.port_picture("mods/status_small",
                                   port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide", 16)))
@@ -866,7 +899,7 @@ def main() -> None:
     report += ["", "Wired: " + ", ".join(f"`{name}`" for name in sorted(WIRED)) + ".", ""]
     (MENUS / "UNWIRED.md").write_text("\n".join(report))
     files = sorted(path.relative_to(MENUS).as_posix() for path in MENUS.rglob("*.xml"))
-    files += sorted(art.pngs)
+    files += sorted(set(art.pngs))
     (MENUS / "menus.json").write_text(json.dumps({
         "comment": "The menus' files the game embeds (tools/ce_menus.py, tools/embed_assets.py).",
         "files": files,

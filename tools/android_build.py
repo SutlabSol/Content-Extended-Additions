@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .guest_arch import ARM64_32, GuestArch
-from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
+from .linux_build import (GAME_DATA_FILES, LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
                           compile_launcher, configuration_defines, game_defines_and_includes, game_sources,
                           miniupnpc_sources, musl_math_sources, opus_cflags, opus_sources, pgo_mode, pgo_profile,
                           profile_use_flags, updater_defines, xdk_headers)
@@ -959,6 +959,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # config.toml (port/android/host/host_main.c)
     staged_brokers = assets_dir / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
+    # (and the game's data files, which it writes there too: GAME_DATA_FILES)
+    staged_data = [assets_dir / source.name for source in GAME_DATA_FILES]
+    for source, target in zip(GAME_DATA_FILES, staged_data):
+        n.build(outputs=target, rule="android_copy", inputs=source)
     # the Vulkan probe's shader compiler, its shaders and, only when asked
     # for, the validation layer (a debuggable app's loader finds a layer in
     # the app's own native library folder)
@@ -992,7 +996,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     if not stamp.exists() or stamp.read_text() != wanted:
         stamp.write_text(wanted)
     staged_all = [libmain, staged_sdl, staged_image, staged_relocations, staged_vk_image, staged_vk_relocations,
-                  staged_brokers, *probe_staged]
+                  staged_brokers, *staged_data, *probe_staged]
     n.build(outputs="android", rule="phony", inputs=staged_all)
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"

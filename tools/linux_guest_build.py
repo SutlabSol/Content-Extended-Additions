@@ -43,7 +43,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .android_build import (GUEST_ARCH_SCRIPT, MUSL_VERSION, SDL_TAG, TOML_DIR, fetch_third_party,
                             generate_guest_image)
 from .guest_arch import ARM64_32, X32, GuestArch
-from .linux_build import (MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, SDL_RPATH_LDFLAGS, compile_launcher,
+from .linux_build import (GAME_DATA_FILES, MBEDTLS_DIR, MINIUPNPC_DEFINES, MINIUPNPC_DIR, SDL_RPATH_LDFLAGS, compile_launcher,
                           miniupnpc_sources, sdl3_rule, updater_defines)
 from .ninja_syntax import Writer, escape
 
@@ -306,5 +306,9 @@ def _generate(n: Writer, sln: Any, target: LinuxGuest, config_path: Path, third_
     # internet play's MQTT brokers, a file beside the game (network.brokers_file)
     brokers = build / "brokers.txt"
     n.build(outputs=brokers, rule=f"{prefix}_copy", inputs=Path("port/assets/network/brokers.txt"))
-    n.build(outputs=target.name, rule="phony", inputs=[output, staged_sdl, sdl_license, brokers])
+    # (and the game's data files, beside it too: GAME_DATA_FILES)
+    data_files = [build / source.name for source in GAME_DATA_FILES]
+    for source, data_file in zip(GAME_DATA_FILES, data_files):
+        n.build(outputs=data_file, rule=f"{prefix}_copy", inputs=source)
+    n.build(outputs=target.name, rule="phony", inputs=[output, staged_sdl, sdl_license, brokers, *data_files])
     n.newline()

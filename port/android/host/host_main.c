@@ -796,17 +796,24 @@ static void *game_main(void *unused)
 	host_environment_set(&environment, "HALO_SAVE_ROOT", save_root);
 	host_time_zone(zone, sizeof(zone));
 	host_environment_set(&environment, "TZ", zone);
-	/* internet play's MQTT brokers (network.brokers_file): the APK's list,
-	written beside config.toml at each start, as a desktop update replaces
-	the file beside its game */
+	/* internet play's MQTT brokers (network.brokers_file), and the game's
+	data files (tools/linux_build.py's GAME_DATA_FILES: the rank icons,
+	port/linux/game/firefight_hud.c): the APK's, written beside config.toml at
+	each start, as a desktop update replaces the files beside its game */
 	{
-		size_t brokers_size = 0;
-		void *brokers = SDL_LoadFile("brokers.txt", &brokers_size);
+		static char const *const shipped[] = { "brokers.txt", "rank_icons.bin" };
+		size_t index;
 
-		snprintf(path, sizeof(path), "%s/brokers.txt", data_root);
-		if (!brokers || !SDL_SaveFile(path, brokers, brokers_size))
-			host_logf(HOST_LOG_ERROR, "cannot write %s: %s", path, SDL_GetError());
-		SDL_free(brokers);
+		for (index = 0; index < sizeof(shipped) / sizeof(shipped[0]); index++)
+		{
+			size_t size = 0;
+			void *data = SDL_LoadFile(shipped[index], &size);
+
+			snprintf(path, sizeof(path), "%s/%s", data_root, shipped[index]);
+			if (!data || !SDL_SaveFile(path, data, size))
+				host_logf(HOST_LOG_ERROR, "cannot write %s: %s", path, SDL_GetError());
+			SDL_free(data);
+		}
 	}
 	snprintf(path, sizeof(path), "%s/config.toml", data_root);
 

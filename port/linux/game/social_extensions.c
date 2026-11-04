@@ -15,6 +15,7 @@ Compartmentalised extensions for Watanoge's Social Menu (social_menu.c):
 
 #include "cseries.h"
 #include "rasterizer/rasterizer.h"
+#include "cutscene/cinematics.h"
 #include "text/unicode.h"
 #include "social_extensions.h"
 #include "service_rank.h"

@@ -130,6 +130,13 @@ ZLIB_SOURCES = ("adler32.c", "crc32.c", "inffast.c", "inflate.c", "inftrees.c", 
 ZLIB_DEFINES = ("-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg")
 # the self-updater's TLS (port/linux/src/posix_update.c)
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
+# the game's data files that every build puts beside config.toml, read at
+# run time rather than built into the game (rank_icons.bin:
+# port/linux/game/firefight_hud.c). Desktop builds copy them beside the
+# game, Android's and the PS5's hosts copy theirs there at each start,
+# the Switch's deploy and updater do, and the web page writes them into its
+# private storage (port/web/site/app.js's GAME_FILES)
+GAME_DATA_FILES = [Path("port/assets/firefight/rank_icons.bin")]
 # internet play's UPnP (port/linux/src/posix_upnp.c)
 MINIUPNPC_DIR = Path("port/third_party/miniupnpc")
 # the Custom Edition maps' Ogg Vorbis decoder (custom_edition_sounds.c),
@@ -752,6 +759,10 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
     # (network.masters_file, server.masters_file)
     masters = build_dir / "masters.txt"
     n.build(outputs=masters, rule="linux_copy", inputs=Path("port/assets/network/masters.txt"))
+    # (and the game's data files: GAME_DATA_FILES)
+    data_files = [build_dir / source.name for source in GAME_DATA_FILES]
+    for source, target in zip(GAME_DATA_FILES, data_files):
+        n.build(outputs=target, rule="linux_copy", inputs=source)
     n.build(outputs="linux", rule="phony",
-            inputs=[output, brokers, masters, validator, *sdl_outputs])
+            inputs=[output, brokers, masters, validator, *sdl_outputs, *data_files])
     n.newline()
