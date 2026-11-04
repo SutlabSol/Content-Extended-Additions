@@ -15125,6 +15125,32 @@ static void social_screen_update(struct widget_instance *list)
 		*first = (short)MAX(0, count - SOCIAL_ROWS);
 	if (focused_index != NONE && *first + focused_index < count)
 		*chosen = (short)(*first + focused_index);
+	if (focused_index != NONE && count > 0)
+	{
+		static boolean prev_left = FALSE;
+		static boolean prev_right = FALSE;
+		boolean cur_left = input_key_is_down(_key_left_arrow) != 0;
+		boolean cur_right = input_key_is_down(_key_right_arrow) != 0;
+		short ctrl;
+
+		for (ctrl = 0; ctrl < MAXIMUM_GAMEPADS; ctrl++)
+		{
+			struct gamepad_state const *gp = input_get_gamepad_state(ctrl);
+			if (gp)
+			{
+				if (gp->buttons[_gamepad_binary_button_dpad_left] == 1 || gp->sticks[_gamepad_stick_left].x < -18000)
+					cur_left = TRUE;
+				if (gp->buttons[_gamepad_binary_button_dpad_right] == 1 || gp->sticks[_gamepad_stick_left].x > 18000)
+					cur_right = TRUE;
+			}
+		}
+		if (cur_left && !prev_left)
+			social_menu_step(*chosen, -1);
+		else if (cur_right && !prev_right)
+			social_menu_step(*chosen, 1);
+		prev_left = cur_left;
+		prev_right = cur_right;
+	}
 	for (row = list->child; row; row = row->next)
 	{
 		short place;
@@ -16460,16 +16486,29 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 	/* (a friend's platform, an icon at the left of its state) */
 	if (widget->name && !strcmp(widget->name, "social_state"))
 	{
-		short platform = social_menu_row_platform(social_row_place(social_row(widget)));
+		short place = social_row_place(social_row(widget));
+		short platform = social_menu_row_platform(place);
+		struct firefight_mcc_rank_info rk;
+		struct firefight_emblem_info emb;
+		short size = (short)((bounds->y1 - bounds->y0) * 4 / 5);
+		short y0 = (short)((bounds->y0 + bounds->y1 - size) / 2);
 
+		if (social_menu_row_person_icons(place, &rk, &emb))
+		{
+			short badge_sz = (short)MAX(12, size);
+			short badge_y = (short)((bounds->y0 + bounds->y1 - badge_sz) / 2);
+			short rk_x = (short)(bounds->x0 - (badge_sz * 2 + 6));
+
+			firefight_draw_mcc_rank_icon(rk_x, badge_y, badge_sz, rk.tour_number, rk.rank_in_tour, 1.0f);
+			firefight_draw_player_emblem((short)(rk_x + badge_sz + 2), badge_y, badge_sz, &emb, 1.0f);
+		}
 		if (platform != _platform_icon_none)
 		{
 			rectangle2d icon;
-			short size = (short)((bounds->y1 - bounds->y0) * 4 / 5);
 
 			icon.x0 = bounds->x0;
 			icon.x1 = (short)(icon.x0 + size);
-			icon.y0 = (short)((bounds->y0 + bounds->y1 - size) / 2);
+			icon.y0 = y0;
 			icon.y1 = (short)(icon.y0 + size);
 			platform_icon_draw(platform, &icon, 0xFFFFFFFF);
 		}
@@ -16504,6 +16543,8 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 		{
 			mods_screen.fonts[row] = draw_string_get_font();
 			mods_screen.widths[row] = (short)(bounds->x1 - bounds->x0);
+			if (!strcmp(widget->name, "social_details_text"))
+				social_menu_details_overlay_draw(social_menu_count() ? *social_menu_chosen() : NONE, bounds);
 			return;
 		}
 	}

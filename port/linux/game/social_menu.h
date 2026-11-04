@@ -108,14 +108,24 @@ short social_menu_count(void);
 short *social_menu_first(void);
 short *social_menu_chosen(void);
 
+struct firefight_mcc_rank_info;
+struct firefight_emblem_info;
+
 /* a row's name and state (UTF-8 text) */
 void social_menu_row(short row, char *name, long name_size, char *state, long state_size);
 /* the platform icon (platform_icons.h) of a friend's row, none for any other */
 short social_menu_row_platform(short row);
+/* the service rank and emblem of a person row (_row_friend, _row_incoming, _row_outgoing, _row_recent_player) */
+boolean social_menu_row_person_icons(short row, struct firefight_mcc_rank_info *out_rank, struct firefight_emblem_info *out_emblem);
 
 /* the row chosen's details: its title and its text, the last thing done
 first */
 void social_menu_details(short row, char *title, long title_size, char *text, long text_size);
+
+/* Left/Right step on customizable rows (e.g. MY ACCOUNT -> CUSTOMISE EMBLEM) */
+boolean social_menu_step(short row, short delta);
+/* Custom overlay rendered inside social_details_text (e.g. Live Emblem & Nameplate preview) */
+void social_menu_details_overlay_draw(short row, rectangle2d const *bounds);
 
 /* (menu_functions.c, as the screen's social_card text box is drawn: its
 bounds, in the view's pixels) the player's card, while it is shown */

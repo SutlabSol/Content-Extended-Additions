@@ -14,9 +14,9 @@
 extern "C" {
 #endif
 
-/* ---------- Forge Release Version & Network Protocol Isolation (v2.3.2, 0x4628) */
+/* ---------- Forge Release Version & Network Protocol Isolation (v2.4.0, 0x4628) */
 
-#define FORGE_VERSION_STRING "2.3.2"
+#define FORGE_VERSION_STRING "2.4.0"
 #define FORGE_NETWORK_VERSION 0x4628
 /* Standard (non-Forge) sessions use OpenCE's own HALO_PORT_NETWORK_VERSION
  * (port/linux/include/halo_port_limits.h), read in forge_get_network_version(),

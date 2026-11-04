@@ -3093,14 +3093,24 @@ void firefight_hud_draw_pgcr_extras(
 			hdr_right, rx0 + 176.0f, rx1 - 8.0f, ry0 + 3.0f,
 			0.52f, _ff_text_right, &green);
 
-		/* Rank Icon + Rank Title & Tour */
-		firefight_draw_mcc_rank_icon(
-			(short)(vx0 + rx0 + 8.0f),
-			(short)(vy0 + ry0 + 24.0f),
-			32,
-			xp_sum.after_rank.tour_number,
-			xp_sum.after_rank.rank_in_tour,
-			1.0f);
+		/* Rank Icon + Custom Emblem + Rank Title & Tour */
+		{
+			struct firefight_emblem_info my_emb;
+			firefight_stats_get_emblem(NONE, &my_emb);
+			firefight_draw_mcc_rank_icon(
+				(short)(vx0 + rx0 + 8.0f),
+				(short)(vy0 + ry0 + 24.0f),
+				32,
+				xp_sum.after_rank.tour_number,
+				xp_sum.after_rank.rank_in_tour,
+				1.0f);
+			firefight_draw_player_emblem(
+				(short)(vx0 + rx0 + 44.0f),
+				(short)(vy0 + ry0 + 24.0f),
+				32,
+				&my_emb,
+				1.0f);
+		}
 
 		snprintf(
 			rk_line,
@@ -3110,8 +3120,8 @@ void firefight_hud_draw_pgcr_extras(
 			xp_sum.after_rank.tour_name,
 			(int)xp_sum.after_rank.rank_in_tour);
 		ff_draw_text(font_index, line_height, vx0, vy0, scale,
-			rk_line, rx0 + 46.0f, rx1 - 8.0f, ry0 + 23.0f,
-			0.54f, _ff_text_left, &gold);
+			rk_line, rx0 + 82.0f, rx1 - 8.0f, ry0 + 23.0f,
+			0.50f, _ff_text_left, &gold);
 
 		snprintf(
 			xp_line,
@@ -3121,8 +3131,8 @@ void firefight_hud_draw_pgcr_extras(
 			xp_sum.medal_xp,
 			xp_sum.match_bonus_xp);
 		ff_draw_text(font_index, line_height, vx0, vy0, scale,
-			xp_line, rx0 + 46.0f, rx1 - 8.0f, ry0 + 39.0f,
-			0.46f, _ff_text_left, &cyan);
+			xp_line, rx0 + 82.0f, rx1 - 8.0f, ry0 + 39.0f,
+			0.44f, _ff_text_left, &cyan);
 
 		/* Animated XP Progress Bar */
 		span_xp = MAX(1L, xp_sum.after_rank.xp_for_next_rank);

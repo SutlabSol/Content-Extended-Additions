@@ -601,6 +601,8 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "latency_meter.h" /* port: port/linux/game/latency_meter.c */
 #include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
 #include "halo_firefight.h" /* port: port/linux/game/firefight.c */
+#include "opence_features.h"
+#include "social_extensions.h"
 #include "network_replay.h" /* port: port/linux/game/network_replay_playback.c */
 #include "touch_postgame.h" /* port: port/linux/game/touch_postgame.c */
 
@@ -1732,7 +1734,7 @@ enum
 	place, name, score, ping (the last as wide as "Ping" or three digits,
 	so that the columns centred are their text centred) */
 	SCOREBOARD_PLACE_WIDTH = 55,
-	SCOREBOARD_NAME_WIDTH = 150,
+	SCOREBOARD_NAME_WIDTH = 185,
 	SCOREBOARD_SCORE_WIDTH = 95,
 	SCOREBOARD_PING_WIDTH = 40,
 	SCOREBOARD_COLUMN_WIDTH = SCOREBOARD_PLACE_WIDTH + SCOREBOARD_NAME_WIDTH + SCOREBOARD_SCORE_WIDTH + SCOREBOARD_PING_WIDTH,
@@ -1823,16 +1825,36 @@ static pixel32 scoreboard_background_color(
 	return color;
 }
 
-static void get_player_mcc_rank(
+static void get_player_mcc_rank_and_emblem(
 	long player_index,
-	struct firefight_mcc_rank_info *out_rank)
+	struct firefight_mcc_rank_info *out_rank,
+	struct firefight_emblem_info *out_emblem)
 {
 	struct player_datum const *p = (player_index != NONE) ? player_try_and_get(player_index) : NULL;
 	long prof_idx = NONE;
 
 	if (p && p->local_player_index != NONE && p->local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+	{
 		prof_idx = player_ui_get_active_player_profile_index(p->local_player_index);
-	firefight_stats_get_mcc_rank(prof_idx, out_rank);
+		if (out_rank)
+			firefight_stats_get_mcc_rank(prof_idx, out_rank);
+		if (out_emblem)
+			firefight_stats_get_emblem(prof_idx, out_emblem);
+		return;
+	}
+	if (p)
+	{
+		social_extensions_get_wide_name_rank_and_emblem(
+			p->name,
+			p->network_player_data.primary_color_index,
+			out_rank,
+			out_emblem);
+		return;
+	}
+	if (out_rank)
+		firefight_stats_get_mcc_rank(NONE, out_rank);
+	if (out_emblem)
+		firefight_stats_get_emblem(NONE, out_emblem);
 }
 
 /* a row of the scoreboard: its text (tab separated) from the column's left
@@ -1869,12 +1891,12 @@ static void scoreboard_draw_row(
 	if (firefight_active())
 	{
 		tab_stops[0] = left;
-		tab_stops[1] = (short)(left + 38);
-		tab_stops[2] = (short)(left + 185);
-		tab_stops[3] = (short)(left + 275);
-		tab_stops[4] = (short)(left + 345);
-		tab_stops[5] = (short)(left + 415);
-		tab_stops[6] = (short)(left + 480);
+		tab_stops[1] = (short)(left + 45);
+		tab_stops[2] = (short)(left + 215);
+		tab_stops[3] = (short)(left + 305);
+		tab_stops[4] = (short)(left + 375);
+		tab_stops[5] = (short)(left + 445);
+		tab_stops[6] = (short)(left + 510);
 		tab_count = 7;
 	}
 	else
@@ -2596,7 +2618,8 @@ static void game_engine_rasterize_scoreboard(
 		usnprintf(
 			row_string,
 			NUMBEROF(row_string),
-			L"\tRank\t%s\t%s\tKills\tAssists\tDeaths\tPing",
+			L"\t%s\t%s\t%s\tKills\tAssists\tDeaths\tPing",
+			column_name[0] ? column_name : L"Place",
 			score_name[0] ? score_name : L"Player",
 			score_string[0] ? score_string : L"Score");
 	}
@@ -2706,7 +2729,8 @@ static void game_engine_rasterize_scoreboard(
 			usnprintf(
 				row_string,
 				NUMBEROF(row_string),
-				L"\t \t%s\t%s\t%ld\t%ld\t%ld\t%s",
+				L"\t%s\t%s\t%s\t%ld\t%ld\t%ld\t%s",
+				get_place_string(entry),
 				name_string,
 				status_string,
 				(long)firefight_player_kills(entry->player_index),
@@ -2728,103 +2752,91 @@ static void game_engine_rasterize_scoreboard(
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		row_color = firefight_active() ? &team_colors[0] :
 			(has_teams ? &team_colors[PIN(player->team_index, 0, 1)] : &color);
-		/* port: draw MCC Service Rank Icon with Tour tier background color */
-#if OPENCE_ENABLE_SERVICE_RANK
+		/* port: right of the player's name: voice icon, platform icon, Service Rank Badge, and Player Emblem */
 		{
-			struct firefight_mcc_rank_info rk;
-			rectangle2d rank_rect;
-			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
-			short rk_size;
-			short rk_x, rk_y;
-
-			get_player_mcc_rank(entry->player_index, &rk);
-			scoreboard_rectangle(&rank_rect, bounds.x0, top, line_height, row_left, 32, head_rows + row, 1);
-			rk_size = (short)MAX(12, (rank_rect.y1 - rank_rect.y0) - 2);
-			rk_x = (short)(rank_rect.x0 + (firefight_active() ? 2 : (scoreboard_widths.place > 20 ? (scoreboard_widths.place - 20) * SCOREBOARD_SCALE : 0)));
-			rk_y = (short)(rank_rect.y0 + ((rank_rect.y1 - rank_rect.y0) - rk_size) / 2);
-			firefight_draw_mcc_rank_icon(
-				rk_x,
-				rk_y,
-				rk_size,
-				rk.tour_number,
-				rk.rank_in_tour,
-				alpha);
-		}
-#endif
-		/* port: a player talking (or muted) in voice chat, its speaker just
-		right of the name */
-		if (network && (network_voice_machine_speaking(player->network_player_data.machine_index) ||
-			network_voice_machine_muted(player->network_player_data.machine_index)))
-		{
-			rectangle2d icon;
+			rectangle2d icon_col;
 			rectangle2d text;
-			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
-			short size;
-			short middle;
-
 			rectangle2d ink;
 			rectangle2d cursor;
-			short name_end;
+			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
+			short name_col_left = firefight_active() ? (short)(row_left + 45) : (short)(row_left + scoreboard_widths.place);
+			short name_col_width = firefight_active() ? 170 : scoreboard_widths.name;
+			short size;
+			short middle;
+			short cur_x;
 
-			/* (after the name's last letter, centred on its capitals: both
-			measured as the row is laid out, the name at its column's tab
-			stop, then scaled as it is drawn, as scoreboard_rectangle has it;
-			within the name's column) */
-			text.x0 = (short)(row_left + scoreboard_widths.place);
-			text.x1 = (short)(text.x0 + scoreboard_widths.name);
+			text.x0 = name_col_left;
+			text.x1 = (short)(text.x0 + name_col_width);
 			text.y0 = (short)(top + (head_rows + row) * line_height);
 			text.y1 = (short)(text.y0 + line_height);
 			draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
 			draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
 			middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
-			scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, head_rows + row, 1);
-			size = (short)((icon.y1 - icon.y0) * 2 / 3);
-			name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
-			icon.x0 = (short)MIN(name_end + 4, icon.x1 - size);
-			icon.x1 = (short)(icon.x0 + size);
-			icon.y0 = (short)(middle - size / 2);
-			icon.y1 = (short)(icon.y0 + size);
-			network_voice_draw_icon(&icon, network_voice_machine_muted(player->network_player_data.machine_index),
-				alpha);
-		}
-		/* port: a known network player's platform, beside its name */
-		if (network)
-		{
-			short platform = platform_icon_for_machine(player->network_player_data.machine_index);
+			scoreboard_rectangle(&icon_col, bounds.x0, top, line_height, text.x0, name_col_width, head_rows + row, 1);
+			size = (short)((icon_col.y1 - icon_col.y0) * 2 / 3);
+			cur_x = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE + 4);
 
-			if (platform != _platform_icon_none)
+			if (network && (network_voice_machine_speaking(player->network_player_data.machine_index) ||
+				network_voice_machine_muted(player->network_player_data.machine_index)))
 			{
-				rectangle2d icon;
-				rectangle2d text;
-				rectangle2d ink;
-				rectangle2d cursor;
-				short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
-				short size;
-				short middle;
-				short name_end;
-				short voice_gap = network_voice_machine_speaking(player->network_player_data.machine_index) ||
-					network_voice_machine_muted(player->network_player_data.machine_index);
-
-				text.x0 = (short)(row_left + scoreboard_widths.place);
-				text.x1 = (short)(text.x0 + scoreboard_widths.name);
-				text.y0 = (short)(top + (head_rows + row) * line_height);
-				text.y1 = (short)(text.y0 + line_height);
-				draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
-				draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
-				middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
-				scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, head_rows + row, 1);
-				size = (short)((icon.y1 - icon.y0) * 2 / 3);
-				name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
-				if (name_end + 4 + (voice_gap ? size + 4 : 0) + size <= icon.x1)
+				if (cur_x + size <= icon_col.x1)
 				{
-					icon.x0 = (short)(name_end + 4 + (voice_gap ? size + 4 : 0));
-					icon.x1 = (short)(icon.x0 + size);
+					rectangle2d icon;
+					icon.x0 = cur_x;
+					icon.x1 = (short)(cur_x + size);
+					icon.y0 = (short)(middle - size / 2);
+					icon.y1 = (short)(icon.y0 + size);
+					network_voice_draw_icon(&icon, network_voice_machine_muted(player->network_player_data.machine_index),
+						alpha);
+					cur_x = (short)(cur_x + size + 4);
+				}
+			}
+			if (network)
+			{
+				short platform = platform_icon_for_machine(player->network_player_data.machine_index);
+				if (platform != _platform_icon_none && cur_x + size <= icon_col.x1)
+				{
+					rectangle2d icon;
+					icon.x0 = cur_x;
+					icon.x1 = (short)(cur_x + size);
 					icon.y0 = (short)(middle - size / 2);
 					icon.y1 = (short)(icon.y0 + size);
 					platform_icon_draw(platform, &icon,
 						((pixel32)(long)(255.0f * PIN(alpha, 0.0f, 1.0f) + 0.5f) << 24) | 0x00FFFFFF);
+					cur_x = (short)(cur_x + size + 4);
 				}
 			}
+#if OPENCE_ENABLE_SERVICE_RANK
+			{
+				struct firefight_mcc_rank_info rk;
+				struct firefight_emblem_info emb;
+				short badge_sz = (short)MAX(12, (icon_col.y1 - icon_col.y0) - 2);
+				short badge_y = (short)(middle - badge_sz / 2);
+
+				get_player_mcc_rank_and_emblem(entry->player_index, &rk, &emb);
+				if (cur_x + badge_sz <= icon_col.x1)
+				{
+					firefight_draw_mcc_rank_icon(
+						cur_x,
+						badge_y,
+						badge_sz,
+						rk.tour_number,
+						rk.rank_in_tour,
+						alpha);
+					cur_x = (short)(cur_x + badge_sz + 3);
+				}
+				if (cur_x + badge_sz <= icon_col.x1)
+				{
+					firefight_draw_player_emblem(
+						cur_x,
+						badge_y,
+						badge_sz,
+						&emb,
+						alpha);
+					cur_x = (short)(cur_x + badge_sz + 3);
+				}
+			}
+#endif
 		}
 		/* port: the player picked with the controller, lit */
 		if (picking && entry->player_index == scoreboard_pick.player_index)
@@ -3319,14 +3331,21 @@ void game_engine_post_rasterize_post_game(
 		real_argb_color team_colors[2];
 #if OPENCE_ENABLE_SERVICE_RANK
 		struct firefight_mcc_rank_info rk;
+		struct firefight_emblem_info emb;
 
-		get_player_mcc_rank(player_index, &rk);
+		get_player_mcc_rank_and_emblem(player_index, &rk, &emb);
 		firefight_draw_mcc_rank_icon(
-			(short)(48 - render.camera.viewport_bounds.x0),
+			(short)(46 - render.camera.viewport_bounds.x0),
 			(short)(draw_row * 18 - render.camera.viewport_bounds.y0),
-			18,
+			17,
 			rk.tour_number,
 			rk.rank_in_tour,
+			1.0f);
+		firefight_draw_player_emblem(
+			(short)(66 - render.camera.viewport_bounds.x0),
+			(short)(draw_row * 18 - render.camera.viewport_bounds.y0),
+			17,
+			&emb,
 			1.0f);
 #endif
 
