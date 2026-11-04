@@ -542,6 +542,8 @@ struct platform_file
 };
 
 static void read_ahead_stop(struct platform_file *file);
+static BOOL read_ahead_read(struct platform_file *file, void *buffer, DWORD count, DWORD *done,
+	unsigned long long offset);
 
 static void file_destroy(struct platform_handle *handle)
 {
@@ -780,6 +782,24 @@ BOOL WINAPI ReadFile(HANDLE handle, LPVOID buffer, DWORD count, LPDWORD bytes_re
 
 	if (!file)
 		return FALSE;
+	if (file->read_ahead && !overlapped)
+	{
+		/* (from the ring, at the file's position, which the read then moves on) */
+		off_t position = lseek(file->descriptor, 0, SEEK_CUR);
+
+		if (position >= 0 && read_ahead_read(file, buffer, count, &done, (unsigned long long)position))
+		{
+			if (lseek(file->descriptor, position + (off_t)done, SEEK_SET) < 0)
+			{
+				platform_set_last_error_from_errno(errno);
+				return FALSE;
+			}
+			if (bytes_read)
+				*bytes_read = done;
+			return TRUE;
+		}
+		done = 0;
+	}
 	result = read_at(file, buffer, count, &done, overlapped != NULL, overlapped ? overlapped_offset(overlapped) : 0);
 	if (bytes_read)
 		*bytes_read = done;
@@ -901,9 +921,15 @@ void platform_file_read_ahead(HANDLE handle)
 	struct read_ahead *ahead;
 	off_t size;
 
+	off_t position;
+
 	if (!file || file->read_ahead)
 		return;
+	/* (the size, the file's position left where it was: ReadFile reads from it) */
+	position = lseek(file->descriptor, 0, SEEK_CUR);
 	size = lseek(file->descriptor, 0, SEEK_END);
+	if (position < 0 || lseek(file->descriptor, position, SEEK_SET) != position)
+		size = -1;
 	ahead = calloc(1, sizeof(*ahead));
 	if (size <= 0 || !ahead)
 	{

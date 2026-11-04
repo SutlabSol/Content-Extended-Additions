@@ -411,12 +411,15 @@ void interface_draw_fullscreen_overlays(
 	terminal_draw();
 	main_framerate_render();
 	render_debug_profile();
-	/* port: the fork's chat box (port/linux/game/social_chat.c) */
-	social_chat_draw();
-	/* port: the tag packs being written (port/linux/game/tag_pack.c) */
+	/* port: the tag packs being written (port/linux/game/tag_pack.c), over
+	the main menu's background alone: no chat box (nor menus: render_ui_widgets) */
 	{
+		extern int tag_pack_checklist_shown(void);
 		extern void tag_pack_draw(void);
 
+		/* port: the fork's chat box (port/linux/game/social_chat.c) */
+		if (!tag_pack_checklist_shown())
+			social_chat_draw();
 		tag_pack_draw();
 	}
 	/* port: the overlay menu, over everything (port/linux/game/overlay_menu.c) */

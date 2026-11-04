@@ -655,6 +655,7 @@ struct widget_instance;
 #include "interface/ui_widget_game_data_input_functions.h"
 #include "custom_edition_maps.h" /* port: port/linux/game/custom_edition_maps.c */
 #include "tag_preview.h" /* port: port/linux/game/tag_preview.c */
+#include "tag_pack.h" /* port: port/linux/game/tag_pack.c */
 #include "map_manager.h" /* port: port/linux/game/map_manager.c */
 #include "interface/ui_widget_event_handler_functions.h"
 #include "interface/ui_widget_text_search_and_replace_functions.h"
@@ -7685,6 +7686,10 @@ void render_ui_widgets(
 	local_player_index_for_draw_string_and_hack_in_icons =
 		local_player_index == NONE ? 0 : local_player_index;
 	if (bink_playback_ui_rendering_inhibited())
+		return;
+	/* port: the tag packs being written: the main menu's background alone
+	behind their checklist (tag_pack.c) */
+	if (tag_pack_checklist_shown())
 		return;
 	if (!virtual_keyboard_active())
 	{

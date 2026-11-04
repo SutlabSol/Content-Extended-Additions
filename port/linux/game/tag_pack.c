@@ -920,7 +920,11 @@ static void batch_map(char const *leaf)
 	file = map_open(leaf);
 	blob = malloc((unsigned long)tag_size);
 	if (file == INVALID_HANDLE_VALUE || !blob || !file_read(file, header, sizeof(header)))
+	{
+		platform_log("tag pack: %s.map: %s", leaf, file == INVALID_HANDLE_VALUE ? "could not open it" :
+			!blob ? "out of memory for its tags" : "could not read its header");
 		goto done;
+	}
 	/* the tags, at the stream's end */
 	if (!stream_begin(&stream, file, compressed) ||
 		!stream_take(&stream, tag_offset - MAP_HEADER_SIZE, NULL) ||
@@ -959,7 +963,10 @@ static void batch_map(char const *leaf)
 	first, then the stream's, as far as the furthest range wanted */
 	file = map_open(leaf);
 	if (file == INVALID_HANDLE_VALUE || !stream_begin(&stream, file, compressed))
+	{
+		platform_log("tag pack: %s.map could not be opened again for its pixels and samples", leaf);
 		goto done;
+	}
 	for (index = 0; index < batch.count; index++)
 	{
 		if (batch.jobs[index].in_map && !job_feed(batch.jobs + index, 0, header, MAP_HEADER_SIZE))
@@ -1514,6 +1521,22 @@ int tag_pack_busy(void)
 	return batch.running || pack_queued > 0;
 }
 
+/* a pack's maps' bytes, as they unpack (those that are there) */
+static double pack_map_bytes(long pack)
+{
+	double total = 0.0;
+	long level;
+
+	for (level = 0; level < port_tag_packs_map_count(pack) && level < TAG_PACK_MAPS; level++)
+	{
+		long file_length, tag_offset, tag_size;
+
+		if (tag_pack_map_header(port_tag_packs_map(pack, level), &file_length, &tag_offset, &tag_size, NULL))
+			total += (double)file_length;
+	}
+	return total;
+}
+
 /* the queued packs written together on the batch's thread */
 static void batch_start(void)
 {
@@ -1533,6 +1556,29 @@ static void batch_start(void)
 		batch.jobs[index].state = _job_waiting;
 	}
 	batch.count = index;
+	/* the smallest first (the fewest maps' bytes): its maps are read first,
+	so it is done, and usable, soonest. Each map is still read once for all
+	the packs of it, so the batch takes no longer */
+	{
+		double size[BATCH_PACKS];
+		int sorted;
+
+		for (index = 0; index < batch.count; index++)
+			size[index] = pack_map_bytes(batch.jobs[index].pack);
+		for (sorted = 1; sorted < batch.count; sorted++)
+		{
+			for (index = sorted; index > 0 && size[index] < size[index - 1]; index--)
+			{
+				double size_swap = size[index];
+				long pack_swap = batch.jobs[index].pack;
+
+				size[index] = size[index - 1];
+				size[index - 1] = size_swap;
+				batch.jobs[index].pack = batch.jobs[index - 1].pack;
+				batch.jobs[index - 1].pack = pack_swap;
+			}
+		}
+	}
 	pack_queued = 0;
 	batch.running = 1;
 	batch.shown = 1;
