@@ -42,6 +42,7 @@ nothing here waits on the network. The answers are JSON ({"data": ...} or
 #include "community.h"
 #include "halo_skulls.h"
 #include "randomizer.h"
+#include "service_rank.h"
 #include "../src/community_net.h"
 #include "../src/port_config.h"
 
@@ -1851,6 +1852,8 @@ void community_level_won(char const *level_name, struct community_run const *run
 		result_set(slot, L"RANDOM RUN: NOT RANKED");
 		return;
 	}
+	if (daily && slot == 0)
+		service_rank_on_daily_challenge_completed(run->score);
 	/* (offline: a challenge's run kept in the profile's records, and its
 	place among this machine's profiles') */
 	if (daily && !challenge.online)

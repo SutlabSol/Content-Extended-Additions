@@ -111,6 +111,7 @@ symbols in this file:
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
 #include "network_chat.h" /* port: port/linux/game/network_chat.c */
 #include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
+#include "halo_firefight.h" /* port: firefight */
 #include "network_votekick.h" /* port: port/linux/game/network_votekick.c */
 #include "text/font_group.h"
 #include "text/text_group.h"
@@ -1633,6 +1634,9 @@ void hud_draw_screen(
 		{
 			campaign_score_draw_view(player_index);
 			skulls_hud_draw(render.local_player_index);
+			/* port: firefight */
+			if (firefight_active() && !skull_active(_skull_blind))
+				firefight_hud_draw();
 		}
 
 		hud_messaging_update(render.local_player_index);

@@ -410,6 +410,8 @@ enum multiplayer_game_text_string
 	_multiplayer_game_text_string_rally,
 	_multiplayer_game_text_string_waiting_for_machine = 34,
 	_multiplayer_game_text_string_waiting_for_player,
+	/* port: Firefight game ruleset name in multiplayer_game_text */
+	_multiplayer_game_text_string_firefight = 191,
 };
 
 enum multiplayer_game_bitmap_frame
@@ -1132,6 +1134,11 @@ static void server_list_menu_update(
 					game_type_bitmap->animation.current_frame_index =
 						_multiplayer_game_bitmap_race;
 					break;
+				/* port: Firefight ruleset icon in server browser */
+				case game_engine_firefight:
+					game_type_bitmap->animation.current_frame_index =
+						_multiplayer_game_bitmap_slayer;
+					break;
 				default:
 					game_type_bitmap->animation.current_frame_index =
 						_multiplayer_game_bitmap_unknown;
@@ -1197,6 +1204,11 @@ static void server_list_menu_update(
 				case game_engine_race:
 					ruleset_text->parameters.text_box.string_list_index =
 						_multiplayer_game_text_string_race;
+					break;
+				/* port: Firefight ruleset name in server browser */
+				case game_engine_firefight:
+					ruleset_text->parameters.text_box.string_list_index =
+						_multiplayer_game_text_string_firefight;
 					break;
 				default:
 					ruleset_text->parameters.text_box.string_list_index =
@@ -2583,6 +2595,11 @@ static void multiplayer_game_set_text_box_for_game_ruleset(
 				break;
 			}
 			break;
+		/* port: Firefight ruleset name in pre-game lobby */
+		case game_engine_firefight:
+			widget->parameters.text_box.string_list_index =
+				_multiplayer_game_text_string_firefight;
+			break;
 		default:
 			widget->parameters.text_box.string_list_index =
 				_multiplayer_game_text_string_unknown_game_type;
@@ -2818,6 +2835,10 @@ static void multiplayer_game_set_bitmap_for_ruleset(
 		case game_engine_race:
 			widget->animation.current_frame_index = _multiplayer_game_bitmap_race;
 			break;
+		/* port: Firefight ruleset icon in pre-game lobby */
+		case game_engine_firefight:
+			widget->animation.current_frame_index = _multiplayer_game_bitmap_slayer;
+			break;
 		default:
 			widget->animation.current_frame_index = _multiplayer_game_bitmap_unknown;
 			break;
@@ -2897,6 +2918,11 @@ static void multiplayer_edit_profile_set_ruleset_textbox_string_index(
 		case game_engine_race:
 			widget->parameters.text_box.string_list_index =
 				_multiplayer_game_text_string_race;
+			break;
+		/* port: Firefight ruleset name in gametype profile editor */
+		case game_engine_firefight:
+			widget->parameters.text_box.string_list_index =
+				_multiplayer_game_text_string_firefight;
 			break;
 		default:
 			widget->parameters.text_box.string_list_index =

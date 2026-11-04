@@ -7,7 +7,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/header_fl_loadout" controller="1" left="35" top="11" width="363" height="59" type="text" text="SPARTAN LOADOUT" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/fl_loadout_help" type="text" controller="1" left="68" top="341" width="482" height="79" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/cap_fl_loadout" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/fl_loadout_help" type="text" controller="1" left="68" top="341" width="482" height="71" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/cap_fl_loadout" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/fl_loadout_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_loadout/fl_loadout_help">
 		<data input="game settings lists text update"/>
@@ -117,7 +117,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/header_fl_last_stand" controller="1" left="35" top="11" width="363" height="59" type="text" text="LAST STANDS" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/fl_last_stand_help" type="text" controller="1" left="68" top="341" width="482" height="79" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/cap_fl_last_stand" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/fl_last_stand_help" type="text" controller="1" left="68" top="341" width="482" height="71" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/cap_fl_last_stand" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/fl_last_stand_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_last_stand/fl_last_stand_help">
 		<data input="game settings lists text update"/>
@@ -224,7 +224,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/header_fl_infected" controller="1" left="35" top="11" width="363" height="59" type="text" text="INFECTED" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/fl_infected_help" type="text" controller="1" left="68" top="341" width="482" height="79" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/cap_fl_infected" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/fl_infected_help" type="text" controller="1" left="68" top="341" width="482" height="71" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/cap_fl_infected" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/fl_infected_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_infected/fl_infected_help">
 		<data input="game settings lists text update"/>
@@ -441,7 +441,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/header_fl_camera" controller="1" left="35" top="11" width="363" height="59" type="text" text="CAMERA" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/fl_camera_help" type="text" controller="1" left="68" top="341" width="482" height="79" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/cap_fl_camera" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/fl_camera_help" type="text" controller="1" left="68" top="341" width="482" height="71" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/cap_fl_camera" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/fl_camera_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/fl_camera/fl_camera_help">
 		<data input="game settings lists text update"/>
@@ -489,7 +489,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/header_floodfection" type="text" controller="1" left="35" top="11" width="363" height="59" text="FLOODFECTION" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/floodfection_help" type="text" controller="1" left="68" top="341" width="482" height="79" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/cap_floodfection" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/floodfection_help" type="text" controller="1" left="68" top="341" width="482" height="71" string_list="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/cap_floodfection" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/floodfection_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/floodfection_options_edit/floodfection_help">
 		<data input="game settings lists text update"/>

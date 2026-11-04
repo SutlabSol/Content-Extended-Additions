@@ -69,5 +69,18 @@ struct game_variant *build_game_variant_team_king(
 	struct game_variant *variant);
 struct game_variant *build_game_variant_team_slayer(
 	struct game_variant *variant);
+/* port: built-in Halo: Reach Firefight gametype variants */
+struct game_variant *build_game_variant_firefight(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_generator_defense(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_gruntpocalypse(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_rocketfight(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_floodfight(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_mythic_firefight(
+	struct game_variant *variant);
 
 #endif // __GAME_ENGINE_PLAYLIST_H

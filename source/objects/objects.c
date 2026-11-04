@@ -322,7 +322,13 @@ void *object_get_and_verify_type(
 	long object_index,
 	unsigned long valid_type_flags)
 {
-	struct object_datum *result = object_header_get(object_index)->datum;
+	struct object_header_datum *header = object_header_get(object_index);
+	struct object_datum *result;
+
+	if (!header || !header->datum)
+		return NULL;
+
+	result = header->datum;
 
 	match_vassert(
 		"c:\\halo\\SOURCE\\objects\\objects.c",
@@ -399,8 +405,10 @@ long object_get_ultimate_parent(
 	struct object_datum *object;
 	for (;object_index!=NONE; object_index = object->object.parent_object_index)
 	{
+		object = object_try_and_get(object_index);
+		if (!object)
+			break;
 		result = object_index;
-		object = object_get(object_index);
 	}
 
 	return result;

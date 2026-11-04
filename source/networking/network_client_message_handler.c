@@ -958,10 +958,11 @@ static boolean network_game_client_receive_game_settings_piece(
 	struct message_server_game_settings_update const *piece)
 {
 	boolean result = TRUE;
+	boolean is_stock_size = (piece->total_size == HALO_PORT_STOCK_NETWORK_GAME_SIZE);
 
-	if (piece->total_size != sizeof(network_game_client_settings_staging) ||
+	if ((!is_stock_size && piece->total_size != sizeof(network_game_client_settings_staging)) ||
 		piece->length > sizeof(piece->data) ||
-		piece->offset + piece->length > sizeof(network_game_client_settings_staging))
+		piece->offset + piece->length > piece->total_size)
 	{
 		network_event("got a message_server_game_settings_update piece for a different game layout");
 		network_game_client_settings_staging_size = 0;
@@ -988,6 +989,19 @@ static boolean network_game_client_receive_game_settings_piece(
 			network_game_client_settings_staging_size += piece->length;
 			if (network_game_client_settings_staging_size == piece->total_size)
 			{
+				if (is_stock_size)
+				{
+					struct network_game_local_data local_data_tmp;
+					csmemcpy(
+						&local_data_tmp,
+						(byte const *)&network_game_client_settings_staging + HALO_PORT_STOCK_NETWORK_GAME_LOCAL_DATA_OFFSET,
+						sizeof(local_data_tmp));
+					csmemset(
+						(byte *)&network_game_client_settings_staging + HALO_PORT_STOCK_NETWORK_GAME_LOCAL_DATA_OFFSET,
+						0,
+						sizeof(network_game_client_settings_staging) - HALO_PORT_STOCK_NETWORK_GAME_LOCAL_DATA_OFFSET);
+					network_game_client_settings_staging.local_data = local_data_tmp;
+				}
 				network_game_client_settings_staging_size = 0;
 				result = network_game_client_game_settings_updated(client, &network_game_client_settings_staging);
 				if (!result)

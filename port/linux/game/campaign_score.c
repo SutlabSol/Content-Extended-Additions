@@ -86,6 +86,7 @@ lobby) loads.
 #include "networking/network_game_manager.h"
 #include "halo_skulls.h"
 #include "halo_port_limits.h"
+#include "halo_firefight.h"
 #include "interface/ui_widget.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
@@ -366,7 +367,11 @@ static boolean campaign_score_level(
 {
 	struct scenario *scenario;
 
-	if (!game_in_progress() || game_engine_running())
+	if (!game_in_progress())
+		return FALSE;
+	if (firefight_active())
+		return TRUE;
+	if (game_engine_running())
 		return FALSE;
 	scenario = global_scenario_try_and_get();
 	return scenario != NULL && scenario->type == _scenario_type_solo;
@@ -385,14 +390,16 @@ static boolean campaign_score_multiplayer(
 		changes = config_changes();
 		enabled = config_boolean("game.multiplayer_scoring") != 0;
 	}
-	return enabled && game_in_progress() && game_engine_running();
+	return enabled && game_in_progress() && game_engine_running() && !firefight_active();
 }
 
 /* the difficulty, as an index of the tables */
 static short campaign_score_difficulty(
 	void)
 {
-	short difficulty = game_difficulty_level_get();
+	short difficulty = firefight_active() ?
+		(short)global_variant.game_engine_variant.firefight.difficulty :
+		game_difficulty_level_get();
 
 	return PIN(difficulty, 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1);
 }
@@ -1241,10 +1248,25 @@ void campaign_score_unit_damaged(
 	}
 	if (slot != NONE)
 		campaign_score_hurt[slot] = unit_index;
-	campaign_score_note(_campaign_score_entry_kill, variant_index, killing_player_index,
-		(long)(base * campaign_score_style_multiplier(style) * values->difficulty[campaign_score_difficulty()] *
-			campaign_score_skulls_multiplier() + 0.5f),
-		style);
+	{
+		long scored_points = (long)(base * campaign_score_style_multiplier(style) *
+			values->difficulty[campaign_score_difficulty()] * campaign_score_skulls_multiplier() + 0.5f);
+
+		campaign_score_note(_campaign_score_entry_kill, variant_index, killing_player_index, scored_points, style);
+		if (!firefight_active())
+		{
+			char const *dmg_name = damage_definition_index != NONE ? tag_get_name(damage_definition_index) : NULL;
+			boolean is_grenade = (dmg_name && strstr(dmg_name, "grenade") != NULL);
+			boolean is_heavy = (base >= 50);
+			firefight_stats_notify_enemy_kill(
+				_ff_challenge_cat_campaign,
+				TEST_FLAG(style, _campaign_score_style_headshot_bit),
+				TEST_FLAG(style, _campaign_score_style_melee_bit) || TEST_FLAG(style, _campaign_score_style_backsmack_bit),
+				is_grenade,
+				is_heavy,
+				scored_points);
+		}
+	}
 	/* (and the medals it wins: campaign_medals.c) */
 	campaign_medals_enemy_killed(killing_player_index, killer_object_index, unit_index, damage_definition_index,
 		TEST_FLAG(style, _campaign_score_style_headshot_bit), TEST_FLAG(style, _campaign_score_style_melee_bit),
@@ -1268,6 +1290,7 @@ void campaign_score_award_medal(
 	{
 		struct player_datum const *player = player_try_and_get(player_index);
 
+		firefight_stats_record_medal(player_index, medal);
 		if (player && player->local_player_index != NONE)
 			campaign_score_note(_campaign_score_entry_medal, medal, player_index, 0, 0);
 		return;
@@ -1284,6 +1307,7 @@ void campaign_score_award_medal(
 	if (values->medal_scaled)
 		points *= values->difficulty[campaign_score_difficulty()] * campaign_score_skulls_multiplier();
 	campaign_score_note(_campaign_score_entry_medal, medal, player_index, (long)(points + 0.5f), 0);
+	firefight_stats_record_medal(player_index, medal);
 
 	return;
 }
@@ -1359,8 +1383,20 @@ void campaign_score_player_killed(
 	/* (an enemy's kill: not a suicide, a betrayal, nor the map's) */
 	if (killing_player_index != NONE && killing_player_index != dead_player_index && !friendly_fire)
 	{
+		char const *dmg_name = damage_definition_index != NONE ? tag_get_name(damage_definition_index) : NULL;
+		boolean is_grenade = (dmg_name && strstr(dmg_name, "grenade") != NULL);
 		campaign_medals_player_killed_player(killing_player_index, killing_object_index, dead_player_index,
 			damage_definition_index, headshot, melee, backsmack);
+		if (!firefight_active())
+		{
+			firefight_stats_notify_enemy_kill(
+				_ff_challenge_cat_multiplayer,
+				headshot,
+				melee || backsmack,
+				is_grenade,
+				FALSE,
+				100);
+		}
 	}
 	/* (and the dead player's sprees end; their killer is remembered) */
 	campaign_medals_player_died(dead_player_index,
@@ -1644,7 +1680,34 @@ static void campaign_score_win_compose(
 	boolean alone;
 
 	if (!campaign_score_enabled())
+	{
+		if (global_scenario_index != NONE && !firefight_active())
+		{
+			long player_idx = local_player_get_player_index(local_player_get_next(NONE));
+			long m_kills = player_idx != NONE ? campaign_score_player_kills(player_idx) : 0;
+			long m_deaths = player_idx != NONE ? campaign_score_player_deaths(player_idx) : 0;
+			long m_score = campaign_score_final(campaign_score_team_total());
+			long m_seconds = campaign_score_level_ticks() / TICKS_PER_SECOND;
+			short m_diff = campaign_score_difficulty();
+			short m_skulls = 0;
+			long m_medals = campaign_score_count_of(NONE, _campaign_score_entry_medal);
+			int sk;
+
+			for (sk = 0; sk < NUMBER_OF_SKULLS; sk++)
+				m_skulls += skull_active(sk) ? 1 : 0;
+
+			firefight_stats_record_campaign_mission_end(
+				tag_get_name(global_scenario_index),
+				m_score,
+				m_kills,
+				m_deaths,
+				m_seconds,
+				m_diff,
+				m_skulls,
+				m_medals);
+		}
 		return;
+	}
 	campaign_score_update();
 	community_result_clear();
 	campaign_score_pending_count = 0;
@@ -1686,6 +1749,20 @@ static void campaign_score_win_compose(
 		run.medals = campaign_score_count_of(campaign_score_competitive ? absolute_index : NONE,
 			_campaign_score_entry_medal);
 		records = community_daily_run() ? 0 : campaign_score_record_level(profile_index, &run);
+		if (campaign_score_pending_count == 0 && global_scenario_index != NONE && !firefight_active())
+		{
+			long mission_kills = player_index != NONE ? campaign_score_player_kills(player_index) : 0;
+			long mission_deaths = player_index != NONE ? campaign_score_player_deaths(player_index) : 0;
+			firefight_stats_record_campaign_mission_end(
+				tag_get_name(global_scenario_index),
+				run.score,
+				mission_kills,
+				mission_deaths,
+				run.seconds,
+				run.difficulty,
+				run.skulls,
+				run.medals);
+		}
 		/* (the online leaderboard's, the level's or the daily challenge's) */
 		if (profile_index != NONE && global_scenario_index != NONE && player_profile_get(profile_index, &profile))
 		{
@@ -1878,10 +1955,16 @@ real campaign_score_time_multiplier(
 	return 1.0f;
 }
 
+real campaign_score_difficulty_multiplier_for(
+	short difficulty)
+{
+	return campaign_score_values.difficulty[PIN(difficulty, 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1)];
+}
+
 real campaign_score_difficulty_multiplier(
 	void)
 {
-	return campaign_score_values.difficulty[campaign_score_difficulty()];
+	return campaign_score_difficulty_multiplier_for(campaign_score_difficulty());
 }
 
 real campaign_score_total_multiplier(

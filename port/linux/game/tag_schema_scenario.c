@@ -918,7 +918,7 @@ static struct tag_schema_definition const recorded_animation_schema =
 
 static struct tag_schema_field const netgame_flag_fields[] =
 {
-	TAG_SCHEMA_ENUM(struct scenario_netgame_flag, type, NUMBER_OF_NETGAME_FLAG_TYPES, 0),
+	TAG_SCHEMA_ENUM(struct scenario_netgame_flag, type, 16, 0),
 	TAG_SCHEMA_END
 };
 

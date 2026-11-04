@@ -114,6 +114,7 @@ real campaign_score_par_fraction(void);
 /* the score's multipliers now: the difficulty's, the skulls' (those on),
 and the difficulty's, the skulls' and the time's together; a multiplier as
 the HUD has it (x3, x0.5, x1.32) */
+real campaign_score_difficulty_multiplier_for(short difficulty);
 real campaign_score_difficulty_multiplier(void);
 real campaign_score_skulls_multiplier(void);
 real campaign_score_total_multiplier(void);

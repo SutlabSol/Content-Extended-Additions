@@ -218,6 +218,7 @@ symbols in this file:
 #include "ai/path_structure_bsp.h"
 #include "ai/props.h"
 #include "game/game.h"
+#include "halo_firefight.h"
 #include "main/console.h"
 #include "physics/collision_bsp.h"
 #include "physics/collisions.h"
@@ -2071,6 +2072,44 @@ boolean actor_path_refresh(
 				if (new_destination)
 					actor->control.path.destination_original_distance = distance;
 
+				if (!success &&
+					firefight_active() &&
+					!actor->state.flying &&
+					(destination_type == _destination_prop ||
+						destination_type == _destination_raw_location))
+				{
+					struct path_result *fallback_path = &actor->control.path.path;
+					real_vector3d step_vec;
+					real step_dist;
+
+					csmemset(fallback_path, 0, sizeof(*fallback_path));
+					fallback_path->valid = TRUE;
+					fallback_path->endpoint = actor->control.path.destination;
+					fallback_path->step_index = 0;
+					fallback_path->step_count = 1;
+					fallback_path->steps[0].surface_index = actor->input.pathfinding_surface_index;
+					vector_from_points3d(
+						&actor->input.position.body_position,
+						&actor->control.path.destination.point,
+						&step_vec);
+					step_dist = normalize3d(&step_vec);
+					if (step_dist > 10.0f)
+					{
+						point_from_line3d(
+							&actor->input.position.body_position,
+							&step_vec,
+							8.0f,
+							&fallback_path->steps[0].point);
+						fallback_path->steps_finish_path = FALSE;
+					}
+					else
+					{
+						fallback_path->steps[0].point = actor->control.path.destination.point;
+						fallback_path->steps_finish_path = TRUE;
+					}
+					success = TRUE;
+				}
+
 				if (success &&
 					actor->control.path.path.endpoint.target_radius > 0.f &&
 					distance < actor->control.path.destination.target_radius &&
@@ -2173,6 +2212,10 @@ void actor_destination_update(
 			if (actor->control.path.path.steps_finish_path)
 			{
 				actor_path_clear(actor_index);
+			}
+			else if (firefight_active())
+			{
+				actor_path_refresh(actor_index, FALSE, NULL);
 			}
 			else if (ai_debug.print_unfinished_paths)
 			{

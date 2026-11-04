@@ -87,7 +87,7 @@ static struct
 static char const *const server_opence_gametypes[] =
 {
 	"swat", "infection", "gun_game", "hardcore", "hardcore_ctf", "hardcore_oddball", "hardcore_king",
-	"floodfection", "tag_gun_game",
+	"floodfection", "tag_gun_game", "firefight",
 };
 
 char const *server_gametype_builtin_name(
@@ -142,6 +142,19 @@ static boolean server_gametype_base(
 			}
 			return TRUE;
 		}
+	}
+	if (!strcmp(name, "firefight") ||
+		!strcmp(name, "generator_defense") ||
+		!strcmp(name, "gruntpocalypse") ||
+		!strcmp(name, "rocketfight") ||
+		!strcmp(name, "floodfight") ||
+		!strcmp(name, "mythic_firefight"))
+	{
+		if (!firefight_build_variant_by_name(name, variant))
+			*variant = *build_game_variant_firefight(&temporary);
+		game_variant_options_default(variant, options);
+		firefight_variant_options_default(options);
+		return TRUE;
 	}
 	return game_modes_gametype_by_name(name, variant, options);
 }

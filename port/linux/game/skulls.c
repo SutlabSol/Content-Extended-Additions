@@ -61,6 +61,7 @@ has is not kept again.
 #include "game/players.h"
 
 #include "halo_port_limits.h"
+#include "halo_firefight.h"
 #include "custom_edition_cache.h"
 #include "randomizer.h"
 #include "network_distributed.h"
@@ -400,6 +401,28 @@ int skulls_carried_wanted(void)
 }
 
 
+static int skulls_firefight_mode(void)
+{
+	struct network_game *game = network_game_get_game();
+	struct game_variant spec_variant;
+	extern boolean player_ui_game_variant_specified(struct game_variant *variant);
+	extern boolean multiplayer_firefight_mode(void);
+
+	if (firefight_active() ||
+		global_variant.game_engine_index == game_engine_firefight ||
+		(game && game->variant.game_engine_index == game_engine_firefight) ||
+		multiplayer_firefight_mode())
+	{
+		return 1;
+	}
+	if (player_ui_game_variant_specified(&spec_variant) &&
+		spec_variant.game_engine_index == game_engine_firefight)
+	{
+		return 1;
+	}
+	return 0;
+}
+
 /* the host's (or a game of one machine's) skulls, from its settings: those
 turned on that it has */
 static struct skull_set config_set(void)
@@ -408,7 +431,7 @@ static struct skull_set config_set(void)
 
 	if (!config_boolean("game.skulls"))
 		return skull_set_none();
-	if (game && game->variant.game_engine_index != game_engine_none)
+	if (game && game->variant.game_engine_index != game_engine_none && !skulls_firefight_mode())
 		return skull_set_none();
 
 	return skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")), skulls_unlocked_set());
@@ -425,6 +448,8 @@ static int skull_tags_wanted(int skull)
 	struct skull_set set;
 	struct skull_set unlocked;
 
+	if (skulls_firefight_mode())
+		return 1;
 	if (game && game->variant.game_engine_index != game_engine_none)
 		return 0;
 	if (network_game_distributed_client())
@@ -564,11 +589,13 @@ void skulls_level_loaded(long scenario_tag_index)
 		error(_error_silent, "skulls: the enemies %s", carried_definition != NONE ? "carry skulls" :
 			"carry no skull (it could not be copied)");
 	}
-	/* (the sounds: Grunt Birthday Party's cheer, a campaign level's; those
-	of the skulls to be found) */
-	if (scenario_tag_index != NONE && scenario_definition_get(scenario_tag_index)->type == _scenario_type_solo)
+	/* (the sounds: Grunt Birthday Party's cheer, a campaign level's or
+	Firefight's; those of the skulls to be found) */
+	if (scenario_tag_index != NONE &&
+		(scenario_definition_get(scenario_tag_index)->type == _scenario_type_solo || skulls_firefight_mode()))
 	{
-		own_sounds_add((skull_set_has(&level_set, _skull_grunt_birthday_party) ||
+		own_sounds_add((skulls_firefight_mode() ||
+			skull_set_has(&level_set, _skull_grunt_birthday_party) ||
 			skull_set_has(&level_set, _skull_confetti_party) ?
 			1UL << _own_sound_party : 0) |
 			(carried_definition != NONE ? (1UL << _own_sound_skull_pickup) | (1UL << _own_sound_skull_carrier) |
@@ -597,10 +624,12 @@ int skull_active(int skull)
 	them: a revert to before one was taken takes it back) */
 	struct skull_set set = skull_set_union(level_set, found_set());
 
+	if (firefight_active() && firefight_40_skull_active(skull))
+		return 1;
 	if (!skull_set_has(&set, skull))
 		return 0;
 	/* (a campaign's scenario: not the main menu's, nor a multiplayer map's) */
-	return global_scenario && global_scenario->type == _scenario_type_solo;
+	return global_scenario && (global_scenario->type == _scenario_type_solo || firefight_active());
 }
 
 static void skull_set_to_bytes(struct skull_set set, unsigned char *bytes);
@@ -2301,6 +2330,8 @@ int skulls_item_take(short local_player_index, long unit_index, long object_inde
 	}
 	else
 		skull_set_add(&finding->found, skull);
+	if (!firefight_active() && global_scenario && global_scenario->type == _scenario_type_solo)
+		firefight_stats_notify_skull_claimed(skull, TRUE);
 	run_saved();
 	if (skull_hums[slot] != NONE)
 		sound_stop_impulse(skull_hums[slot]);
@@ -2379,6 +2410,34 @@ static void run_restored(char const *why)
 	run_lose(skull_set_difference(run.taken, run.unlocked), why);
 }
 
+void skulls_unlock_next_by_milestone(char const *reason)
+{
+	struct skull_set unlocked = skulls_unlocked_set();
+	int skull;
+
+	if (network_game_distributed_client())
+		return;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (!skull_set_has(&unlocked, skull))
+		{
+			char msg[80];
+			short local_player_index;
+
+			skulls_keep(skull_set_of(skull));
+			skull_set_add(&run.unlocked, skull);
+			run_saved();
+			snprintf(msg, sizeof(msg), "%s SKULL unlocked (%s)!",
+				skull_descriptions[skull].label, reason ? reason : "Milestone");
+			for (local_player_index = 0; local_player_index < local_player_count(); local_player_index++)
+				skulls_print(local_player_index, msg);
+			error(_error_silent, "skulls: unlocked %s (%s)", skull_descriptions[skull].key, reason ? reason : "milestone");
+			break;
+		}
+	}
+}
+
 /* the level won: the skulls found in it, and not lost to a death or a
 revert since, are kept (game.skulls_unlocked), as the HUD said they would
 be when they were picked up */
@@ -2444,7 +2503,16 @@ void skulls_hud_draw(short local_player_index)
 	int skull;
 
 	(void)local_player_index;
-	if (skull_set_is_empty(&shown_set) || !global_scenario || global_scenario->type != _scenario_type_solo)
+	if (firefight_active())
+	{
+		for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+		{
+			if (firefight_40_skull_active(skull))
+				skull_set_add(&shown_set, skull);
+		}
+	}
+	if (skull_set_is_empty(&shown_set) || !global_scenario ||
+		(global_scenario->type != _scenario_type_solo && !firefight_active()))
 		return;
 	bitmap_index = tag_loaded(BITMAP_GROUP_TAG, SKULL_ICONS_BITMAP);
 	if (bitmap_index == NONE)

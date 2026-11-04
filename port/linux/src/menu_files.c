@@ -238,6 +238,11 @@ static const unsigned char *file_data(const char *path, unsigned long *size)
 
 		snprintf(full, sizeof(full), "%s/%s", folder, path);
 		data = file_read(full, size);
+		if (!data && strncmp(path, "ui/", 3) == 0)
+		{
+			snprintf(full, sizeof(full), "Faber_data/%s", path);
+			data = file_read(full, size);
+		}
 		if (!data)
 			return NULL;
 		index = file_add(path, data, *size, 1);

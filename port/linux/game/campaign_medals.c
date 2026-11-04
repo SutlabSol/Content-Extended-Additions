@@ -61,6 +61,7 @@ last few, the medal history, in the score's panel (campaign_score.c).
 #include "campaign_score.h"
 #include "campaign_score_values.h"
 #include "halo_port_limits.h"
+#include "halo_firefight.h"
 
 #include <string.h>
 
@@ -305,7 +306,7 @@ static boolean campaign_medals_avenged(
 	struct player_datum *player = player_try_and_get(player_index);
 	struct player_datum *avenger = player_try_and_get(avenger_player_index);
 
-	if (!game_engine_running())
+	if (!game_engine_running() || firefight_active())
 		return TRUE;
 	return player && avenger && player_index != avenger_player_index && game_engine_has_teams() &&
 		player->team_index == avenger->team_index;
@@ -337,14 +338,13 @@ boolean campaign_medals_popups_shown(
 	static unsigned long changes = (unsigned long)-1;
 	static boolean shown = TRUE;
 
+	if (firefight_active() || campaign_score_multiplayer_medals())
+		return TRUE;
 	if (changes != config_changes())
 	{
 		changes = config_changes();
 		shown = config_boolean("game.campaign_medals") != 0;
 	}
-	/* (a multiplayer game's, with its medals on) */
-	if (campaign_score_multiplayer_medals())
-		return TRUE;
 	return shown && campaign_score_enabled();
 }
 

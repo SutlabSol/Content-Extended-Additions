@@ -39,6 +39,10 @@ long bots_wanted_count(void);
 void bots_set_count_override(long count);
 short bots_skill(void);
 short bots_teams(void);
+int bots_replace_on_join(void);
+short bots_difficulty_from_string(char const *skill);
+float bots_difficulty_multiplier_penalty(short difficulty);
+float bots_score_multiplier_penalty(void);
 
 /* a machine is a bot's: one of the bots' indices that no machine that joined
 holds (the host's alone knows: network_game_server_port_machine_joined) */

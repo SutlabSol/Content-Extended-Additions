@@ -50,6 +50,7 @@ community server's answers.
 #include "social_menu.h"
 #include "social_sync.h"
 #include "platform_icons.h"
+#include "social_extensions.h"
 #include "../src/community_net.h"
 #include "../src/p2p.h"
 #include "../src/port_config.h"
@@ -1605,9 +1606,9 @@ static void rows_build(
 	switch (social_menu.list)
 	{
 	case _list_home:
+		row_add(_row_my_account, 0);
 		if (social_enabled())
 		{
-			row_add(_row_my_account, 0);
 			row_add(_row_friendlist_menu, 0);
 			row_add(_row_activity_menu, 0);
 			row_add(_row_settings_menu, 0);
@@ -1616,8 +1617,11 @@ static void rows_build(
 			row_add(_row_settings, 0);
 		break;
 	case _list_account:
-		row_add(_row_you, 0);
-		row_add(_row_sync, 0);
+		if (social_enabled())
+			row_add(_row_you, 0);
+		social_extensions_add_home_rows(row_add);
+		if (social_enabled())
+			row_add(_row_sync, 0);
 		break;
 	case _list_friendlist:
 		row_add(_row_code, 0);
@@ -1713,6 +1717,10 @@ static void rows_build(
 	case _list_report:
 		for (index = 0; index < (short)NUMBEROF(social_menu_reasons); index++)
 			row_add(_row_reason, index);
+		break;
+	default:
+		if (social_extensions_is_ext_list(social_menu.list))
+			social_extensions_build_list_rows(social_menu.list, row_add);
 		break;
 	}
 }
@@ -2368,6 +2376,13 @@ static real card_layout(
 	if (draw)
 		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
 	y += SOCIAL_CARD_GAP;
+	if (self)
+	{
+		y = social_extensions_card_draw_section(panel, draw, TRUE, left, right, y, row);
+		if (draw)
+			campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+		y += SOCIAL_CARD_GAP;
+	}
 	if (!player->had)
 	{
 		/* (asked for, or why not: what the server said, on a line) */
@@ -3066,6 +3081,10 @@ void social_menu_row(
 		if (social_menu.confirming_kind == _row_reason && social_menu.chosen == row)
 			snprintf(state, (size_t)state_size, "A AGAIN");
 		break;
+	default:
+		if (social_extensions_is_ext_row(entry->kind))
+			social_extensions_row_text(social_menu.list, entry->kind, entry->value, name, name_size, state, state_size);
+		break;
 	}
 	if (entry->kind == social_menu.confirming_kind && entry->kind != _row_reason)
 		snprintf(state, (size_t)state_size, "A AGAIN");
@@ -3125,6 +3144,17 @@ void social_menu_details(
 	text[0] = 0;
 	if (social_menu.message[0])
 		text_add(text, text_size, "%s\n\n", social_menu.message);
+	if (entry && social_extensions_is_ext_row(entry->kind))
+	{
+		social_extensions_row_details(social_menu.list, entry->kind, entry->value, title, title_size, text, text_size);
+		return;
+	}
+	if (entry && entry->kind == _row_my_account)
+	{
+		snprintf(title, (size_t)title_size, "MY ACCOUNT");
+		text_add(text, text_size, "Your account summary, service\nrecord, challenges, achievements,\nand device sync.");
+		return;
+	}
 	if (!social_enabled())
 	{
 		snprintf(title, (size_t)title_size, "SOCIAL");
@@ -3549,6 +3579,14 @@ short social_menu_choose(
 		snprintf(what, sizeof(what), "report %s (%s)", player->name, social_menu_reasons[entry->value]);
 		if (confirmed(entry->kind, what))
 			moderate(_row_reason, "report", social_menu_reason_keys[entry->value]);
+		break;
+	default:
+		if (social_extensions_is_ext_row(entry->kind))
+		{
+			short next_list = social_extensions_choose(social_menu.list, entry->kind, entry->value);
+			if (next_list > 0)
+				list_open(next_list);
+		}
 		break;
 	}
 	return _social_menu_stays;

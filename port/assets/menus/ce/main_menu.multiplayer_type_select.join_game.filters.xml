@@ -8,7 +8,7 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/join_game/filters/filters_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<data input="common button bar update"/>
-		<child widget="main_menu/multiplayer_type_select/join_game/filters/filters_button_ok" x="380" y="1"/>
+		<child widget="main_menu/multiplayer_type_select/join_game/filters/filters_button_ok" x="370" y="1"/>
 		<child widget="common_button_cancel" x="510" y="1"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/join_game/filters/filters_button_ok" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="1" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
@@ -20,11 +20,11 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/join_game/filters/filters_options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/multiplayer_type_select/join_game/filters/filters_help">
 		<data input="game settings lists text update"/>
-		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_empty_servers" x="54" y="73"/>
-		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_full_servers" x="54" y="103"/>
-		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_game_type" x="54" y="133"/>
-		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_installed_maps" x="54" y="163"/>
-		<child widget="main_menu/multiplayer_type_select/join_game/filters/filters_button_bar" y="449"/>
+		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_empty_servers" x="64" y="73"/>
+		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_full_servers" x="64" y="103"/>
+		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_game_type" x="64" y="133"/>
+		<child widget="main_menu/multiplayer_type_select/join_game/filters/op_installed_maps" x="64" y="163"/>
+		<child widget="main_menu/multiplayer_type_select/join_game/filters/filters_button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/join_game/filters/filters_screen" width="640" height="480" flags="pass_unhandled_to_focused_child force_handle_mouse" bitmap="bitmaps/gradient_big">
 		<child widget="main_menu/multiplayer_type_select/join_game/filters/header_filters" y="-21"/>

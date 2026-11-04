@@ -664,8 +664,10 @@ struct widget_instance;
 #include "networking/network_client_manager.h"
 #include "networking/network_connection.h"
 #include "networking/network_game_globals.h"
+#include "networking/network_game_manager.h"
 #include "networking/network_server_manager.h"
 #include "network_coop.h" /* port: port/linux/game/network_coop.c */
+#include "game/game_engine_firefight.h" /* port: firefight */
 #include "touch_postgame.h" /* port: port/linux/game/touch_postgame.c */
 #include "social.h" /* port: port/linux/game/social.c */
 #include "rasterizer/rasterizer.h"
@@ -3855,6 +3857,39 @@ static boolean main_menu_settings_screen(
 	return we_are_at_the_main_menu && name && strstr(name, "\\player_profile_edit\\");
 }
 
+static boolean ui_network_game_has_remote_peers(
+	void)
+{
+	struct network_game_client *client;
+	struct network_game *game;
+
+	if (!network_game_is_active())
+		return FALSE;
+	client = global_network_game_client_get();
+	game = client ? network_game_client_get_game(client) : NULL;
+	return game && game->machine_count > 1;
+}
+
+static char const *ui_resolve_pause_widget_name(
+	char const *preferred,
+	short local_player_count)
+{
+	if (preferred && tag_loaded(UI_WIDGET_DEFINITION_TAG, preferred) != NONE)
+		return preferred;
+	if (local_player_count >= 2)
+	{
+		if (tag_loaded(UI_WIDGET_DEFINITION_TAG, "ui\\shell\\solo_game\\pause_game\\pause_game_split_screen") != NONE)
+			return "ui\\shell\\solo_game\\pause_game\\pause_game_split_screen";
+		if (tag_loaded(UI_WIDGET_DEFINITION_TAG, "ui\\shell\\multiplayer_game\\pause_game\\2p_pause_game") != NONE)
+			return "ui\\shell\\multiplayer_game\\pause_game\\2p_pause_game";
+	}
+	if (tag_loaded(UI_WIDGET_DEFINITION_TAG, "ui\\shell\\solo_game\\pause_game\\pause_game") != NONE)
+		return "ui\\shell\\solo_game\\pause_game\\pause_game";
+	if (tag_loaded(UI_WIDGET_DEFINITION_TAG, "ui\\shell\\multiplayer_game\\pause_game\\1p_pause_game") != NONE)
+		return "ui\\shell\\multiplayer_game\\pause_game\\1p_pause_game";
+	return preferred;
+}
+
 static void widget_instance_initialize(
 	struct widget_instance *widget,
 	struct widget_instance *parent,
@@ -3879,11 +3914,15 @@ static void widget_instance_initialize(
 	widget->visible = TRUE;
 	widget->render_regardless_of_controller_index =
 		TEST_FLAG(definition->flags, _widget_render_regardless_of_controller_index_bit);
-	/* port: a network co-op game never pauses (it opens the campaign's pause
-	screen, which would); nor do the settings screens at the main menu
-	(main_menu_settings_screen) */
-	widget->pause_game_time = TEST_FLAG(definition->flags, _widget_pause_game_time_bit) &&
-		!network_coop_active() && !main_menu_settings_screen(tag_index);
+	/* port: a network co-op game or multi-machine network game never pauses;
+	a solo or single-machine Firefight pause screen (and its sub-screens) pauses
+	game_time */
+	widget->pause_game_time = !network_coop_active() &&
+		!ui_network_game_has_remote_peers() &&
+		!main_menu_settings_screen(tag_index) &&
+		(!network_game_is_active() || firefight_active()) &&
+		(TEST_FLAG(definition->flags, _widget_pause_game_time_bit) ||
+		(!parent && !we_are_at_the_main_menu));
 	widget->creation_time = widget_globals.current_system_milliseconds;
 	widget->milliseconds_to_auto_close = MAX(definition->milliseconds_to_auto_close, 0);
 	widget->auto_close_fade_time = MAX(definition->auto_close_fade_time, 0);
@@ -7308,6 +7347,8 @@ static void ui_widgets_process_mouse(
 	return;
 }
 
+extern struct bitmap_data *forge_tag_preview_get_bitmap(void);
+
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
 	rectangle2d *clip_rect,
@@ -7355,8 +7396,13 @@ static void widget_instance_render_recursive(
 	is (port/linux/game/tag_preview.c) */
 	frame_index = widget->animation.current_frame_index;
 	custom_edition_picture = custom_edition_maps_picture(definition->background_bitmap.index, &frame_index);
-	tag_preview_picture_shown = !custom_edition_picture && widget->name && !strcmp(widget->name, "tag_preview") ?
-		tag_preview_picture() : NULL;
+	tag_preview_picture_shown = NULL;
+	if (!custom_edition_picture && widget->name && !strcmp(widget->name, "tag_preview"))
+	{
+		tag_preview_picture_shown = forge_tag_preview_get_bitmap();
+		if (!tag_preview_picture_shown)
+			tag_preview_picture_shown = tag_preview_picture();
+	}
 	/* port: (and the Map Manager's picture of the row chosen, over its
 	map_picture widget, the same way: port/linux/game/map_manager.c) */
 	if (!custom_edition_picture && !tag_preview_picture_shown && widget->name && !strcmp(widget->name, "map_picture"))
@@ -7375,12 +7421,6 @@ static void widget_instance_render_recursive(
 		rectangle2d local_clip;
 		pixel32 color;
 		struct rasterizer_dynamic_screen_geometry_parameters multitexture_params;
-		struct bitmap_group *bitmap_group =
-			bitmap_group_get(definition->background_bitmap.index);
-		struct bitmap_group_sequence *sequence = TAG_BLOCK_GET_ELEMENT(
-			&bitmap_group->sequences,
-			0,
-			struct bitmap_group_sequence);
 		/* port: a widget whose bounds cover the whole 640x480 design space (the
 		 * pause menu's dim, for example) should cover the whole screen too,
 		 * not just the centered 640 columns -- same as the fade_to_black
@@ -8760,6 +8800,7 @@ static boolean ui_check_for_pause_game(
 						widget_name = NULL;
 						break;
 					}
+					widget_name = ui_resolve_pause_widget_name(widget_name, local_player_count);
 					if (widget_name &&
 						!ui_widget_load_by_name_or_tag(
 							widget_name,
@@ -8791,7 +8832,10 @@ static boolean ui_check_for_pause_game(
 				}
 				else
 				{
-					ui_widget_delete(widget_globals.active_widgets[controller_index]);
+					if (game_time_get_paused() == TRUE)
+						ui_widgets_close_all();
+					else
+						ui_widget_delete(widget_globals.active_widgets[controller_index]);
 				}
 			}
 		}

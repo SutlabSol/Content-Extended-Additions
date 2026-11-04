@@ -1632,7 +1632,8 @@ static void network_game_server_port_bots(
 		return;
 	if (bots_game_allowed() && (server->game.variant.game_engine_index == game_engine_slayer ||
 		server->game.variant.game_engine_index == game_engine_ctf ||
-		server->game.variant.game_engine_index == game_engine_king))
+		server->game.variant.game_engine_index == game_engine_king ||
+		server->game.variant.game_engine_index == game_engine_firefight))
 	{
 		wanted = PIN(bots_wanted_count(), 0, BOTS_MAXIMUM);
 	}
@@ -1678,7 +1679,9 @@ static void network_game_server_port_bots(
 	{
 		long team_index;
 
-		if (bots_teams() == _bots_teams_against)
+		if (server->game.variant.game_engine_index == game_engine_firefight)
+			team_index = 0;
+		else if (bots_teams() == _bots_teams_against)
 			team_index = human_team == 0 ? 1 : 0;
 		else
 			team_index = team_counts[1] < team_counts[0] ? 1 : 0;
@@ -2919,6 +2922,11 @@ boolean network_game_server_add_player_to_game(
 	{
 		/* port: the smaller team (the Xbox game took turns with a counter of
 		its own, which a failed add or an earlier game moved on) */
+		if (server->game.variant.game_engine_index == game_engine_firefight)
+		{
+			player->team_index = 0;
+		}
+		else
 		{
 			long player_count_by_team[NUMBER_OF_MULTIPLAYER_TEAMS] = { 0, 0 };
 			long player_index;
@@ -5596,7 +5604,9 @@ static boolean network_game_server_idle_pregame_tasks(
 		/* port: the gametype's auto team balance (game_variant_options):
 		the lobby's teams kept within a player of each other, the bigger
 		team's last player moved */
-		if (server->game.variant.universal_variant.teams && server->game.variant_options.auto_team_balance)
+		if (server->game.variant.universal_variant.teams &&
+			server->game.variant.game_engine_index != game_engine_firefight &&
+			server->game.variant_options.auto_team_balance)
 		{
 			for (;;)
 			{
@@ -5885,7 +5895,8 @@ boolean network_game_server_reset_to_pregame(
 			else
 				network_event("server resetting to pregame (some machines missed it)");
 
-			if (server->game.variant.universal_variant.teams)
+			if (server->game.variant.universal_variant.teams &&
+				server->game.variant.game_engine_index != game_engine_firefight)
 			{
 				for (i = 0; i < MAXIMUM_NETWORK_PLAYER_COUNT; i++)
 				{
@@ -5959,7 +5970,8 @@ boolean network_game_server_reset_to_pregame(
 	{
 		success = network_game_server_setup_game_from_playlist(server);
 
-		if (server->game.variant.universal_variant.teams)
+		if (server->game.variant.universal_variant.teams &&
+			server->game.variant.game_engine_index != game_engine_firefight)
 		{
 			for (i = 0; i < MAXIMUM_NETWORK_PLAYER_COUNT; i++)
 			{

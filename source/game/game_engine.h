@@ -9,6 +9,7 @@ header included in hcex build.
 #pragma once
 
 #include "math/real_math.h"
+#include "game/game_engine_firefight.h" /* port: Halo: Reach Firefight gametype definitions */
 
 /* ---------- constants */
 
@@ -38,11 +39,14 @@ enum game_engine_type
 	game_engine_oddball,
 	game_engine_king,
 	game_engine_race,
+	/* port: Halo: Reach Firefight gametype registered in slot 6 (formerly
+	unused game_engine_terminator) */
 	game_engine_terminator,
+	game_engine_firefight = game_engine_terminator,
 	game_engine_stub,
 	number_of_game_engines,
 	first_usable_game_engine_index = game_engine_ctf,
-	last_usable_game_engine_index = game_engine_race,
+	last_usable_game_engine_index = game_engine_firefight,
 };
 
 enum get_score_type
@@ -145,6 +149,8 @@ union game_engine_variant
 	struct king_variant king;
 	struct oddball_variant oddball;
 	struct race_variant race;
+	/* port: Halo: Reach Firefight variant (24 bytes = 0x18 bytes) */
+	struct game_engine_firefight_variant firefight;
 };
 
 struct game_variant
@@ -310,11 +316,42 @@ struct game_variant_options
 	reserved's last byte, which builds without it zero: they play the mode
 	itself (Infection, Gun Game) */
 	byte mode_variant;
+	/* port: extended Halo: Reach Firefight gametype options */
+	unsigned long firefight_custom_skulls;
+	short firefight_generator_health;
+	short firefight_score_life_threshold;
+	byte firefight_round_1_skull;
+	byte firefight_round_2_skull;
+	byte firefight_round_3_skull;
+	byte firefight_faction_diplomacy;
+	unsigned long firefight_skull_exclude_mask;
+	unsigned long firefight_starting_skulls[2];
+	unsigned short firefight_unit_toggles;
+	byte firefight_set_escalation;
+	byte firefight_dropship_mode;
+	byte firefight_next_wave_mode;
+	byte firefight_player_faction_mode;
+	byte firefight_early_vehicle;
+	byte firefight_late_vehicle;
+	byte firefight_prep_countdown;
+	byte firefight_skull_progression_mode;
+	byte firefight_player_shields;
+	byte firefight_player_speed;
+	byte firefight_player_gravity;
+	byte firefight_infinite_ammo;
+	byte firefight_last_man_boost;
+	byte firefight_wave_size_scale;
+	byte firefight_boss_wave_mode;
+	byte firefight_ai_weapon_sandbox;
+	byte firefight_friendly_ai;
+	byte firefight_ragdolls;
 };
 
-typedef char verify_game_variant_options_size[sizeof(struct game_variant_options) == 0x2C ? 1 : -1];
-/* (builds before OpenCE's gametypes saved and sent only the first 0x1C bytes) */
+typedef char verify_game_variant_options_size[sizeof(struct game_variant_options) == 0x58 ? 1 : -1];
+/* (builds before OpenCE's gametypes saved and sent only the first 0x1C bytes;
+stock OpenCE saves and sends 0x2C bytes) */
 #define GAME_VARIANT_OPTIONS_V1_SIZE 0x1C
+#define GAME_VARIANT_OPTIONS_OPENCE_SIZE 0x2C
 
 struct game_engine
 {

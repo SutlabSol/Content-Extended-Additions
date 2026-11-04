@@ -35,6 +35,9 @@ may peek at a map (tag_import_peek), from its pack or else the map itself.
 #include "cseries.h"
 #include "cseries/errors.h"
 #include "cseries/cseries_windows.h"
+#ifndef FILE_SHARE_READ
+#define FILE_SHARE_READ 1
+#endif
 #include "bitmaps/bitmap_group.h"
 #include "cache/cache_files.h"
 #include "game/game.h"
@@ -69,9 +72,9 @@ maps, and the others' (skulls, game modes, a HUD's) */
 #define DONOR_COUNT 16
 /* the most packs a level reads */
 #define PACK_COUNT 8
-#define WANTED_MAX 8192
-#define IMPORT_MAX 2048
-#define COPY_BUDGET (32UL * 1024UL * 1024UL)
+#define WANTED_MAX 16384
+#define IMPORT_MAX 8192
+#define COPY_BUDGET (64UL * 1024UL * 1024UL)
 #define WALK_DEPTH 32
 
 struct tag_import_instance
@@ -188,7 +191,7 @@ struct wanted_alias
 
 /* the wanted tags by group and name, so each is copied from one map. Twice
 WANTED_MAX, a power of two; a slot holds an index into wanted, plus one */
-#define WANTED_SLOTS 16384
+#define WANTED_SLOTS 32768
 
 struct copied_tag
 {
@@ -260,7 +263,7 @@ static long import_count;
 static unsigned char import_marked[0x10000 / 8];
 /* the most bytes of pixels a level reads from the maps for the packs
 (donor_extras_fill), all its donors', and how many it has */
-#define DONOR_EXTRA_BYTES_MAX (16L * 1024L * 1024L)
+#define DONOR_EXTRA_BYTES_MAX (256L * 1024L * 1024L)
 static long donor_extra_bytes;
 /* how many copied bitmap and sound ranges the packs do not hold, and what
 the reads during play actually returned. The detail lines stop after a few
@@ -369,8 +372,12 @@ static void held_free(void)
 	held_bytes = 0;
 }
 
+static int allow_vehicle_want;
+
 static int leave_group(long group)
 {
+	if (group == 'vehi' && allow_vehicle_want)
+		return 0;
 	return group == 'vehi' || group == 'scnr' || group == 'sbsp' || group == (long)'matg';
 }
 
@@ -436,7 +443,7 @@ static void walk_want(struct tag_import_donor *donor, void *element, struct tag_
 {
 	struct tag_schema_field const *field;
 
-	if (walk_steps > 400000)
+	if (walk_steps > 800000)
 		wanted_full = 1;
 	if (wanted_full || import_stopped)
 		return;
@@ -591,8 +598,17 @@ static int want_root(struct tag_import_donor *donor, long absolute)
 	long queued = wanted_count;
 
 	if (wanted_full)
+	{
+		allow_vehicle_want = 0;
 		return 0;
+	}
+	if (donor && donor->instances && absolute >= 0 && absolute < donor->count &&
+		donor->instances[absolute].group_tag == 'vehi')
+	{
+		allow_vehicle_want = 1;
+	}
 	want(donor, absolute);
+	allow_vehicle_want = 0;
 	while (queued < wanted_count && !wanted_full)
 	{
 		struct wanted *entry = wanted + queued;
@@ -987,7 +1003,7 @@ static int pack_load(struct pack *pack, char const *path)
 	unsigned long index;
 	DWORD open_error;
 
-	pack->file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	pack->file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 	if (pack->file == INVALID_HANDLE_VALUE)
 	{
 		open_error = GetLastError();
@@ -1282,7 +1298,7 @@ static int load_donor_bytes(struct tag_import_donor *donor)
 	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), donor->leaf);
 	if (!donor->file || donor->file == INVALID_HANDLE_VALUE)
 	{
-		donor->file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		donor->file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
 		if (donor->file == INVALID_HANDLE_VALUE)
 		{
 			open_error = GetLastError();
@@ -1807,7 +1823,7 @@ static void donor_extras_fill(struct tag_import_donor *donor)
 	long index;
 	int read;
 
-	if (!donor->from_pack || donor->extra_count <= 0)
+	if ((!donor->from_pack && !donor->compressed) || donor->extra_count <= 0)
 		return;
 	qsort(donor->extras, (unsigned long)donor->extra_count, sizeof(*donor->extras), donor_extra_less);
 	for (index = 0; index < donor->extra_count; index++)
@@ -1818,7 +1834,7 @@ static void donor_extras_fill(struct tag_import_donor *donor)
 		bytes += donor->extras[index].size;
 	}
 	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), donor->leaf);
-	file = index == donor->extra_count ? CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL) :
+	file = index == donor->extra_count ? CreateFileA(path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL) :
 		INVALID_HANDLE_VALUE;
 	read = 0;
 	started = system_milliseconds();
@@ -1894,7 +1910,7 @@ static void note_range(struct tag_import_donor *donor, char const *kind, char co
 	if (cover == 1)
 		return;
 	resource_uncovered++;
-	if (donor->from_pack && size > 0 && !strcmp(kind, "bitm"))
+	if ((donor->from_pack || donor->compressed) && size > 0 && (!strcmp(kind, "bitm") || !strcmp(kind, "snd!")))
 		donor_extra_add(donor, offset, size);
 	if (resource_logged >= 48)
 		return;
@@ -2220,7 +2236,7 @@ struct tag_import_donor *tag_import_open(char const *pack_name, char const *map)
 		return NULL;
 	}
 	donor = donors + donor_count;
-	if (!open_donor(donor, map, pack, 0))
+	if (!open_donor(donor, map, pack, 1))
 	{
 		close_donor_bytes(donor);
 		return NULL;
@@ -2603,10 +2619,30 @@ int tag_import_donor_read(long tag_index, long offset, long size, void *buffer)
 	{
 		if (size > donor->file_length - offset)
 			size = donor->file_length - offset;
-		/* (a level's donors are all a pack's) */
-		filled = pack_copy(donor, offset, size, buffer);
-		if (filled < size)
-			filled += extras_copy(donor, offset + filled, size - filled, (unsigned char *)buffer + filled);
+		if (donor->from_pack)
+		{
+			filled = pack_copy(donor, offset, size, buffer);
+			if (filled < size)
+				filled += extras_copy(donor, offset + filled, size - filled, (unsigned char *)buffer + filled);
+		}
+		else
+		{
+			filled = extras_copy(donor, offset, size, buffer);
+			if (filled < size && donor->file && donor->file != INVALID_HANDLE_VALUE)
+			{
+				if (!donor->compressed)
+				{
+					if (donor_file_at(donor->file, offset + filled) &&
+						donor_file_read(donor->file, (unsigned char *)buffer + filled, (unsigned long)(size - filled)))
+						filled = size;
+				}
+				else if (offset + filled >= 0x800)
+				{
+					if (inflate_span(donor->file, offset + filled, size - filled, (unsigned char *)buffer + filled))
+						filled = size;
+				}
+			}
+		}
 	}
 	log_donor_read(donor, index, absolute, offset, asked, filled, buffer);
 
