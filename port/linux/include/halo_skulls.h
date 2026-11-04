@@ -132,6 +132,7 @@ void skulls_level_loaded(long scenario_tag_index);
 void skulls_level_unloaded(void);
 /* the level won: the skulls found in it kept (main.c's main_won_map_private) */
 void skulls_level_won(void);
+void skulls_unlock_next_by_milestone(char const *reason);
 
 /* the sound cache's samples of the birthday party's sound, from memory
 (xbox_sound_cache.c); FALSE for any other sound */

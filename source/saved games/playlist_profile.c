@@ -234,6 +234,42 @@ static struct playlist_profile_data playlist_profile_default_data =
 	TRUE
 };
 
+/* port: built-in Standard Halo: Reach Firefight profiles (indices 26..31),
+kept outside struct playlist_profile_data so verify_playlist_profile_data_size
+remains 0x69 */
+struct built_in_firefight_profile_entry
+{
+	wchar_t const *display_name;
+	struct game_variant *(*build_variant)(struct game_variant *variant);
+};
+
+static struct built_in_firefight_profile_entry const built_in_History_profiles[
+	NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES] =
+{
+	{ L"Firefight",         build_game_variant_firefight },
+	{ L"Generator Defense", build_game_variant_generator_defense },
+	{ L"Gruntpocalypse",    build_game_variant_gruntpocalypse },
+	{ L"Rocketfight",       build_game_variant_rocketfight },
+	{ L"Floodfight",        build_game_variant_floodfight },
+	{ L"Mythic Firefight",  build_game_variant_mythic_firefight },
+};
+
+wchar_t const *playlist_profile_built_in_display_name(
+	short profile_index)
+{
+	short oce_count = game_modes_gametype_count();
+	short ff_index = (short)(profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES - oce_count);
+
+	if (profile_index >= NUMBER_OF_DEFAULT_PLAYLIST_PROFILES &&
+		profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + oce_count)
+	{
+		return game_modes_gametype_name((short)(profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES));
+	}
+	if (ff_index >= 0 && ff_index < NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES)
+		return built_in_History_profiles[ff_index].display_name;
+	return NULL;
+}
+
 /* ---------- public code */
 
 void playlist_profiles_initialize(
@@ -584,24 +620,36 @@ static void playlist_profile_create_default_profiles_on_disk(
 	{
 		long profile_index;
 
-		/* port: then OpenCE's gametypes (game_modes.c), with their options */
+		/* port: then OpenCE's gametypes (game_modes.c) and built-in Firefight profiles, with their options */
 		for (profile_index = 0;
-			profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + game_modes_gametype_count();
+			profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + game_modes_gametype_count() + NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES;
 			profile_index++)
 		{
 			wchar_t const *display_name;
 			boolean file_written = FALSE;
 			struct game_variant_options options;
+			short oce_count = game_modes_gametype_count();
 
 			if (profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES)
 			{
 				variant = *playlist_profile_default_data.default_variant_building_functions[
 					profile_index](&temporary);
+				display_name = unicode_string_list_get_string(
+					string_list_index,
+					(short)profile_index);
 			}
-			else
+			else if (profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + oce_count)
 			{
 				game_modes_gametype((short)(profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES), &variant,
 					&options);
+				display_name = game_modes_gametype_name((short)(profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES));
+			}
+			else
+			{
+				short ff_index = (short)(profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES - oce_count);
+				variant = *built_in_History_profiles[ff_index].build_variant(&temporary);
+				display_name = built_in_History_profiles[ff_index].display_name;
+				game_variant_options_default(&variant, &options);
 			}
 
 			_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\playlists\\default_playlist\\%02d", profile_index);
@@ -610,10 +658,6 @@ static void playlist_profile_create_default_profiles_on_disk(
 			csstrncat(path, "\\blam.lst", MAXIMUM_FILENAME_LENGTH);
 			path[MAXIMUM_FILENAME_LENGTH] = 0;
 
-			display_name = profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES ?
-				unicode_string_list_get_string(string_list_index, (short)profile_index) :
-				game_modes_gametype_name((short)(profile_index - NUMBER_OF_DEFAULT_PLAYLIST_PROFILES));
-
 			/* port: the block cleared (the options' place, unless written below) */
 			csmemset(block, 0, sizeof(block));
 			csmemcpy(
@@ -621,7 +665,8 @@ static void playlist_profile_create_default_profiles_on_disk(
 				&variant,
 				sizeof(struct game_variant));
 			/* port: (OpenCE's have their own short names: game_modes.c) */
-			if (profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES)
+			if (profile_index < NUMBER_OF_DEFAULT_PLAYLIST_PROFILES ||
+				profile_index >= NUMBER_OF_DEFAULT_PLAYLIST_PROFILES + oce_count)
 			{
 				ustrncpy(
 					(wchar_t *)block,
@@ -956,7 +1001,8 @@ static boolean playlist_profile_options_from_block(
 
 	csmemcpy(&header, data, sizeof(header));
 	if (header.magic != PLAYLIST_PROFILE_OPTIONS_MAGIC ||
-		(!(header.version == PLAYLIST_PROFILE_OPTIONS_VERSION && header.size == sizeof(*options)) &&
+		(!(header.version == PLAYLIST_PROFILE_OPTIONS_VERSION &&
+			(header.size == sizeof(*options) || header.size == GAME_VARIANT_OPTIONS_OPENCE_SIZE)) &&
 		!(header.version == 1 && header.size == GAME_VARIANT_OPTIONS_V1_SIZE)))
 	{
 		return FALSE;
@@ -979,6 +1025,32 @@ static boolean playlist_profile_options_from_block(
 		options->primary_weapon = _loadout_weapon_rocket_launcher;
 	if (options->secondary_weapon >= NUMBER_OF_LOADOUT_WEAPONS)
 		options->secondary_weapon = _loadout_weapon_rocket_launcher;
+	/* port: sanitize extended Firefight options */
+	options->firefight_custom_skulls &= (1UL << NUMBER_OF_FIREFIGHT_SKULLS) - 1UL;
+	options->firefight_generator_health = (short)PIN(options->firefight_generator_health, 500, 10000);
+	options->firefight_score_life_threshold = (short)PIN(options->firefight_score_life_threshold, 0, 30000);
+	options->firefight_round_1_skull = (byte)PIN(options->firefight_round_1_skull, 0, NUMBER_OF_FIREFIGHT_SKULLS);
+	options->firefight_round_2_skull = (byte)PIN(options->firefight_round_2_skull, 0, NUMBER_OF_FIREFIGHT_SKULLS);
+	options->firefight_round_3_skull = (byte)PIN(options->firefight_round_3_skull, 0, NUMBER_OF_FIREFIGHT_SKULLS);
+	if (options->firefight_unit_toggles == 0)
+		options->firefight_unit_toggles = FIREFIGHT_UNIT_MASK_ALL;
+	options->firefight_faction_diplomacy = (byte)PIN(options->firefight_faction_diplomacy, 0, NUMBER_OF_FIREFIGHT_DIPLOMACY_MODES - 1);
+	options->firefight_set_escalation = (byte)PIN(options->firefight_set_escalation, 0, NUMBER_OF_FIREFIGHT_ESCALATION_MODES - 1);
+	options->firefight_dropship_mode = (byte)PIN(options->firefight_dropship_mode, 0, NUMBER_OF_FIREFIGHT_DROPSHIP_MODES - 1);
+	options->firefight_next_wave_mode = (byte)PIN(options->firefight_next_wave_mode, 0, NUMBER_OF_FIREFIGHT_NEXT_WAVE_MODES - 1);
+	options->firefight_player_faction_mode = (byte)PIN(options->firefight_player_faction_mode, 0, NUMBER_OF_FIREFIGHT_PLAYER_FACTION_MODES - 1);
+	options->firefight_early_vehicle = (byte)PIN(options->firefight_early_vehicle, 0, NUMBER_OF_FIREFIGHT_EARLY_VEHICLES - 1);
+	options->firefight_late_vehicle = (byte)PIN(options->firefight_late_vehicle, 0, NUMBER_OF_FIREFIGHT_LATE_VEHICLES - 1);
+	options->firefight_prep_countdown = (byte)PIN(options->firefight_prep_countdown, 0, NUMBER_OF_FIREFIGHT_PREP_MODES - 1);
+	options->firefight_skull_progression_mode = (byte)PIN(options->firefight_skull_progression_mode, 0, NUMBER_OF_FIREFIGHT_SKULL_PROG_MODES - 1);
+	options->firefight_player_shields = (byte)PIN(options->firefight_player_shields, 0, NUMBER_OF_FIREFIGHT_SHIELD_MODES - 1);
+	options->firefight_player_speed = (byte)PIN(options->firefight_player_speed, 0, NUMBER_OF_FIREFIGHT_SPEED_MODES - 1);
+	options->firefight_player_gravity = (byte)PIN(options->firefight_player_gravity, 0, NUMBER_OF_FIREFIGHT_GRAVITY_MODES - 1);
+	options->firefight_infinite_ammo = (byte)PIN(options->firefight_infinite_ammo, 0, NUMBER_OF_FIREFIGHT_AMMO_MODES - 1);
+	options->firefight_wave_size_scale = (byte)PIN(options->firefight_wave_size_scale, 0, NUMBER_OF_FIREFIGHT_WAVE_SIZE_MODES - 1);
+	options->firefight_boss_wave_mode = (byte)PIN(options->firefight_boss_wave_mode, 0, NUMBER_OF_FIREFIGHT_BOSS_MODES - 1);
+	options->firefight_ai_weapon_sandbox = (byte)PIN(options->firefight_ai_weapon_sandbox, 0, NUMBER_OF_FIREFIGHT_AI_WEAPON_MODES - 1);
+	options->firefight_friendly_ai = (byte)PIN(options->firefight_friendly_ai, 0, NUMBER_OF_FIREFIGHT_FRIENDLY_AI_MODES - 1);
 	return TRUE;
 }
 

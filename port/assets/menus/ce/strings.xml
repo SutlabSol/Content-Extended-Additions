@@ -193,6 +193,7 @@
 		<string text="[%s]: " map="188"/>
 		<string text=" Remaining" map="189"/>
 		<string text="Server IP Address - " map="190"/>
+		<string text="Firefight"/>
 	</strings>
 	<strings name="error/error_headers" map="ui\shell\error\error_headers">
 		<string text="ATTENTION" map="0"/>
@@ -224,6 +225,8 @@
 		<string text="OPENCE"/>
 		<string text="CUSTOM" map="2"/>
 		<string text="TAG INJECTION"/>
+		<string text="FIREFIGHT"/>
+		<string text="FORGE"/>
 	</strings>
 	<strings name="main_menu/main_menu_options" map="ui\shell\main_menu\main_menu_options">
 		<string text="NEW CAMPAIGN" map="0"/>
@@ -756,6 +759,7 @@
 		<string text="Sometimes you have to kill. \nNow is one of those times. \nWhack or be whacked.\nCurrent Rules:" map="2"/>
 		<string text="Become one with the ball. And \nkeep the ball away from every-\none else while you're at it.\nCurrent Rules:" map="3"/>
 		<string text="Complete the required number \nof laps before your opponents, \nblowing away the competition.\nCurrent Rules:" map="4"/>
+		<string text="Hold out against wave after\nwave of Covenant and Flood\nforces in Halo: Reach style.\nCurrent Rules:"/>
 		<string text=" \n \n \nCurrent Rules:" map="5"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/game_type_select/gametype_select_list_options" map="ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\game_type_select\gametype_select_list_options">
@@ -765,6 +769,541 @@
 		<string text="ODDBALL" map="3"/>
 		<string text="RACE" map="4"/>
 		<string text="SAVE CHANGES" map="5"/>
+		<string text="FIREFIGHT"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels">
+		<string text="SETTINGS PAGE:"/>
+		<string text="SET LIMIT:"/>
+		<string text="STARTING LIVES:"/>
+		<string text="BONUS LIVES / ROUND:"/>
+		<string text="BONUS LIVES / SET:"/>
+		<string text="MAX LIVES CAP:"/>
+		<string text="PRE-ROUND PREP TIME:"/>
+		<string text="WAVE TIME LIMIT:"/>
+		<string text="BONUS ROUND:"/>
+		<string text="BONUS DURATION:"/>
+		<string text="ENEMY FACTION:"/>
+		<string text="FACTION ALLEGIANCE:"/>
+		<string text="AI DIFFICULTY:"/>
+		<string text="PER-SET ESCALATION:"/>
+		<string text="ENEMY HEALTH SCALE:"/>
+		<string text="ENEMY SHIELD SCALE:"/>
+		<string text="WAVE SQUAD SIZE:"/>
+		<string text="BOSS WAVE FREQUENCY:"/>
+		<string text="AI WEAPON LOADOUT:"/>
+		<string text="COVENANT GRUNTS:"/>
+		<string text="COVENANT JACKALS:"/>
+		<string text="COVENANT ELITES:"/>
+		<string text="STEALTH / SPECOPS:"/>
+		<string text="ZEALOT COMMANDERS:"/>
+		<string text="COVENANT HUNTERS:"/>
+		<string text="FLOOD COMBAT FORMS:"/>
+		<string text="FLOOD CARRIER / INF:"/>
+		<string text="SENTINELS &amp; HUMANS:"/>
+		<string text="WAVE INSERTION:"/>
+		<string text="ENEMY BOSS VEHICLES:"/>
+		<string text="ORDNANCE AMMO DROPS:"/>
+		<string text="ROUND 1 VEHICLE:"/>
+		<string text="ROUND 2 VEHICLE:"/>
+		<string text="ROUND 3 VEHICLE:"/>
+		<string text="AI REINFORCEMENTS:"/>
+		<string text="GENERATORS:"/>
+		<string text="GENERATOR FAIL MODE:"/>
+		<string text="SKULL ROTATION MODE:"/>
+		<string text="STARTING SKULLS:"/>
+		<string text="PLAYER SPECIES:"/>
+		<string text="PLAYER SHIELDS:"/>
+		<string text="PLAYER SPEED:"/>
+		<string text="PLAYER GRAVITY:"/>
+		<string text="INFINITE AMMO:"/>
+		<string text="GENERATOR HEALTH:"/>
+		<string text="40-SKULL EXTRAS:"/>
+		<string text="STATS CATEGORY:"/>
+		<string text="WEB &amp; JSON SYNC:"/>
+		<string text="SERVICE RECORD"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_page">
+		<string text="1. WAVE &amp; LIVES"/>
+		<string text="2. FACTIONS &amp; AI"/>
+		<string text="3. ENEMY UNITS"/>
+		<string text="4. VEHICLES/DROPS"/>
+		<string text="5. SKULLS/TRAITS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_set_limit">
+		<string text="UNLIMITED"/>
+		<string text="1 SET"/>
+		<string text="2 SETS"/>
+		<string text="3 SETS"/>
+		<string text="5 SETS"/>
+		<string text="10 SETS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_starting_lives">
+		<string text="UNLIMITED"/>
+		<string text="0 LIVES"/>
+		<string text="3 LIVES"/>
+		<string text="5 LIVES"/>
+		<string text="7 LIVES"/>
+		<string text="10 LIVES"/>
+		<string text="15 LIVES"/>
+		<string text="20 LIVES"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_round_lives">
+		<string text="NONE"/>
+		<string text="+1 LIFE"/>
+		<string text="+2 LIVES"/>
+		<string text="+3 LIVES"/>
+		<string text="+5 LIVES"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_bonus_lives">
+		<string text="NONE"/>
+		<string text="+1 LIFE"/>
+		<string text="+3 LIVES"/>
+		<string text="+5 LIVES"/>
+		<string text="+10 LIVES"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_max_lives">
+		<string text="NO CAP"/>
+		<string text="5 LIVES"/>
+		<string text="10 LIVES"/>
+		<string text="15 LIVES"/>
+		<string text="20 LIVES"/>
+		<string text="30 LIVES"/>
+		<string text="50 LIVES"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_prep_time">
+		<string text="NONE"/>
+		<string text="5 SECONDS"/>
+		<string text="10 SECONDS"/>
+		<string text="15 SECONDS"/>
+		<string text="30 SECONDS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_wave_limit">
+		<string text="CLEAR ONLY"/>
+		<string text="60 SECONDS"/>
+		<string text="120 SECONDS"/>
+		<string text="180 SECONDS"/>
+		<string text="300 SECONDS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_yes_no">
+		<string text="YES"/>
+		<string text="NO"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_bonus_dur">
+		<string text="30 SECONDS"/>
+		<string text="45 SECONDS"/>
+		<string text="60 SECONDS"/>
+		<string text="90 SECONDS"/>
+		<string text="120 SECONDS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_faction">
+		<string text="COVENANT"/>
+		<string text="ALL FACTIONS"/>
+		<string text="FLOOD"/>
+		<string text="SENTINELS"/>
+		<string text="COV + FLOOD"/>
+		<string text="COV + SENTINELS"/>
+		<string text="FLOOD + SENTINELS"/>
+		<string text="HUMANS (UNSC)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_allegiance">
+		<string text="ALLIED VS TEAM"/>
+		<string text="FREE-FOR-ALL"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_difficulty">
+		<string text="EASY"/>
+		<string text="NORMAL"/>
+		<string text="HEROIC"/>
+		<string text="LEGENDARY"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_escalation">
+		<string text="+20% / SET"/>
+		<string text="OFF"/>
+		<string text="+10% / SET"/>
+		<string text="+35% / SET"/>
+		<string text="+50% / SET"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_vitality">
+		<string text="100%"/>
+		<string text="50%"/>
+		<string text="150%"/>
+		<string text="200%"/>
+		<string text="300%"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_wave_size">
+		<string text="NORMAL (100%)"/>
+		<string text="SMALL (50%)"/>
+		<string text="LARGE (150%)"/>
+		<string text="HORDE (200%)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_boss_freq">
+		<string text="WAVE 5 ONLY"/>
+		<string text="EVERY 3RD WAVE"/>
+		<string text="BOSS RUSH"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_ai_weapons">
+		<string text="DEFAULT"/>
+		<string text="PROMOTED TIERS"/>
+		<string text="FIESTA RANDOM"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_on_off">
+		<string text="ON"/>
+		<string text="OFF"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_dropships">
+		<string text="AUTO TELEPORT"/>
+		<string text="GROUND ONLY"/>
+		<string text="PLASMA BEACON"/>
+		<string text="FLOOD BURST"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_boss_veh">
+		<string text="WRAITH/BANSHEE"/>
+		<string text="OFF"/>
+		<string text="WRAITH ONLY"/>
+		<string text="BANSHEE ONLY"/>
+		<string text="SCORPION ONLY"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_ordnance">
+		<string text="OFF"/>
+		<string text="PER SET"/>
+		<string text="PER ROUND"/>
+		<string text="HEAVY CRATES"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_round_veh">
+		<string text="NONE"/>
+		<string text="WARTHOG"/>
+		<string text="ROCKET HOG"/>
+		<string text="GHOST"/>
+		<string text="SCORPION"/>
+		<string text="BANSHEE"/>
+		<string text="WRAITH"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_allies">
+		<string text="OFF"/>
+		<string text="2 ALLIES / SET"/>
+		<string text="4 ALLIES / SET"/>
+		<string text="ODST / SPECOPS"/>
+		<string text="PER ROUND"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_generators">
+		<string text="OFF"/>
+		<string text="1 GENERATOR"/>
+		<string text="2 GENERATORS"/>
+		<string text="3 GENERATORS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_gen_fail">
+		<string text="LOSE ALL"/>
+		<string text="LOSE ANY"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_prog_skulls">
+		<string text="OFF (LOCKED)"/>
+		<string text="REACH STANDARD"/>
+		<string text="RANDOM / ROUND"/>
+		<string text="ALL SKULLS ON"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_start_skulls">
+		<string text="NONE"/>
+		<string text="GRUNT BIRTHDAY"/>
+		<string text="TOUGH + CATCH"/>
+		<string text="MYTHIC + TILT"/>
+		<string text="FAMINE + B.EYE"/>
+		<string text="LASO (ALL 13)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_species">
+		<string text="SPARTAN (UNSC)"/>
+		<string text="ELITE (COV)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_shields">
+		<string text="NORMAL (100%)"/>
+		<string text="NO SHIELDS"/>
+		<string text="HALF (50%)"/>
+		<string text="1.5X (150%)"/>
+		<string text="2X OVERSHIELD"/>
+		<string text="4X JUGGERNAUT"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_speed">
+		<string text="100%"/>
+		<string text="75%"/>
+		<string text="125%"/>
+		<string text="150%"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_gravity">
+		<string text="100%"/>
+		<string text="50% (LOW GRAV)"/>
+		<string text="75%"/>
+		<string text="150% (HEAVY)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_ammo">
+		<string text="OFF"/>
+		<string text="INF. RESERVE"/>
+		<string text="BOTTOMLESS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_gen_hp">
+		<string text="NORMAL (2500)"/>
+		<string text="FRAGILE (1250)"/>
+		<string text="HEAVY (5000)"/>
+		<string text="FORTRESS (10K)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_custom_skulls">
+		<string text="NONE"/>
+		<string text="BANDANA + BOOM"/>
+		<string text="SYNTH + ACRO"/>
+		<string text="OUTBREAK PACK"/>
+		<string text="CHAOS PACK (8)"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_stats_view">
+		<string text="CAREER OVERVIEW"/>
+		<string text="COMBAT &amp; SPREES"/>
+		<string text="MULTIKILL MEDALS"/>
+		<string text="SPREE MEDALS"/>
+		<string text="WEAPON SPREES"/>
+		<string text="STYLE MEDALS 1"/>
+		<string text="STYLE MEDALS 2"/>
+		<string text="MAP RECORDS"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_stats_action">
+		<string text="PRESS A: EXPORT"/>
+		<string text="PRESS A: WEB URL"/>
+		<string text="PRESS A: COPY ID"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight">
+		<!-- op_ff_page (5) -->
+		<string text="Page 1/5: Configure Set limits, shared team lives,\nprep countdowns, and Bonus Rounds."/>
+		<string text="Page 2/5: Configure enemy factions, allegiances,\nAI combat difficulty, and per-Set scaling."/>
+		<string text="Page 3/5: Enable or disable individual Covenant,\nFlood, Sentinel, and Human enemy unit types."/>
+		<string text="Page 4/5: Configure Wave Insertion beacons, Boss\nvehicles, Round 1-3 vehicles, and Generators."/>
+		<string text="Page 5/5: Configure Skull rotation, starting skulls,\nSpartan traits, and 40-Skull extras."/>
+		<!-- op_ff0_set_limit (6) -->
+		<string text="Play endless sets until all defenders fall."/>
+		<string text="Complete 1 Set (3 Rounds + Bonus Round) to win."/>
+		<string text="Complete 2 Sets for victory."/>
+		<string text="Complete 3 Sets for victory."/>
+		<string text="Complete 5 Sets for victory."/>
+		<string text="Complete 10 Sets for an endurance victory."/>
+		<!-- op_ff0_start_lives (8) -->
+		<string text="Unlimited shared team lives."/>
+		<string text="Start with 0 reserve lives (Last Man Standing)."/>
+		<string text="Start with 3 shared team lives."/>
+		<string text="Start with 5 shared team lives."/>
+		<string text="Start with 7 shared team lives (Reach default)."/>
+		<string text="Start with 10 shared team lives."/>
+		<string text="Start with 15 shared team lives."/>
+		<string text="Start with 20 shared team lives."/>
+		<!-- op_ff0_round_lives (5) -->
+		<string text="No bonus lives awarded upon completing a Round."/>
+		<string text="Award +1 shared team life after each Round."/>
+		<string text="Award +2 shared team lives after each Round."/>
+		<string text="Award +3 shared team lives after each Round."/>
+		<string text="Award +5 shared team lives after each Round."/>
+		<!-- op_ff0_bonus_lives (5) -->
+		<string text="No bonus lives awarded upon completing a Set."/>
+		<string text="Award +1 shared team life after each Set."/>
+		<string text="Award +3 shared team lives after each Set."/>
+		<string text="Award +5 shared team lives after each Set."/>
+		<string text="Award +10 shared team lives after each Set."/>
+		<!-- op_ff0_max_lives (7) -->
+		<string text="No upper cap on earned shared team reserve lives."/>
+		<string text="Cap shared team reserve lives at 5."/>
+		<string text="Cap shared team reserve lives at 10."/>
+		<string text="Cap shared team reserve lives at 15."/>
+		<string text="Cap shared team reserve lives at 20."/>
+		<string text="Cap shared team reserve lives at 30."/>
+		<string text="Cap shared team reserve lives at 50."/>
+		<!-- op_ff0_prep_time (5) -->
+		<string text="Spawn Wave 1 immediately with no prep countdown."/>
+		<string text="5-second prep countdown before each Round begins."/>
+		<string text="10-second prep countdown before each Round begins."/>
+		<string text="15-second prep countdown to collect ammo and gear."/>
+		<string text="30-second prep countdown to fortify positions."/>
+		<!-- op_ff0_wave_limit (5) -->
+		<string text="Next wave spawns only when current enemies\nare cleared."/>
+		<string text="Force-spawn the next wave after 60 seconds."/>
+		<string text="Force-spawn the next wave after 120 seconds."/>
+		<string text="Force-spawn the next wave after 180 seconds."/>
+		<string text="Force-spawn the next wave after 300 seconds."/>
+		<!-- op_ff0_bonus_round (2) -->
+		<string text="Enable the high-value Bonus Round after Round 3\nof each Set."/>
+		<string text="Skip the Bonus Round between Sets."/>
+		<!-- op_ff0_bonus_dur (5) -->
+		<string text="30-second Bonus Round timer."/>
+		<string text="45-second Bonus Round timer."/>
+		<string text="60-second Bonus Round timer (Reach default)."/>
+		<string text="90-second Bonus Round timer."/>
+		<string text="120-second Bonus Round timer."/>
+		<!-- op_ff1_faction (8) -->
+		<string text="Spawn Covenant waves (Grunts, Jackals, Elites,\nand Hunters)."/>
+		<string text="Rotate Covenant, Flood, and Sentinels across Rounds."/>
+		<string text="Spawn Flood waves (Infection, Combat, and Carrier\nForms)."/>
+		<string text="Spawn Forerunner Sentinel and Enforcer waves."/>
+		<string text="Spawn mixed Covenant and Flood waves together."/>
+		<string text="Spawn mixed Covenant and Sentinel waves together."/>
+		<string text="Spawn mixed Flood and Sentinel waves together."/>
+		<string text="Fight UNSC Marines, ODSTs, Snipers, and Rocket\nteams."/>
+		<!-- op_ff1_allegiance (2) -->
+		<string text="Covenant, Flood, and Sentinels ally together\nagainst the players."/>
+		<string text="Enemy factions fight both the players and each\nother (Multi-Team Chaos)."/>
+		<!-- op_ff1_difficulty (4) -->
+		<string text="Easy AI combat difficulty."/>
+		<string text="Normal AI combat difficulty."/>
+		<string text="Heroic AI combat difficulty (Reach standard)."/>
+		<string text="Legendary AI combat difficulty."/>
+		<!-- op_ff1_escalation (5) -->
+		<string text="Enemy health and shields increase by +20% after\neach completed Set."/>
+		<string text="Disable per-Set enemy health and shield escalation."/>
+		<string text="Enemy health and shields increase by +10% after\neach completed Set."/>
+		<string text="Enemy health and shields increase by +35% after\neach completed Set."/>
+		<string text="Enemy health and shields increase by +50% after\neach completed Set."/>
+		<!-- op_ff1_enemy_hp (5) -->
+		<string text="100% base enemy body health."/>
+		<string text="50% base enemy body health."/>
+		<string text="150% base enemy body health."/>
+		<string text="200% base enemy body health."/>
+		<string text="300% base enemy body health."/>
+		<!-- op_ff1_enemy_shd (5) -->
+		<string text="100% base enemy energy shield strength."/>
+		<string text="50% base enemy energy shield strength."/>
+		<string text="150% base enemy energy shield strength."/>
+		<string text="200% base enemy energy shield strength."/>
+		<string text="300% base enemy energy shield strength."/>
+		<!-- op_ff1_wave_size (4) -->
+		<string text="Normal squad size (100% enemy count per wave)."/>
+		<string text="Small squad size (50% enemy count for solo play)."/>
+		<string text="Large squad size (150% enemy count per wave)."/>
+		<string text="Massive Horde squad size (200% enemy count)."/>
+		<!-- op_ff1_boss_freq (3) -->
+		<string text="Boss squads spawn on Wave 5 of each Round\n(Reach standard)."/>
+		<string text="Boss squads spawn on Waves 3 and 5 of each Round."/>
+		<string text="Boss Rush: Every wave spawns heavy commanders,\nHunters, and vehicles!"/>
+		<!-- op_ff1_ai_weapons (3) -->
+		<string text="Enemies wield their standard faction weapons."/>
+		<string text="Enemies wield promoted heavy tier weapons\n(Fuel Rods, Swords, Rockets)."/>
+		<string text="Fiesta: Every enemy spawns with a random UNSC\nor Covenant weapon!"/>
+		<!-- op_ff2_u_grunts (2) -->
+		<string text="Allow Covenant Grunts (Minor, Major, Heavy) to\nspawn."/>
+		<string text="Disable Covenant Grunts from spawning."/>
+		<!-- op_ff2_u_jackals (2) -->
+		<string text="Allow Covenant Shield Jackals to spawn."/>
+		<string text="Disable Covenant Shield Jackals from spawning."/>
+		<!-- op_ff2_u_elites (2) -->
+		<string text="Allow Covenant Elites (Minor, Major) to spawn."/>
+		<string text="Disable standard Covenant Elites from spawning."/>
+		<!-- op_ff2_u_specops (2) -->
+		<string text="Allow Stealth and SpecOps Elites to spawn."/>
+		<string text="Disable Stealth and SpecOps Elites from spawning."/>
+		<!-- op_ff2_u_zealots (2) -->
+		<string text="Allow Zealot Field Marshals and Sword Commanders\nto spawn."/>
+		<string text="Disable Zealot Field Marshals from spawning."/>
+		<!-- op_ff2_u_hunters (2) -->
+		<string text="Allow Covenant Hunters to spawn in heavy and\nboss waves."/>
+		<string text="Disable Covenant Hunters from spawning."/>
+		<!-- op_ff2_u_flood_c (2) -->
+		<string text="Allow Flood Elite and Human Combat Forms to spawn."/>
+		<string text="Disable Flood Combat Forms from spawning."/>
+		<!-- op_ff2_u_flood_k (2) -->
+		<string text="Allow Explosive Flood Carrier and Infection Forms\nto spawn."/>
+		<string text="Disable Flood Carrier and Infection Forms."/>
+		<!-- op_ff2_u_sents (2) -->
+		<string text="Allow Forerunner Sentinels and UNSC Marine enemy\nunits to spawn."/>
+		<string text="Disable Forerunner Sentinels and UNSC Marine\nenemy units."/>
+		<!-- op_ff3_dropships (4) -->
+		<string text="Insert enemy squads with Covenant Teleportation\nbeacons at each active wave zone."/>
+		<string text="Spawn enemy squads directly at ground zones\nwith no insertion beacon effect."/>
+		<string text="Highlight wave insertion zones with Covenant\nPlasma Orbital Beacons."/>
+		<string text="Highlight wave insertion zones with Flood Spore\nBurst effects."/>
+		<!-- op_ff3_boss_veh (5) -->
+		<string text="Deploy enemy Wraiths and Banshees during Boss\nWaves."/>
+		<string text="Disable enemy Boss Wave combat vehicles."/>
+		<string text="Deploy enemy Covenant Wraith mortar tanks on\nBoss Waves."/>
+		<string text="Deploy enemy Covenant Banshees on Boss Waves."/>
+		<string text="Deploy enemy Scorpion tanks on Boss Waves."/>
+		<!-- op_ff3_ordnance (4) -->
+		<string text="Disable UNSC weapon and ammo resupply drops."/>
+		<string text="Drop resupply weapons at the start of each Set."/>
+		<string text="Drop precision and heavy ordnance at the start\nof each Round and Boss Wave."/>
+		<string text="Drop double heavy anti-armor weapon crates every\nRound and Boss Wave."/>
+		<!-- op_ff3_r1_veh (7) -->
+		<string text="No player vehicle deployed at Round 1."/>
+		<string text="Deploy a Chain Gun Warthog at Round 1\n(despawns at Set end)."/>
+		<string text="Deploy a Rocket Warthog at Round 1\n(despawns at Set end)."/>
+		<string text="Deploy a Covenant Ghost at Round 1\n(despawns at Set end)."/>
+		<string text="Deploy a Scorpion Tank at Round 1\n(despawns at Set end)."/>
+		<string text="Deploy a Covenant Banshee at Round 1\n(despawns at Set end)."/>
+		<string text="Deploy a drivable Wraith at Round 1\n(despawns at Set end)."/>
+		<!-- op_ff3_r2_veh (7) -->
+		<string text="No player vehicle deployed at Round 2."/>
+		<string text="Deploy a Chain Gun Warthog at Round 2\n(despawns at Set end)."/>
+		<string text="Deploy a Rocket Warthog at Round 2\n(despawns at Set end)."/>
+		<string text="Deploy a Covenant Ghost at Round 2\n(despawns at Set end)."/>
+		<string text="Deploy a Scorpion Tank at Round 2\n(despawns at Set end)."/>
+		<string text="Deploy a Covenant Banshee at Round 2\n(despawns at Set end)."/>
+		<string text="Deploy a drivable Wraith at Round 2\n(despawns at Set end)."/>
+		<!-- op_ff3_r3_veh (7) -->
+		<string text="No player vehicle deployed at Round 3."/>
+		<string text="Deploy a Chain Gun Warthog at Round 3\n(despawns at Set end)."/>
+		<string text="Deploy a Rocket Warthog at Round 3\n(despawns at Set end)."/>
+		<string text="Deploy a Covenant Ghost at Round 3\n(despawns at Set end)."/>
+		<string text="Deploy a Scorpion Tank at Round 3\n(despawns at Set end)."/>
+		<string text="Deploy a Covenant Banshee at Round 3\n(despawns at Set end)."/>
+		<string text="Deploy a drivable Wraith at Round 3\n(despawns at Set end)."/>
+		<!-- op_ff3_allies (5) -->
+		<string text="No friendly AI squadmates."/>
+		<string text="Deploy 2 friendly AI Marines (or Elites) at the\nstart of each Set."/>
+		<string text="Deploy 4 friendly AI Marines (or Elites) at the\nstart of each Set."/>
+		<string text="Deploy armored ODSTs / SpecOps Elites with heavy\nweapons each Set."/>
+		<string text="Reinforce friendly AI squadmates at the start of\nevery Round."/>
+		<!-- op_ff3_generators (4) -->
+		<string text="Standard survival Firefight with no generators\nto defend."/>
+		<string text="Defend 1 UNSC Generator (ALPHA) from enemy\nassault."/>
+		<string text="Defend 2 UNSC Generators (ALPHA, BETA) from\nenemy assault."/>
+		<string text="Defend 3 UNSC Generators (ALPHA, BETA, GAMMA)\nwith 30s Lockdown switches."/>
+		<!-- op_ff3_gen_fail (2) -->
+		<string text="Defeat only when all generators are destroyed."/>
+		<string text="Defeat immediately if any single generator is\ndestroyed."/>
+		<!-- op_ff4_prog_skulls (4) -->
+		<string text="Only your chosen Starting Skulls are active;\nno automatic Round skulls."/>
+		<string text="Activate Tough Luck (R2), Catch (R3), Black Eye\n(Bonus), and Set Skulls."/>
+		<string text="Activate a random Skull from the 40-Skull pool\nevery Round."/>
+		<string text="Activate all Firefight progression Skulls from\nWave 1."/>
+		<!-- op_ff4_start_skulls (6) -->
+		<string text="Start Wave 1 with no pre-activated Reach Skulls."/>
+		<string text="Start with Grunt Birthday Party active from\nWave 1."/>
+		<string text="Start with Tough Luck and Catch active from\nWave 1."/>
+		<string text="Start with Mythic (2x AI Vitality) and Tilt\nactive from Wave 1."/>
+		<string text="Start with Famine and Black Eye active from\nWave 1."/>
+		<string text="Start with all 13 Reach/ODST Firefight Skulls\nactive (LASO)."/>
+		<!-- op_ff4_shields (6) -->
+		<string text="Standard 100% Spartan energy shields."/>
+		<string text="Disable player energy shields (0% Shields)."/>
+		<string text="50% player energy shield capacity."/>
+		<string text="150% reinforced player energy shield capacity."/>
+		<string text="200% Overshield capacity on spawn."/>
+		<string text="400% Juggernaut energy shield capacity on spawn."/>
+		<!-- op_ff4_speed (4) -->
+		<string text="100% standard player movement speed."/>
+		<string text="75% reduced player movement speed."/>
+		<string text="125% fast player movement speed."/>
+		<string text="150% sprint-tier player movement speed."/>
+		<!-- op_ff4_gravity (4) -->
+		<string text="100% standard gravity."/>
+		<string text="50% low-gravity moon jumps."/>
+		<string text="75% reduced gravity."/>
+		<string text="150% heavy high-gravity combat."/>
+		<!-- op_ff4_ammo (3) -->
+		<string text="Standard ammunition consumption."/>
+		<string text="Infinite reserve ammunition and grenades\n(reloading still required)."/>
+		<string text="Bottomless Clip: Fire continuously without\nreloading or running out of ammo!"/>
+		<!-- op_ff4_gen_hp (4) -->
+		<string text="Standard Generator durability (2500 HP +\nrechargeable energy shield)."/>
+		<string text="Fragile Generator durability (1250 HP)."/>
+		<string text="Reinforced Generator durability (5000 HP)."/>
+		<string text="Fortress Generator durability (10000 HP)."/>
+		<!-- op_ff4_custom_skulls (5) -->
+		<string text="No extra 40-Skull pack modifiers."/>
+		<string text="Enable Bandana (Infinite Ammo) and Boom\n(2x Explosion Radius)."/>
+		<string text="Enable Synthesis and Acrophobia\n(Fly/Jetpack by holding Jump)."/>
+		<string text="Enable Outbreak and Undead\n(fallen bodies reanimate as Flood)."/>
+		<string text="Enable 8-Skull Chaos Pack (Bandana, Boom,\nSputnik, Pinata, Funeral, etc.)."/>
+		<!-- Validation guard warning (index 191) -->
+		<string text="CANNOT DISABLE ALL ENEMY TYPES -\nAT LEAST 1 MUST REMAIN ON"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/koth_edit/cap_koth" map="ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\koth_edit\cap_koth">
 		<string text="During the course of the game, the Hill will teleport to\na random location." map="0"/>

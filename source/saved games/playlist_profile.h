@@ -66,6 +66,9 @@ void playlist_profiles_enumerate_available_to_local_player_index(
 	short local_player_index,
 	word *number_of_profiles,
 	long *playlist_profile_indices);
+/* port: display names for built-in Firefight profiles (indices >= 26) */
+wchar_t const *playlist_profile_built_in_display_name(
+	short profile_index);
 
 /* ---------- globals */
 

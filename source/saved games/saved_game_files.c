@@ -337,7 +337,7 @@ enum
 
 enum
 {
-	MAXIMUM_ENUMERATED_SAVED_GAME_FILES_ANY_TYPE_PER_MEMORY_UNIT = 100
+	MAXIMUM_ENUMERATED_SAVED_GAME_FILES_ANY_TYPE_PER_MEMORY_UNIT = 256
 };
 
 enum
@@ -2267,10 +2267,12 @@ static short enumerate_default_playlist_profiles(
 	{
 		while (profile_index < number_of_profiles)
 		{
-			/* port: past the Xbox's, OpenCE's gametypes (game_modes.c) */
-			wchar_t const *display_name = profile_index < GAME_MODES_FIRST_DEFAULT_PLAYLIST_PROFILE ?
-				unicode_string_list_get_string(string_list_index, profile_index) :
-				game_modes_gametype_name((short)(profile_index - GAME_MODES_FIRST_DEFAULT_PLAYLIST_PROFILE));
+			/* port: past the Xbox's, OpenCE's gametypes (game_modes.c) and built-in Firefight profiles */
+			wchar_t const *built_in_name = playlist_profile_built_in_display_name(profile_index);
+			wchar_t const *display_name = built_in_name ? built_in_name :
+				(profile_index < GAME_MODES_FIRST_DEFAULT_PLAYLIST_PROFILE ?
+					unicode_string_list_get_string(string_list_index, profile_index) :
+					game_modes_gametype_name((short)(profile_index - GAME_MODES_FIRST_DEFAULT_PLAYLIST_PROFILE)));
 
 			_snprintf(path, MAXIMUM_FILENAME_LENGTH, "z:\\saved\\playlists\\default_playlist\\%02d\\blam.lst", profile_index);
 

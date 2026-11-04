@@ -99,6 +99,7 @@ symbols in this file:
 #include "physics/collision_usage.h"
 #include "units/units.h"
 #include "ai_debug.h"
+#include "halo_firefight.h"
 
 /* ---------- constants */
 
@@ -200,6 +201,18 @@ static real action_charge_find_target_range(
 			if (!(0.f > actor->control.weapon_maximum_range))
 			{
 				range = actor->control.weapon_maximum_range;
+			}
+		}
+		if (firefight_active() && goal == _charge_goal_close_range)
+		{
+			if (actor->target.target_prop_index != NONE &&
+				prop_get(actor->target.target_prop_index)->line_of_sight != 1)
+			{
+				range = 2.0f;
+			}
+			else if (range > 7.0f)
+			{
+				range = 7.0f;
 			}
 		}
 	}

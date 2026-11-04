@@ -92,6 +92,10 @@ void platform_log(char const *format, ...);
 #include "firing_range.h"
 #include "game_modes.h"
 #include "../src/port_tag_profiles.h"
+#include "opence_features.h"
+#include "game/game_engine.h"
+#include "halo_firefight.h"
+#include "halo_skulls.h"
 
 #define POOL_MAX 256
 #define WEAPON_MAX 128
@@ -1683,20 +1687,26 @@ tag_multiplayer.c, which the host swaps the map's for */
 /* a profile's tags added to a level not of the campaign: a multiplayer
 game's shared ones (multiplayer: given the game's swaps and loadouts), or
 the firing range's */
+static void gather_firefight(char const *leaf);
+
 static void multiplayer_tags_loaded(char const *scenario_name, long profile, int multiplayer)
 {
 	custom_profile = profile;
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", tag_name_strip_path(scenario_name));
-	stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
-	if ((stock_hud_count || (multiplayer && infection_tag_import_wanted())) && tag_import_begin())
+	stock_hud_count = custom_profile != NONE ? tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX) : 0;
+	if ((stock_hud_count || !multiplayer || (multiplayer && infection_tag_import_wanted())) && tag_import_begin())
 	{
+		if (!multiplayer)
+			gather_firefight(map_name_leaf);
 		if (multiplayer && infection_tag_import_wanted())
 			infection_tag_import();
-		gather_stock_huds(map_name_leaf);
+		if (stock_hud_count)
+			gather_stock_huds(map_name_leaf);
 		tag_import_run();
 		tag_import_end();
 	}
-	custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
+	custom_root_count = custom_profile != NONE ?
+		tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX) : 0;
 	if (multiplayer)
 		tag_multiplayer_level_loaded(custom_profile, custom_roots, custom_root_tags, custom_root_count);
 	else
@@ -1709,6 +1719,326 @@ static void multiplayer_tags_loaded(char const *scenario_name, long profile, int
 		tag_import_tag_table_fingerprint(&count, &hash);
 		error(_error_silent, "%s: %s's tag table: %ld tags, fingerprint %08lx",
 			multiplayer ? "tag multiplayer" : "firing range", map_name_leaf, count, hash);
+	}
+}
+
+#if OPENCE_ENABLE_FORGE
+static int is_saved_forge_map(char const *scenario_name)
+{
+	char const *leaf = scenario_name ? tag_name_strip_path(scenario_name) : NULL;
+	char path[512];
+	FILE *f;
+	unsigned char hdr[0x200];
+
+	if (!leaf || !leaf[0])
+		return 0;
+	snprintf(path, sizeof(path), "custom_maps/%s.map", leaf);
+	f = fopen(path, "rb");
+	if (!f)
+		return 0;
+	if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr))
+	{
+		fclose(f);
+		return 0;
+	}
+	fclose(f);
+	return (*(unsigned long const *)(hdr + 0x1FC) == 0x464C4731UL) ? 1 : 0;
+}
+
+static int vault_profile_has_enabled_tags(long profile)
+{
+	long t, n;
+
+	if (profile == NONE)
+		return 0;
+	n = port_tag_profiles_tag_count(profile);
+	for (t = 0; t < n; t++)
+	{
+		if (port_tag_profiles_tag_enabled(profile, t))
+			return 1;
+	}
+	return 0;
+}
+
+static void forge_vault_tags_loaded(char const *scenario_name, long profile)
+{
+	custom_profile = profile;
+	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", tag_name_strip_path(scenario_name));
+	stock_hud_count = custom_profile != NONE ? tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX) : 0;
+	if (stock_hud_count && tag_import_begin())
+	{
+		gather_stock_huds(map_name_leaf);
+		tag_import_run();
+		tag_import_end();
+	}
+	custom_root_count = custom_profile != NONE ?
+		tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX) : 0;
+	tag_import_log("forge vault");
+	{
+		long count;
+		unsigned long hash;
+
+		tag_import_tag_table_fingerprint(&count, &hash);
+		error(_error_silent, "forge vault: %s's tag table: %ld tags, fingerprint %08lx",
+			map_name_leaf, count, hash);
+	}
+}
+#endif
+
+static int firefight_wanted(void)
+{
+#if OPENCE_ENABLE_FIREFIGHT
+	struct network_game *game = network_game_get_game();
+	struct game_variant spec_variant;
+	extern boolean player_ui_game_variant_specified(struct game_variant *variant);
+	extern boolean multiplayer_firefight_mode(void);
+
+	if (firefight_active())
+		return 1;
+	if (global_variant.game_engine_index == game_engine_firefight)
+		return 1;
+	if (game && game->variant.game_engine_index == game_engine_firefight)
+		return 1;
+	if (multiplayer_firefight_mode())
+		return 1;
+	if (player_ui_game_variant_specified(&spec_variant) &&
+		spec_variant.game_engine_index == game_engine_firefight)
+		return 1;
+#endif
+	return 0;
+}
+
+static void seed_firefight_donor(struct tag_import_donor *donor)
+{
+	static char const *const ff_weapons[] =
+	{
+		"weapons\\pistol\\pistol",
+		"weapons\\assault rifle\\assault rifle",
+		"weapons\\shotgun\\shotgun",
+		"weapons\\sniper rifle\\sniper rifle",
+		"weapons\\rocket launcher\\rocket launcher",
+		"weapons\\flamethrower\\flamethrower",
+		"weapons\\plasma pistol\\plasma pistol",
+		"weapons\\plasma rifle\\plasma rifle",
+		"weapons\\needler\\needler",
+		"weapons\\plasma_cannon\\plasma_cannon",
+		"weapons\\fuel rod gun\\fuel rod",
+		"weapons\\energy sword\\energy sword",
+		"weapons\\frag grenade\\frag grenade",
+		"weapons\\plasma grenade\\plasma grenade",
+	};
+	static char const *const ff_vehicles[] =
+	{
+		"vehicles\\c_dropship\\c_dropship",
+		"vehicles\\pelican\\pelican",
+		"vehicles\\wraith\\wraith",
+		"vehicles\\banshee\\banshee",
+		"vehicles\\banshee\\banshee_mp",
+		"vehicles\\ghost\\ghost_mp",
+		"vehicles\\scorpion\\scorpion_mp",
+		"vehicles\\warthog\\mp_warthog",
+		"vehicles\\rwarthog\\rwarthog",
+		"vehicles\\c gun turret\\c gun turret_mp",
+		"vehicles\\c_gun_turret\\c_gun_turret_mp",
+		"vehicles\\c gun turret\\c gun turret",
+		"vehicles\\c_gun_turret\\c_gun_turret",
+	};
+	static char const *const ff_scenery[] =
+	{
+		"scenery\\c_uplink\\c_uplink",
+	};
+	static char const *const ff_eqip[] =
+	{
+		"powerups\\shotgun ammo\\shotgun ammo",
+		"powerups\\sniper rifle ammo\\sniper rifle ammo",
+		"powerups\\rocket launcher ammo\\rocket launcher ammo",
+		"powerups\\assault rifle ammo\\assault rifle ammo",
+		"powerups\\pistol ammo\\pistol ammo",
+		"powerups\\health pack\\health pack",
+		"powerups\\over shield\\over shield",
+		"powerups\\active camouflage\\active camouflage",
+	};
+	static char const *const ff_bipeds[] =
+	{
+		"characters\\elite\\elite_mp",
+		"characters\\elite\\elite",
+		"characters\\cyborg_mp\\cyborg_mp",
+		"characters\\cyborg\\cyborg",
+		"characters\\flood_infection\\flood_infection",
+	};
+	static char const *const ff_effects[] =
+	{
+		"effects\\coop teleport",
+		"characters\\floodcarrier\\effects\\carrier burst",
+		"weapons\\plasma grenade\\effects\\explosion",
+		"weapons\\frag grenade\\effects\\explosion",
+	};
+	char const *leaf = tag_import_donor_map(donor);
+	long count = tag_import_tag_count(donor);
+	long index;
+	short item;
+	long queued = 0;
+	boolean scenery_only = (!_stricmp(leaf, "b30") || !_stricmp(leaf, "c10"));
+
+	if (scenery_only)
+	{
+		for (item = 0; item < (short)NUMBEROF(ff_scenery); item++)
+		{
+			if (tag_loaded('scen', ff_scenery[item]) != NONE)
+				continue;
+			for (index = 0; index < count; index++)
+			{
+				char const *name = tag_import_tag_name(donor, index);
+
+				if (tag_import_tag_group(donor, index) == 'scen' && name && !_stricmp(name, ff_scenery[item]))
+				{
+					queued += tag_import_want(donor, index);
+					break;
+				}
+			}
+		}
+		error(_error_silent, "randomizer: firefight scenery donor %s queued %ld root(s)", leaf, queued);
+		return;
+	}
+
+	/* 1. Weapons */
+	for (item = 0; item < (short)NUMBEROF(ff_weapons); item++)
+	{
+		if (tag_loaded(WEAPON_DEFINITION_TAG, ff_weapons[item]) != NONE)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			char const *name = tag_import_tag_name(donor, index);
+
+			if (tag_import_tag_group(donor, index) == WEAPON_DEFINITION_TAG && name && !_stricmp(name, ff_weapons[item]))
+			{
+				queued += tag_import_want(donor, index);
+				break;
+			}
+		}
+	}
+
+	/* 2. Actor variants (Covenant, Flood, Sentinels, UNSC Marines/ODSTs/Crewmen) */
+	for (index = 0; index < count; index++)
+	{
+		char const *name;
+
+		if (tag_import_tag_group(donor, index) != ACTOR_VARIANT_DEFINITION_TAG)
+			continue;
+		name = tag_import_tag_name(donor, index);
+		if (!name || tag_loaded(ACTOR_VARIANT_DEFINITION_TAG, name) != NONE)
+			continue;
+		if (classify(name) != TYPE_NONE)
+			queued += tag_import_want(donor, index);
+	}
+
+	/* 3. Vehicles (Spirit, Pelican, Wraith, Banshee, Ghost, Scorpion, Warthog, Turret) */
+	for (item = 0; item < (short)NUMBEROF(ff_vehicles); item++)
+	{
+		if (tag_loaded('vehi', ff_vehicles[item]) != NONE)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			char const *name = tag_import_tag_name(donor, index);
+
+			if (tag_import_tag_group(donor, index) == 'vehi' && name && !_stricmp(name, ff_vehicles[item]))
+			{
+				queued += tag_import_want(donor, index);
+				break;
+			}
+		}
+	}
+
+	/* 4. Player & Special Bipeds */
+	for (item = 0; item < (short)NUMBEROF(ff_bipeds); item++)
+	{
+		if (tag_loaded('bipd', ff_bipeds[item]) != NONE)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			char const *name = tag_import_tag_name(donor, index);
+
+			if (tag_import_tag_group(donor, index) == 'bipd' && name && !_stricmp(name, ff_bipeds[item]))
+			{
+				queued += tag_import_want(donor, index);
+				break;
+			}
+		}
+	}
+
+	/* 5. Effects */
+	for (item = 0; item < (short)NUMBEROF(ff_effects); item++)
+	{
+		if (tag_loaded(EFFECT_DEFINITION_TAG, ff_effects[item]) != NONE)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			char const *name = tag_import_tag_name(donor, index);
+
+			if (tag_import_tag_group(donor, index) == EFFECT_DEFINITION_TAG && name && !_stricmp(name, ff_effects[item]))
+			{
+				queued += tag_import_want(donor, index);
+				break;
+			}
+		}
+	}
+
+	/* 6. Ammo & Equipment Powerups */
+	for (item = 0; item < (short)NUMBEROF(ff_eqip); item++)
+	{
+		if (tag_loaded('eqip', ff_eqip[item]) != NONE)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			char const *name = tag_import_tag_name(donor, index);
+
+			if (tag_import_tag_group(donor, index) == 'eqip' && name && !_stricmp(name, ff_eqip[item]))
+			{
+				queued += tag_import_want(donor, index);
+				break;
+			}
+		}
+	}
+
+	/* 7. Scenery (Covenant Uplink / Generator Props) */
+	for (item = 0; item < (short)NUMBEROF(ff_scenery); item++)
+	{
+		if (tag_loaded('scen', ff_scenery[item]) != NONE)
+			continue;
+		for (index = 0; index < count; index++)
+		{
+			char const *name = tag_import_tag_name(donor, index);
+
+			if (tag_import_tag_group(donor, index) == 'scen' && name && !_stricmp(name, ff_scenery[item]))
+			{
+				queued += tag_import_want(donor, index);
+				break;
+			}
+		}
+	}
+
+	error(_error_silent, "randomizer: firefight donor %s queued %ld root(s)", leaf, queued);
+}
+
+static void gather_firefight(char const *leaf)
+{
+	static char const *const ff_donor_maps[] = { "c40", "b40", "d40", "a30", "b30", "c10", "wizard" };
+	short map_index;
+
+	error(_error_silent, "randomizer: gathering firefight roster for %s", leaf);
+	for (map_index = 0; map_index < (short)NUMBEROF(ff_donor_maps); map_index++)
+	{
+		char const *other = ff_donor_maps[map_index];
+		char const *pack = !_stricmp(other, "wizard") ? "watanoge_skulls" : RANDOMIZER_PACK;
+		struct tag_import_donor *donor;
+
+		if (leaf && !_stricmp(other, leaf))
+			continue;
+		donor = tag_import_open(pack, other);
+		if (!donor)
+			continue;
+		seed_firefight_donor(donor);
+		tag_import_release(donor);
 	}
 }
 
@@ -1730,25 +2060,77 @@ the skulls' nor the Tag Injector's, which are this build's maps' alone; its
 game's mode's only */
 void randomizer_custom_edition_tags_loaded(char const *scenario_name)
 {
+	if (firefight_wanted())
+	{
+		randomizer_tags_loaded(scenario_name);
+		return;
+	}
 	randomizer_tags_unloaded();
+#if OPENCE_ENABLE_FORGE
+	{
+		extern int g_forge_session_enabled;
+
+		if (g_forge_session_enabled || is_saved_forge_map(scenario_name))
+		{
+			char const *cfg_prof = config_string("randomizer.tag_profile");
+			long profile = NONE;
+
+			port_tag_profiles_scan();
+			if (cfg_prof && cfg_prof[0])
+			{
+				profile = port_tag_profiles_find(cfg_prof);
+				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
+					profile = NONE;
+			}
+			if (profile == NONE)
+			{
+				profile = port_tag_profiles_find("creation_hub");
+				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
+					profile = NONE;
+			}
+			if (profile != NONE && vault_profile_has_enabled_tags(profile))
+				forge_vault_tags_loaded(scenario_name, profile);
+			return;
+		}
+	}
+#endif
 	game_modes_tags_loaded(scenario_name);
 }
 
 void randomizer_tags_loaded(char const *scenario_name)
 {
 	struct network_game *game = network_game_get_game();
+	struct scenario *scen = global_scenario_try_and_get();
+	char const *stripped = scenario_name ? tag_name_strip_path(scenario_name) : NULL;
 	char leaf[32];
 
+	int firefight;
 	int randomize = 0;
 	int skull;
 	int outbreak;
 	int scarab;
 	long campaign_profile = NONE;
+	long forge_profile = NONE;
 
 	randomizer_tags_unloaded();
 	extra_enemies = 1;
+	if ((scen && scen->type == _scenario_type_main_menu) ||
+		(stripped && !_stricmp(stripped, "ui")) ||
+		(scenario_name && strstr(scenario_name, "levels\\ui\\")))
+	{
+		return;
+	}
+	firefight = firefight_wanted();
+#if OPENCE_ENABLE_FORGE
+	if (firefight)
+	{
+		extern int g_forge_session_enabled;
+		g_forge_session_enabled = 0;
+	}
+#endif
 	/* (a multiplayer game's shared weapons, on the game's own multiplayer
 	maps) */
+	if (!firefight)
 	{
 		long profile = tag_multiplayer_level_profile(scenario_name);
 
@@ -1759,25 +2141,81 @@ void randomizer_tags_loaded(char const *scenario_name)
 		}
 	}
 	/* (the firing range's profile, played alone on its map: firing_range.c) */
+	if (!firefight)
 	{
 		char const *range_profile = firing_range_level_profile(scenario_name);
 
 		if (range_profile)
 		{
-			long profile;
+			long profile = NONE;
 
 			port_tag_profiles_scan();
-			profile = port_tag_profiles_find(range_profile);
-			if (profile != NONE)
-				multiplayer_tags_loaded(scenario_name, profile, 0);
-			else
-				error(_error_silent, "firing range: no profile %s", range_profile);
+			if (range_profile[0])
+				profile = port_tag_profiles_find(range_profile);
+			if (profile == NONE)
+				profile = port_tag_profiles_find("creation_hub");
+			multiplayer_tags_loaded(scenario_name, profile, 0);
 			return;
 		}
 	}
+#if OPENCE_ENABLE_FORGE
+	/* (Forge Mode's Faber Tag Vault bundles, injected into the map when
+	Forge Mode is active or when loading a saved Forge map) */
+	{
+		extern int g_forge_session_enabled;
+
+		if (g_forge_session_enabled || is_saved_forge_map(scenario_name))
+		{
+			char const *cfg_prof = config_string("randomizer.tag_profile");
+			long profile = NONE;
+
+			port_tag_profiles_scan();
+			if (cfg_prof && cfg_prof[0])
+			{
+				profile = port_tag_profiles_find(cfg_prof);
+				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
+					profile = NONE;
+			}
+			if (profile == NONE)
+			{
+				profile = port_tag_profiles_find("creation_hub");
+				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
+					profile = NONE;
+			}
+			if (profile == NONE)
+			{
+				long p, n = port_tag_profiles_count();
+				for (p = 0; p < n; p++)
+				{
+					if (vault_profile_has_enabled_tags(p))
+					{
+						profile = p;
+						break;
+					}
+				}
+			}
+			if (!firefight)
+			{
+				if (profile != NONE && vault_profile_has_enabled_tags(profile))
+					forge_vault_tags_loaded(scenario_name, profile);
+				return;
+			}
+			if (profile != NONE && vault_profile_has_enabled_tags(profile))
+				forge_profile = profile;
+		}
+	}
+#endif
 	/* (a multiplayer game's mode's: Floodfection's burst and forms) */
-	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)) ||
-		(game && game->variant.game_engine_index != game_engine_none))
+	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
+	{
+		if (!firefight)
+		{
+			game_modes_tags_loaded(scenario_name);
+			return;
+		}
+		snprintf(leaf, sizeof(leaf), "%s", scenario_name ? tag_name_strip_path(scenario_name) : "firefight");
+	}
+	if (!firefight && game && game->variant.game_engine_index != game_engine_none)
 	{
 		game_modes_tags_loaded(scenario_name);
 		return;
@@ -1786,9 +2224,9 @@ void randomizer_tags_loaded(char const *scenario_name)
 	tag_campaign.c swaps the level's weapons and actors in the randomizer's
 	place; or a co-op game's, the host's share on every machine, which the
 	host alone swaps with) */
-	if (!game && !network_game_distributed_client() && !community_challenge_running())
+	if (!firefight && !game && !network_game_distributed_client() && !community_challenge_running())
 		campaign_profile = tag_campaign_level_profile();
-	else if (!community_challenge_running())
+	else if (!firefight && !community_challenge_running())
 	{
 		campaign_profile = tag_campaign_level_profile_shared(tag_multiplayer_campaign_level_profile(scenario_name),
 			network_game_distributed_client() ? NONE : tag_multiplayer_game_campaign_profile());
@@ -1796,6 +2234,11 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (campaign_profile != NONE)
 	{
 		memset(&current, 0, sizeof(current));
+	}
+	else if (firefight)
+	{
+		memset(&current, 0, sizeof(current));
+		randomize = 0;
 	}
 	else if (network_game_distributed_client())
 	{
@@ -1816,10 +2259,10 @@ void randomizer_tags_loaded(char const *scenario_name)
 			extra_enemies = (int)PIN(config_integer("game.randomizer_extra_enemies"), 1, 32);
 	}
 	/* (and the skull the enemies carry, which the randomizer may be off for) */
-	skull = skulls_carried_wanted();
-	outbreak = skulls_outbreak_wanted();
-	scarab = skulls_scarab_wanted();
-	if (!randomize && campaign_profile == NONE && !skull && !outbreak && !scarab)
+	skull = firefight ? 1 : skulls_carried_wanted();
+	outbreak = firefight ? 1 : skulls_outbreak_wanted();
+	scarab = firefight ? 1 : skulls_scarab_wanted();
+	if (!firefight && !randomize && campaign_profile == NONE && !skull && !outbreak && !scarab)
 		return;
 	if ((randomize || campaign_profile != NONE) && !network_game_distributed_client() && !placement_roll_ready)
 		placement_roll_new(scenario_name);
@@ -1833,6 +2276,11 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (campaign_profile != NONE)
 	{
 		custom_profile = campaign_profile;
+		stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
+	}
+	else if (forge_profile != NONE)
+	{
+		custom_profile = forge_profile;
 		stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
 	}
 	else if (randomize && current.custom_tags && !game && !network_game_distributed_client() &&
@@ -1857,6 +2305,8 @@ void randomizer_tags_loaded(char const *scenario_name)
 	}
 	if (tag_import_begin())
 	{
+		if (firefight)
+			gather_firefight(leaf);
 		if (randomize)
 			gather_campaign(leaf);
 		skulls_tag_import(skull, outbreak, scarab);

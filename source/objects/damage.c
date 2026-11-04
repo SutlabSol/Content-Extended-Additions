@@ -105,6 +105,7 @@ symbols in this file:
 #include "damage.h"
 #include "game_modes.h" /* port: port/linux/game/game_modes.c */
 #include "infection.h" /* port: port/linux/game/infection.c */
+#include "halo_firefight.h" /* port: firefight */
 #include "ai/ai.h"
 #include "cseries/errors.h"
 #include "effects/effects.h"
@@ -490,6 +491,9 @@ real object_get_maximum_body_vitality(
 		/* port: skull: Swarm, the hunters' three times over */
 		if (skull_active(_skull_swarm) && skulls_object_is_hunter(object->definition_index))
 			result *= 3.f;
+		/* port: firefight */
+		if (firefight_active())
+			result *= firefight_enemy_vitality_scale(object->object.owner_team_index, FALSE);
 	}
 
 	return result;
@@ -518,6 +522,9 @@ real object_get_maximum_shield_vitality(
 		{
 			result *= 2.f;
 		}
+		/* port: firefight */
+		if (firefight_active())
+			result *= firefight_enemy_vitality_scale(object->object.owner_team_index, TRUE);
 	}
 
 	return result;
@@ -1083,6 +1090,8 @@ static void damage_data_validate_owner(
 {
 	if (damage->owner_player_index != NONE && !player_try_and_get(damage->owner_player_index))
 		damage->owner_player_index = NONE;
+	if (damage->owner_object_index != NONE && !object_try_and_get(damage->owner_object_index))
+		damage->owner_object_index = NONE;
 }
 
 static void object_damage_aftermath(
@@ -1254,6 +1263,20 @@ static void object_damage_aftermath(
 			TEST_FLAG(damage->flags, _damage_no_statistics_bit),
 			damage->definition_index,
 			damage->owner_object_index);
+		/* port: firefight */
+		if (firefight_active() && !network_game_distributed_client() &&
+			TEST_FLAG(being_damaged_flags, _object_being_damaged_body_depleted_bit) &&
+			unit_get(object_index)->unit.player_index == NONE)
+		{
+			firefight_notify_actor_or_unit_killed(
+				unit_get(object_index)->unit.actor_index,
+				object_index,
+				damage->owner_player_index,
+				(body_part == 2) || TEST_FLAG(being_damaged_flags, _object_being_damaged_killed_instantly_bit),
+				damage_effect->damage.category == _damage_category_melee,
+				damage_effect->damage.category == _damage_category_grenade && damage->scale >= 0.90f,
+				damage_effect->damage.category == _damage_category_vehicle);
+		}
 	}
 
 	if (TEST_FLAG(_object_mask_unit, object->object.type))
@@ -1633,20 +1656,35 @@ void object_cause_damage(
 
 			if (attacker->unit.gunner_object_index != NONE)
 			{
-				attacker = unit_get(attacker->unit.gunner_object_index);
+				attacker = unit_try_and_get(attacker->unit.gunner_object_index);
 			}
 
-			actor_index = attacker->unit.swarm_actor_index != NONE ?
-				attacker->unit.swarm_actor_index :
-				attacker->unit.actor_index;
+			if (attacker)
+			{
+				actor_index = attacker->unit.swarm_actor_index != NONE ?
+					attacker->unit.swarm_actor_index :
+					attacker->unit.actor_index;
 
-			if (actor_index != NONE)
-				ai_adjust_damage(actor_index, damage, &total_damage);
+				if (actor_index != NONE)
+					ai_adjust_damage(actor_index, damage, &total_damage);
+			}
 		}
 	}
 
 	if (game_engine_running())
 	{
+		/* port: firefight */
+		if (firefight_active() && damage->owner_team_index != NONE &&
+			game_team_is_enemy(damage->owner_team_index, _game_team_player))
+		{
+			total_damage *= game_difficulty_get_value(_game_difficulty_value_enemy_damage);
+			damage_was_modified = TRUE;
+		}
+		if (firefight_active() &&
+			firefight_apply_generator_damage(object_index, damage->owner_player_index, damage->owner_team_index, total_damage))
+		{
+			return;
+		}
 		total_damage *= game_engine_get_damage_multiplier(
 			get_player_index_from_object_or_parents(damage->owner_object_index),
 			get_player_index_from_object_or_parents(object_index));
@@ -2355,13 +2393,19 @@ static long get_player_index_from_object_or_parents(
 
 	while (object_index != NONE)
 	{
+		struct object_datum *object;
+
 		if (unit_try_and_get(object_index))
 		{
 			player_index = player_index_from_unit_index(object_index);
 			break;
 		}
 
-		object_index = object_get(object_index)->object.parent_object_index;
+		object = object_try_and_get(object_index);
+		if (!object)
+			break;
+
+		object_index = object->object.parent_object_index;
 	}
 
 	return player_index;

@@ -218,6 +218,24 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/tag_profile_label" type="text" controller="1" width="230" height="22" string_list="main_menu/multiplayer_type_select/server_settings/labels" string_index="17" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/op_ff_player_scale" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/ff_player_scale_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/ff_player_scale_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/ff_player_scale_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/labels" string_index="22" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/ff_player_scale_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="0%|5%|10%|20%|50%" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/op_scoring" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/multiplayer_type_select/server_settings/scoring_label"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/scoring_spinner" x="320" y="1"/>
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/scoring_label" type="text" controller="1" width="300" height="22" string_list="main_menu/multiplayer_type_select/server_settings/labels" string_index="23" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/multiplayer_type_select/server_settings/scoring_spinner" type="spinner" left="3" top="2" width="147" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" strings="ON|OFF" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 150 19 156">
+		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
@@ -249,6 +267,8 @@
 		<string text="LOBBY SETTINGS:"/>
 		<string text="GAME SETTINGS:"/>
 		<string text="FORK SETTINGS:"/>
+		<string text="SCALE WITH PLAYERS:"/>
+		<string text="SCORING:"/>
 	</strings>
 	<strings name="main_menu/multiplayer_type_select/server_settings/help_strings">
 		<string text=""/>
@@ -269,13 +289,15 @@
 		<string text="Sending players who join without the game's\nCustom Edition map the map, and how fast."/>
 		<string text="How this level's enemies and weapons are swapped,&#10;for every player."/>
 		<string text="The skulls every player plays this level with."/>
-		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF and King of the Hill."/>
+		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF, KOTH and Firefight."/>
 		<string text="Listed for everyone through the brokers, and on\nthe master servers with your publisher key."/>
 		<string text="Chosen for the whole game before Server Setup:\nwho can see it. Go back to change it."/>
 		<string text="The Spartans' loadout and last stands, and the\ninfected's forms, for this game."/>
 		<string text="How many play, who can find and join the game,\nand map sharing."/>
 		<string text="The gametype and its rules for this game (co-op's\noptions, for a co-op game)."/>
 		<string text="This fork's own: game modes' settings, the tag\nprofile, the randomizer and skulls."/>
+		<string text="Extra enemies added per player from the 2nd player\nonwards (non-compounding from the base count)."/>
+		<string text="Turn Campaign and Firefight scoring on or off for\nthis game."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/server_settings/op_lobby_settings" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<on event="a" open="main_menu/multiplayer_type_select/server_settings/lobby_settings/lobby_settings_screen"/>
@@ -1194,13 +1216,15 @@
 		<string text="Sending players who join without the game's\nCustom Edition map the map, and how fast."/>
 		<string text="How this level's enemies and weapons are swapped,&#10;for every player."/>
 		<string text="The skulls every player plays this level with."/>
-		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF and King of the Hill."/>
+		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF, KOTH and Firefight."/>
 		<string text="Listed for everyone through the brokers, and on\nthe master servers with your publisher key."/>
 		<string text="Chosen for the whole game before Server Setup:\nwho can see it. Go back to change it."/>
 		<string text="The Spartans' loadout and last stands, and the\ninfected's forms, for this game."/>
 		<string text="How many play, who can find and join the game,\nand map sharing."/>
 		<string text="The gametype and its rules for this game (co-op's\noptions, for a co-op game)."/>
 		<string text="This fork's own: game modes' settings, the tag\nprofile, the randomizer and skulls."/>
+		<string text="Extra enemies added per player from the 2nd player\nonwards (non-compounding from the base count)."/>
+		<string text="Turn Campaign and Firefight scoring on or off for\nthis game."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/server_settings/lobby_settings/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="left_mouse" run="mouse emit accept event"/>
@@ -1231,6 +1255,8 @@
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_team_options" x="54" y="243"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_coop_options" x="54" y="277"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/op_voice_options" x="54" y="311"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_ff_player_scale" x="54" y="345"/>
+		<child widget="main_menu/multiplayer_type_select/server_settings/op_scoring" x="54" y="379"/>
 		<child widget="main_menu/multiplayer_type_select/server_settings/game_settings/button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/server_settings/game_settings/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
@@ -1257,13 +1283,15 @@
 		<string text="Sending players who join without the game's\nCustom Edition map the map, and how fast."/>
 		<string text="How this level's enemies and weapons are swapped,&#10;for every player."/>
 		<string text="The skulls every player plays this level with."/>
-		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF and King of the Hill."/>
+		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF, KOTH and Firefight."/>
 		<string text="Listed for everyone through the brokers, and on\nthe master servers with your publisher key."/>
 		<string text="Chosen for the whole game before Server Setup:\nwho can see it. Go back to change it."/>
 		<string text="The Spartans' loadout and last stands, and the\ninfected's forms, for this game."/>
 		<string text="How many play, who can find and join the game,\nand map sharing."/>
 		<string text="The gametype and its rules for this game (co-op's\noptions, for a co-op game)."/>
 		<string text="This fork's own: game modes' settings, the tag\nprofile, the randomizer and skulls."/>
+		<string text="Extra enemies added per player from the 2nd player\nonwards (non-compounding from the base count)."/>
+		<string text="Turn Campaign and Firefight scoring on or off for\nthis game."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/server_settings/game_settings/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="left_mouse" run="mouse emit accept event"/>
@@ -1316,13 +1344,15 @@
 		<string text="Sending players who join without the game's\nCustom Edition map the map, and how fast."/>
 		<string text="How this level's enemies and weapons are swapped,&#10;for every player."/>
 		<string text="The skulls every player plays this level with."/>
-		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF and King of the Hill."/>
+		<string text="Computer players in this game: how many, how well\nthey play. Slayer, CTF, KOTH and Firefight."/>
 		<string text="Listed for everyone through the brokers, and on\nthe master servers with your publisher key."/>
 		<string text="Chosen for the whole game before Server Setup:\nwho can see it. Go back to change it."/>
 		<string text="The Spartans' loadout and last stands, and the\ninfected's forms, for this game."/>
 		<string text="How many play, who can find and join the game,\nand map sharing."/>
 		<string text="The gametype and its rules for this game (co-op's\noptions, for a co-op game)."/>
 		<string text="This fork's own: game modes' settings, the tag\nprofile, the randomizer and skulls."/>
+		<string text="Extra enemies added per player from the 2nd player\nonwards (non-compounding from the base count)."/>
+		<string text="Turn Campaign and Firefight scoring on or off for\nthis game."/>
 	</strings>
 	<widget name="main_menu/multiplayer_type_select/server_settings/fork_settings/button_defaults" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" string_list="strings/common_button_captions" string_index="3" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">
 		<on event="left_mouse" run="mouse emit accept event"/>

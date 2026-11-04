@@ -50,6 +50,8 @@ community server's answers.
 #include "social_menu.h"
 #include "social_sync.h"
 #include "platform_icons.h"
+#include "social_extensions.h"
+#include "halo_firefight.h"
 #include "../src/community_net.h"
 #include "../src/p2p.h"
 #include "../src/port_config.h"
@@ -185,6 +187,7 @@ enum
 	_fetch_friends,
 	_fetch_activity,
 	_fetch_player,
+	_fetch_friend_prefetch,
 };
 
 /* the keyboard: what for */
@@ -402,6 +405,8 @@ static struct
 	struct social_menu_player player;
 	boolean player_failed;
 	boolean player_wanted;
+	char prefetch_code[SOCIAL_MENU_CODE_SIZE];
+	char prefetch_name[SOCIAL_MENU_NAME_SIZE];
 	/* the chat's players, as the screen opened */
 	char recent_codes[SOCIAL_MENU_RECENT][16];
 	wchar_t recent_names[SOCIAL_MENU_RECENT][32];
@@ -976,6 +981,65 @@ static void activity_take(
 	server_json_document_free(&document);
 }
 
+static long compute_career_xp_from_totals(
+	struct social_menu_totals const *mp,
+	struct social_menu_totals const *camp)
+{
+	long xp = 0;
+
+	if (mp)
+	{
+		xp += mp->kills * 75L + mp->assists * 50L + mp->matches * 1500L +
+			mp->wins * 500L + mp->medals * 100L + MAX(0L, mp->score / 10L);
+	}
+	if (camp)
+	{
+		xp += camp->kills * 75L + camp->assists * 50L + camp->matches * 1500L +
+			camp->wins * 500L + camp->medals * 100L + MAX(0L, camp->score / 10L);
+	}
+	return xp;
+}
+
+static void prefetch_take(
+	boolean answered,
+	int status)
+{
+	struct server_json_document document;
+	int data;
+	int token;
+
+	if (!answered || status != 200)
+	{
+		if (social_menu.prefetch_code[0])
+			social_extensions_cache_person_stats(social_menu.prefetch_code, social_menu.prefetch_name, -1L, NULL);
+		return;
+	}
+	data = answer_data(&document);
+	if (data == -2)
+		return;
+	token = data >= 0 ? server_json_member(&document, data, "player") : -1;
+	if (token >= 0)
+	{
+		char code[SOCIAL_MENU_CODE_SIZE];
+		char name[SOCIAL_MENU_NAME_SIZE];
+		struct social_menu_totals mp;
+		struct social_menu_totals camp;
+		int stats = server_json_member(&document, token, "stats");
+
+		csmemset(&mp, 0, sizeof(mp));
+		csmemset(&camp, 0, sizeof(camp));
+		json_text(&document, token, "code", code, sizeof(code));
+		json_text(&document, token, "name", name, sizeof(name));
+		if (!name[0])
+			snprintf(name, sizeof(name), "%s", social_menu.prefetch_name[0] ? social_menu.prefetch_name : code);
+		totals_read(&document, stats >= 0 ? server_json_member(&document, stats, "multiplayer") : -1, &mp);
+		totals_read(&document, stats >= 0 ? server_json_member(&document, stats, "campaign") : -1, &camp);
+		if (code[0])
+			social_extensions_cache_person_stats(code, name, compute_career_xp_from_totals(&mp, &camp), NULL);
+	}
+	server_json_document_free(&document);
+}
+
 static void player_take(
 	boolean answered,
 	int status)
@@ -1040,6 +1104,8 @@ static void player_take(
 				match_read(&document, element, &player->matches[player->match_count++]);
 			}
 			player->had = TRUE;
+			social_extensions_cache_person_stats(player->code, player->name,
+				compute_career_xp_from_totals(&player->multiplayer, &player->campaign), NULL);
 		}
 	}
 	else
@@ -1117,6 +1183,8 @@ static void fetch(
 		snprintf(path, sizeof(path), "/friends");
 	else if (what == _fetch_activity)
 		snprintf(path, sizeof(path), "/activity?limit=%d", SOCIAL_MENU_ACTIVITY);
+	else if (what == _fetch_friend_prefetch)
+		snprintf(path, sizeof(path), "/players/%s?matches=0", social_menu.prefetch_code);
 	else
 		snprintf(path, sizeof(path), "/players/%s?matches=%d", social_menu.player.code, SOCIAL_MENU_MATCHES);
 	social_menu.fetch_ticket = social_send(path, NULL);
@@ -1506,6 +1574,8 @@ void social_menu_update(
 				activity_take(answered);
 			else if (what == _fetch_player)
 				player_take(result == _community_net_answered, status);
+			else if (what == _fetch_friend_prefetch)
+				prefetch_take(result == _community_net_answered, status);
 		}
 	}
 	if (social_menu.action_ticket)
@@ -1531,6 +1601,22 @@ void social_menu_update(
 	{
 		fetch(_fetch_friends);
 		social_menu.friends_due = social_menu.fetch_ticket == 0;
+	}
+	/* Prefetch friend stats in background so their real Service Rank shows in the main menu list */
+	if (!social_menu.fetch_ticket && !social_menu.action_ticket && social_menu.friends_had)
+	{
+		short fi;
+		for (fi = 0; fi < social_menu.friend_count; fi++)
+		{
+			if (social_menu.friends[fi].code[0] &&
+				!social_extensions_has_cached_person(social_menu.friends[fi].code))
+			{
+				snprintf(social_menu.prefetch_code, sizeof(social_menu.prefetch_code), "%s", social_menu.friends[fi].code);
+				snprintf(social_menu.prefetch_name, sizeof(social_menu.prefetch_name), "%s", social_menu.friends[fi].name);
+				fetch(_fetch_friend_prefetch);
+				break;
+			}
+		}
 	}
 	/* (the players muted and blocked: the chat's, whether the screen is open) */
 	if (social_menu.moderation_ticket)
@@ -1605,9 +1691,9 @@ static void rows_build(
 	switch (social_menu.list)
 	{
 	case _list_home:
+		row_add(_row_my_account, 0);
 		if (social_enabled())
 		{
-			row_add(_row_my_account, 0);
 			row_add(_row_friendlist_menu, 0);
 			row_add(_row_activity_menu, 0);
 			row_add(_row_settings_menu, 0);
@@ -1616,8 +1702,11 @@ static void rows_build(
 			row_add(_row_settings, 0);
 		break;
 	case _list_account:
-		row_add(_row_you, 0);
-		row_add(_row_sync, 0);
+		if (social_enabled())
+			row_add(_row_you, 0);
+		social_extensions_add_home_rows(row_add);
+		if (social_enabled())
+			row_add(_row_sync, 0);
 		break;
 	case _list_friendlist:
 		row_add(_row_code, 0);
@@ -1713,6 +1802,10 @@ static void rows_build(
 	case _list_report:
 		for (index = 0; index < (short)NUMBEROF(social_menu_reasons); index++)
 			row_add(_row_reason, index);
+		break;
+	default:
+		if (social_extensions_is_ext_list(social_menu.list))
+			social_extensions_build_list_rows(social_menu.list, row_add);
 		break;
 	}
 }
@@ -2368,6 +2461,13 @@ static real card_layout(
 	if (draw)
 		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
 	y += SOCIAL_CARD_GAP;
+	if (self || player->had)
+	{
+		y = social_extensions_card_draw_section(panel, draw, self, player->code, player->name, left, right, y, row);
+		if (draw)
+			campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+		y += SOCIAL_CARD_GAP;
+	}
 	if (!player->had)
 	{
 		/* (asked for, or why not: what the server said, on a line) */
@@ -2755,18 +2855,41 @@ void social_menu_home_draw(
 	campaign_score_panel_frame(panel, 0.0f, 0.0f, fonts.text.width, (real)(y1 - y0),
 		focused && chosen < social_menu_home_rows() ? 0xFFA0D0FF : CAMPAIGN_SCORE_PANEL_EDGE);
 
-	/* your totals, and the requests waiting (else the friends online) */
-	if (social_account_totals(&matches, &kills, &deaths, &assists))
+	/* your rank, emblem & KDA on the left, and the requests waiting (else the friends online) on the right */
 	{
-		kda_text(kills, deaths, assists, other, sizeof(other));
-		snprintf(text, sizeof(text), "%ld MATCHES   KDA %s", matches, other);
+		struct firefight_mcc_rank_info my_rk;
+		struct firefight_emblem_info my_emb;
+		short hdr_icon_sz = (short)MAX(12, (short)line + 1);
+		short hdr_x = (short)(x0 + left);
+		short hdr_y = (short)(y0 + y + (line - hdr_icon_sz) / 2.0f);
+		real hdr_text_left = left + (real)(hdr_icon_sz * 2 + 7);
+
+		firefight_stats_get_mcc_rank(NONE, &my_rk);
+		firefight_stats_get_emblem(NONE, &my_emb);
+		firefight_draw_mcc_rank_icon(hdr_x, hdr_y, hdr_icon_sz, my_rk.tour_number, my_rk.rank_in_tour, 1.0f);
+		firefight_draw_player_emblem((short)(hdr_x + hdr_icon_sz + 3), hdr_y, hdr_icon_sz, &my_emb, 1.0f);
+
+		if (social_account_totals(&matches, &kills, &deaths, &assists))
+		{
+			kda_text(kills, deaths, assists, other, sizeof(other));
+			snprintf(text, sizeof(text), "KDA %s", other);
+		}
+		else
+		{
+			struct firefight_career_stats career;
+			if (firefight_stats_get_career(NONE, &career))
+			{
+				kda_text(career.total_kills, career.total_deaths, career.total_assists, other, sizeof(other));
+				snprintf(text, sizeof(text), "KDA %s", other);
+			}
+			else
+			{
+				snprintf(text, sizeof(text), "KDA 0.00");
+			}
+		}
+		card_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(panel, text, NULL, hdr_text_left, right, y, 1.0f, _campaign_score_text_left, &color);
 	}
-	else
-	{
-		snprintf(text, sizeof(text), "FRIENDS");
-	}
-	card_color(&color, 0.95f, 0.95f, 0.95f);
-	campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
 	other[0] = 0;
 	if (social_menu.friends_had && social_menu.incoming_count)
 	{
@@ -2823,13 +2946,22 @@ void social_menu_home_draw(
 		struct social_menu_person const *friend = &social_menu.friends[index];
 		real top = y + social_home.count * social_home.row_height;
 		short platform = friend->presence.online ? platform_icon_for_name(friend->presence.platform) : _platform_icon_none;
-		real name_left = left + SOCIAL_HOME_DOT + 5.0f;
+		struct firefight_mcc_rank_info f_rk;
+		struct firefight_emblem_info f_emb;
+		short f_icon_sz = (short)MAX(11, (short)line);
+		real icon_left = left + SOCIAL_HOME_DOT + 4.0f;
+		short f_x = (short)(x0 + icon_left);
+		short f_y = (short)(y0 + top + (line - f_icon_sz) / 2.0f);
+		real name_left = icon_left + (real)(f_icon_sz * 2 + 6);
 
 		social_home.tops[social_home.count++] = (short)(y0 + top);
 		if (focused && index == chosen)
 			campaign_score_panel_quad(panel, left - 2.0f, top - 1.0f, right + 2.0f, top + line + 2.0f, 0x802896FF);
 		campaign_score_panel_quad(panel, left, top + (line - SOCIAL_HOME_DOT) / 2.0f, left + SOCIAL_HOME_DOT,
 			top + (line + SOCIAL_HOME_DOT) / 2.0f, home_dot_color(&friend->presence));
+		social_extensions_get_person_rank_and_emblem(friend->code, friend->name, index, &f_rk, &f_emb);
+		firefight_draw_mcc_rank_icon(f_x, f_y, f_icon_sz, f_rk.tour_number, f_rk.rank_in_tour, 1.0f);
+		firefight_draw_player_emblem((short)(f_x + f_icon_sz + 2), f_y, f_icon_sz, &f_emb, 1.0f);
 		if (platform != _platform_icon_none)
 		{
 			rectangle2d icon;
@@ -2863,6 +2995,60 @@ short social_menu_row_platform(
 		return _platform_icon_none;
 	presence = &social_menu.friends[entry->value].presence;
 	return presence->online ? platform_icon_for_name(presence->platform) : _platform_icon_none;
+}
+
+boolean social_menu_row_person_icons(
+	short row,
+	struct firefight_mcc_rank_info *out_rank,
+	struct firefight_emblem_info *out_emblem)
+{
+	struct social_menu_row const *entry = row_get(row);
+
+	if (!entry)
+		return FALSE;
+	if (entry->kind == _row_friend && entry->value >= 0 && entry->value < social_menu.friend_count)
+	{
+		social_extensions_get_person_rank_and_emblem(
+			social_menu.friends[entry->value].code,
+			social_menu.friends[entry->value].name,
+			entry->value,
+			out_rank,
+			out_emblem);
+		return TRUE;
+	}
+	if (entry->kind == _row_incoming && entry->value >= 0 && entry->value < social_menu.incoming_count)
+	{
+		social_extensions_get_person_rank_and_emblem(
+			social_menu.incoming[entry->value].code,
+			social_menu.incoming[entry->value].name,
+			entry->value,
+			out_rank,
+			out_emblem);
+		return TRUE;
+	}
+	if (entry->kind == _row_outgoing && entry->value >= 0 && entry->value < social_menu.outgoing_count)
+	{
+		social_extensions_get_person_rank_and_emblem(
+			social_menu.outgoing[entry->value].code,
+			social_menu.outgoing[entry->value].name,
+			entry->value,
+			out_rank,
+			out_emblem);
+		return TRUE;
+	}
+	if (entry->kind == _row_recent_player && entry->value >= 0 && entry->value < social_menu.recent_count)
+	{
+		char name[SOCIAL_MENU_NAME_SIZE];
+		utf8_from_wide(social_menu.recent_names[entry->value], name, sizeof(name));
+		social_extensions_get_person_rank_and_emblem(
+			social_menu.recent_codes[entry->value],
+			name,
+			entry->value,
+			out_rank,
+			out_emblem);
+		return TRUE;
+	}
+	return FALSE;
 }
 
 void social_menu_row(
@@ -3066,6 +3252,10 @@ void social_menu_row(
 		if (social_menu.confirming_kind == _row_reason && social_menu.chosen == row)
 			snprintf(state, (size_t)state_size, "A AGAIN");
 		break;
+	default:
+		if (social_extensions_is_ext_row(entry->kind))
+			social_extensions_row_text(social_menu.list, entry->kind, entry->value, name, name_size, state, state_size);
+		break;
 	}
 	if (entry->kind == social_menu.confirming_kind && entry->kind != _row_reason)
 		snprintf(state, (size_t)state_size, "A AGAIN");
@@ -3125,6 +3315,17 @@ void social_menu_details(
 	text[0] = 0;
 	if (social_menu.message[0])
 		text_add(text, text_size, "%s\n\n", social_menu.message);
+	if (entry && social_extensions_is_ext_row(entry->kind))
+	{
+		social_extensions_row_details(social_menu.list, entry->kind, entry->value, title, title_size, text, text_size);
+		return;
+	}
+	if (entry && entry->kind == _row_my_account)
+	{
+		snprintf(title, (size_t)title_size, "MY ACCOUNT");
+		text_add(text, text_size, "Your account summary, service\nrecord, challenges, achievements,\nemblem customisation, and device sync.");
+		return;
+	}
 	if (!social_enabled())
 	{
 		snprintf(title, (size_t)title_size, "SOCIAL");
@@ -3550,8 +3751,38 @@ short social_menu_choose(
 		if (confirmed(entry->kind, what))
 			moderate(_row_reason, "report", social_menu_reason_keys[entry->value]);
 		break;
+	default:
+		if (social_extensions_is_ext_row(entry->kind))
+		{
+			short next_list = social_extensions_choose(social_menu.list, entry->kind, entry->value);
+			if (next_list > 0)
+				list_open(next_list);
+		}
+		break;
 	}
 	return _social_menu_stays;
+}
+
+boolean social_menu_step(
+	short row,
+	short delta)
+{
+	struct social_menu_row const *entry = row_get(row);
+
+	if (!entry || !social_extensions_is_ext_row(entry->kind))
+		return FALSE;
+	return social_extensions_step_row(social_menu.list, entry->kind, entry->value, delta);
+}
+
+void social_menu_details_overlay_draw(
+	short row,
+	rectangle2d const *bounds)
+{
+	struct social_menu_row const *entry = row_get(row);
+
+	if (!social_menu.open || !bounds)
+		return;
+	social_extensions_draw_details_overlay(social_menu.list, entry ? entry->kind : NONE, entry ? entry->value : NONE, bounds);
 }
 
 boolean social_menu_back(

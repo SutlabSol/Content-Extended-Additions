@@ -800,19 +800,35 @@ boolean network_game_server_send_game_settings_to_client_machine(
 	void const *game,
 	long game_size)
 {
+	static byte stock_game_buf[HALO_PORT_STOCK_NETWORK_GAME_SIZE];
 	struct message_server_game_settings_update message;
+	void const *send_ptr = game;
+	long send_size = game_size;
 	long offset;
 
-	for (offset = 0; offset < game_size; offset += sizeof(message.data))
+	if (game_size == (long)sizeof(struct network_game) &&
+		((struct network_game const *)game)->variant.game_engine_index != game_engine_firefight)
+	{
+		struct network_game const *ng = (struct network_game const *)game;
+		csmemcpy(stock_game_buf, ng, HALO_PORT_STOCK_NETWORK_GAME_LOCAL_DATA_OFFSET);
+		csmemcpy(
+			stock_game_buf + HALO_PORT_STOCK_NETWORK_GAME_LOCAL_DATA_OFFSET,
+			&ng->local_data,
+			sizeof(ng->local_data));
+		send_ptr = stock_game_buf;
+		send_size = HALO_PORT_STOCK_NETWORK_GAME_SIZE;
+	}
+
+	for (offset = 0; offset < send_size; offset += sizeof(message.data))
 	{
 		void *encoded_message;
 
-		message.total_size = (word)game_size;
+		message.total_size = (word)send_size;
 		message.offset = (word)offset;
-		message.length = (word)MIN((long)sizeof(message.data), game_size - offset);
+		message.length = (word)MIN((long)sizeof(message.data), send_size - offset);
 		message.pad = 0;
 		csmemset(message.data, 0, sizeof(message.data));
-		csmemcpy(message.data, (byte const *)game + offset, message.length);
+		csmemcpy(message.data, (byte const *)send_ptr + offset, message.length);
 		encoded_message = create_network_game_message(_message_server_game_settings_update, &message, sizeof(message));
 		if (!encoded_message || !network_game_server_send_message_to_client_machine(server, machine, encoded_message))
 			return FALSE;

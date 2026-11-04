@@ -248,6 +248,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "halo_firefight.h"
 #include "cseries/errors.h"
 
 #include "actions.h"
@@ -1159,6 +1160,11 @@ boolean actor_perception_desire_prop(
 	else if (desired_target_state == NONE && (in_use || required_ticks > 0))
 	{
 		desire = TRUE;
+	}
+	else if (firefight_active() && enemy && !dead)
+	{
+		desire = TRUE;
+		too_far = FALSE;
 	}
 	else if (distance_squared > 1600.0f)
 	{
@@ -4274,7 +4280,8 @@ void prop_status_refresh(
 				}
 
 				prop->ineffability = _actor_perception_none;
-				if (prop->unit_effect == _ai_unit_effect_bump)
+				if (prop->unit_effect == _ai_unit_effect_bump ||
+					prop->unit_effect == _ai_unit_effect_magic_sight)
 				{
 					prop->ineffability = _actor_perception_unmistakable;
 				}
@@ -5757,7 +5764,7 @@ static void actor_perception_refresh(
 					prop->required_ticks,
 					&optional);
 
-			if (desired && pvs != NULL)
+			if (desired && pvs != NULL && !(firefight_active() && prop->enemy && !prop->dead))
 			{
 				struct object_cluster_iterator cluster_iterator;
 				short cluster_index;

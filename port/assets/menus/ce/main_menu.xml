@@ -19,7 +19,6 @@
 		<on event="b" open="main_menu/quit_select/quit_screen" platform="desktop android web"/>
 		<child widget="main_menu/halo_logo" y="-44"/>
 		<child widget="main_menu/main_menu_select_list"/>
-		<child widget="main_menu/main_menu_item_forge" x="30" y="208"/>
 		<child widget="main_menu/social/social_home"/>
 		<child widget="main_menu/social/social_home_chat"/>
 		<child widget="main_menu/social/y_butn_social" x="167" y="412"/>
@@ -67,6 +66,7 @@
 		<on event="x" run="port news open"/>
 		<on event="y" run="port social open"/>
 		<child widget="main_menu/main_menu_item_play" x="30" y="176"/>
+		<child widget="main_menu/main_menu_item_forge" x="30" y="208"/>
 		<child widget="main_menu/main_menu_item_theater" x="30" y="240"/>
 		<child widget="main_menu/main_menu_item_profile" x="30" y="272"/>
 		<child widget="main_menu/main_menu_item_settings" x="30" y="304"/>

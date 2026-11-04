@@ -29,6 +29,8 @@ extern struct game_engine stub_engine;
 extern struct game_engine king_engine;
 extern struct game_engine oddball_engine;
 extern struct game_engine ctf_engine;
+/* port: register firefight_engine at slot 6 (game_engine_firefight) */
+extern struct game_engine firefight_engine;
 
 struct game_engine *game_engines[] =
 {
@@ -38,8 +40,8 @@ struct game_engine *game_engines[] =
 	&oddball_engine,
 	&king_engine,
 	&race_engine,
-	&stub_engine,
-	NULL,
+	&firefight_engine, /* port: game_engine_firefight = 6 */
+	&stub_engine,      /* port: game_engine_stub = 7 */
 };
 
 /* ---------- public code */

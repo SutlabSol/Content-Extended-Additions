@@ -3417,6 +3417,30 @@ def _server_settings() -> list:
                                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                              ("text_y", 4)], [])
     rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + len(SETUP_OPTION_SCREENS)))
+    # Firefight's SCALE WITH PLAYERS and SCORING (GAME SETTINGS', a Firefight
+    # game's: menu_functions.c's server_settings_update, FF_PLAYER_SCALE_HELP
+    # and SERVER_SCORING_HELP), their labels after the sections' (FLOODFECTION
+    # SETTINGS' the last of the rows' own, then SERVER_SETUP_SECTIONS')
+    firefight_label = 15 + len(COOP_SETUP_SCREENS) + len(CAMPAIGN_SETUP_SCREENS) + len(SERVER_SETUP_SECTIONS)
+    for index, (key, _, choices, _) in enumerate(FIREFIGHT_SETUP_ROWS):
+        extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                             ("flags", "pass_unhandled_to_focused_child"),
+                                             ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<child widget="{base}/{key}_label"/>',
+                          f'<child widget="{base}/{key}_spinner" x="320" y="1"/>'])
+        extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300),
+                                                 ("height", 22), ("string_list", f"{base}/labels"),
+                                                 ("string_index", firefight_label + index), ("font", "ui\\large_ui"),
+                                                 ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        extra += _widget(f"{base}/{key}_spinner",
+                         [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
+                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                          ("strings", "|".join(choices)), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF"), ("align", "center"), ("text_y", 1),
+                          ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                          ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
+                         ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+        rows.append((f"{base}/op_{key}", None))
     extra += _button(f"{base}/button_defaults", 3, [])
     extra += _widget(f"{base}/button_ok", [("type", "text"), ("width", 128), ("height", 24),
                                            ("bitmap", "bitmaps/text_button_background"), ("text", "START GAME"),
@@ -3435,6 +3459,9 @@ def _server_settings() -> list:
     # (the sections' rows on the hub, after the rows' own: SERVER_SETUP_SECTIONS)
     section_label = len(labels)
     labels += [f"{title}:" for _, title, _, _ in SERVER_SETUP_SECTIONS]
+    # (Firefight's rows', after them: FIREFIGHT_SETUP_ROWS)
+    assert len(labels) == firefight_label
+    labels += [f"{title}:" for _, title, _, _ in FIREFIGHT_SETUP_ROWS]
     extra += _strings(f"{base}/labels", labels)
     help_strings = [
         "",
@@ -3469,6 +3496,9 @@ def _server_settings() -> list:
         "The Spartans' loadout and last stands, and the\\ninfected's forms, for this game.",
         # (the sections' rows on the hub: menu_functions.c's SERVER_SETUP_SECTION_HELP)
         *(help_text for _, _, help_text, _ in SERVER_SETUP_SECTIONS),
+        # (Firefight's rows': menu_functions.c's FF_PLAYER_SCALE_HELP and
+        # SERVER_SCORING_HELP)
+        *(help_text for _, _, _, help_text in FIREFIGHT_SETUP_ROWS),
     ]
     extra += _strings(f"{base}/help_strings", help_strings)
     # the sections (SERVER_SETUP_SECTIONS): Server Setup itself is a hub of
@@ -3628,7 +3658,7 @@ BOTS_SKILLS = ["recruit", "easy", "normal", "heroic", "veteran", "legendary"]
 # levels, then each level: bots_combat.c's bots_combat_distributed_skill)
 BOTS_SKILL_CHOICES = ["distributed", *BOTS_SKILLS]
 BOTS_SETUP = ("bots_options", "BOTS",
-              "Computer players in this game: how many, how well\\nthey play. Slayer, CTF and King of the Hill.", [
+              "Computer players in this game: how many, how well\\nthey play. Slayer, CTF, KOTH and Firefight.", [
     ("bots_enabled", "BOTS:", ["ON", "OFF"], [
         "Bots join this game, as many as COUNT says.",
         "No bots join this game; COUNT is kept for later.",
@@ -3665,9 +3695,17 @@ SERVER_SETUP_SECTIONS = [
      ["max_players", "invite", "listing", "password", "map_share_options"]),
     ("game_settings", "GAME SETTINGS", "The gametype and its rules for this game (co-op's\\noptions, for a co-op game).",
      ["game_type", "player_options", "item_options", "vehicle_options", "indicator_options", "team_options",
-      "coop_options", "voice_options"]),
+      "coop_options", "voice_options", "ff_player_scale", "scoring"]),
     ("fork_settings", "FORK SETTINGS", "This fork's own: game modes' settings, the tag\\nprofile, the randomizer and skulls.",
      ["floodfection_options", "tag_profile", "randomizer", "skulls"]),
+]
+# GAME SETTINGS' rows of a Firefight game's (Content Extended's: firefight.c's
+# player scale, the setting game.campaign_score): key, title, spinner
+# choices (menu_functions.c's ff_player_scale_percents; ON first), help
+FIREFIGHT_SETUP_ROWS = [
+    ("ff_player_scale", "SCALE WITH PLAYERS", ["0%", "5%", "10%", "20%", "50%"],
+     "Extra enemies added per player from the 2nd player\\nonwards (non-compounding from the base count)."),
+    ("scoring", "SCORING", ["ON", "OFF"], "Turn Campaign and Firefight scoring on or off for\\nthis game."),
 ]
 # Server Setup's TAG PROFILE (port/linux/game/tag_multiplayer.c, the setting
 # game.multiplayer_tag_profile), a multiplayer game's on one of the game's own

@@ -63,6 +63,7 @@ symbols in this file:
 #include "input/input.h"
 #include "interface/terminal.h"
 #include "math/real_math.h"
+#include "halo_firefight.h"
 
 /* ---------- constants */
 
@@ -236,6 +237,7 @@ static boolean console_process_command(
 	console_globals.previous_command_count = MIN(console_globals.previous_command_count + 1, MAXIMUM_NUMBER_OF_PREVIOUS_COMMANDS);
 	console_globals.selected_previous_command_index = NONE;
 
+	firefight_stats_notify_terminal_command_used();
 	/* port: "overlay" opens the overlay menu (port/linux/game/overlay_menu.c)
 	without a controller; the console closes, as it takes every key */
 	{

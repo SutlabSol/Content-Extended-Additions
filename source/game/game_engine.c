@@ -600,6 +600,9 @@ struct network_game *network_game_server_get_game(struct network_game_server *se
 #include "custom_edition_cache.h" /* port: port/linux/game/custom_edition_cache.c */
 #include "latency_meter.h" /* port: port/linux/game/latency_meter.c */
 #include "campaign_score.h" /* port: port/linux/game/campaign_score.c */
+#include "halo_firefight.h" /* port: port/linux/game/firefight.c */
+#include "opence_features.h"
+#include "social_extensions.h"
 #include "network_replay.h" /* port: port/linux/game/network_replay_playback.c */
 #include "touch_postgame.h" /* port: port/linux/game/touch_postgame.c */
 
@@ -1112,6 +1115,9 @@ static void game_engine_generate_title_string(
 		"c:\\halo\\SOURCE\\game\\game_engine.c",
 		0x36E,
 		title_string);
+	/* port: firefight */
+	if (firefight_active() && firefight_hud_format_scoreboard_title(title_string, 80))
+		return;
 	if (global_variant.universal_variant.lives > 0)
 	{
 		struct player_datum *player = player_get(player_index);
@@ -1526,8 +1532,9 @@ long populate_statistic_buffer(
 					game_engine->get_player_score(player_index, FALSE),
 					player_index);
 			}
-			statistic_buffer[statistic_index].kills = player->statistics.kills[0];
-			statistic_buffer[statistic_index].assists = player->statistics.assists[0];
+			/* port: firefight */
+			statistic_buffer[statistic_index].kills = firefight_active() ? firefight_player_kills(player_index) : player->statistics.kills[0];
+			statistic_buffer[statistic_index].assists = firefight_active() ? firefight_player_assists(player_index) : player->statistics.assists[0];
 			statistic_buffer[statistic_index].deaths = player->statistics.deaths;
 			break;
 
@@ -1542,11 +1549,11 @@ long populate_statistic_buffer(
 			break;
 
 		case _postgame_statistic_kills:
-			statistic_buffer[statistic_index].score = player->statistics.kills[0];
+			statistic_buffer[statistic_index].score = firefight_active() ? firefight_player_kills(player_index) : player->statistics.kills[0];
 			break;
 
 		case _postgame_statistic_assists:
-			statistic_buffer[statistic_index].score = player->statistics.assists[0];
+			statistic_buffer[statistic_index].score = firefight_active() ? firefight_player_assists(player_index) : player->statistics.assists[0];
 			break;
 
 		case _postgame_statistic_deaths:
@@ -1726,8 +1733,9 @@ enum
 	/* the rows' widths (in the scoreboard's text, before it is scaled):
 	place, name, score, ping (the last as wide as "Ping" or three digits,
 	so that the columns centred are their text centred) */
-	SCOREBOARD_PLACE_WIDTH = 55,
-	SCOREBOARD_NAME_WIDTH = 150,
+	SCOREBOARD_PLACE_WIDTH = 45,
+	SCOREBOARD_ICON_PREFIX_WIDTH = 44,
+	SCOREBOARD_NAME_WIDTH = 195,
 	SCOREBOARD_SCORE_WIDTH = 95,
 	SCOREBOARD_PING_WIDTH = 40,
 	SCOREBOARD_COLUMN_WIDTH = SCOREBOARD_PLACE_WIDTH + SCOREBOARD_NAME_WIDTH + SCOREBOARD_SCORE_WIDTH + SCOREBOARD_PING_WIDTH,
@@ -1818,6 +1826,38 @@ static pixel32 scoreboard_background_color(
 	return color;
 }
 
+static void get_player_mcc_rank_and_emblem(
+	long player_index,
+	struct firefight_mcc_rank_info *out_rank,
+	struct firefight_emblem_info *out_emblem)
+{
+	struct player_datum const *p = (player_index != NONE) ? player_try_and_get(player_index) : NULL;
+	long prof_idx = NONE;
+
+	if (p && p->local_player_index != NONE && p->local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+	{
+		prof_idx = player_ui_get_active_player_profile_index(p->local_player_index);
+		if (out_rank)
+			firefight_stats_get_mcc_rank(prof_idx, out_rank);
+		if (out_emblem)
+			firefight_stats_get_emblem(prof_idx, out_emblem);
+		return;
+	}
+	if (p)
+	{
+		social_extensions_get_wide_name_rank_and_emblem(
+			p->name,
+			p->network_player_data.primary_color_index,
+			out_rank,
+			out_emblem);
+		return;
+	}
+	if (out_rank)
+		firefight_stats_get_mcc_rank(NONE, out_rank);
+	if (out_emblem)
+		firefight_stats_get_emblem(NONE, out_emblem);
+}
+
 /* a row of the scoreboard: its text (tab separated) from the column's left
 (tabs: the column's stops), on the row below the title's (at top) */
 static void scoreboard_draw_row(
@@ -1833,7 +1873,8 @@ static void scoreboard_draw_row(
 	long font_index = hud_get_font_index();
 	/* (brightened as a copy: the team colours serve every row) */
 	real_argb_color color = *row_color;
-	short tab_stops[4];
+	short tab_stops[7];
+	short tab_count = 4;
 	struct font_header *font;
 	long line_height;
 
@@ -1848,11 +1889,26 @@ static void scoreboard_draw_row(
 		color.green = MIN(color.green + 0.4f, 1.0f);
 		color.blue = MIN(color.blue + 0.4f, 1.0f);
 	}
-	tab_stops[0] = left;
-	tab_stops[1] = (short)(left + scoreboard_widths.place);
-	tab_stops[2] = (short)(tab_stops[1] + scoreboard_widths.name);
-	tab_stops[3] = (short)(tab_stops[2] + scoreboard_widths.score);
-	draw_string_set_tab_stops(tabs ? tab_stops : NULL, tabs ? 4 : 0);
+	if (firefight_active())
+	{
+		tab_stops[0] = left;
+		tab_stops[1] = (short)(left + 45 + SCOREBOARD_ICON_PREFIX_WIDTH);
+		tab_stops[2] = (short)(left + 235);
+		tab_stops[3] = (short)(left + 315);
+		tab_stops[4] = (short)(left + 380);
+		tab_stops[5] = (short)(left + 445);
+		tab_stops[6] = (short)(left + 510);
+		tab_count = 7;
+	}
+	else
+	{
+		tab_stops[0] = left;
+		tab_stops[1] = (short)(left + scoreboard_widths.place + SCOREBOARD_ICON_PREFIX_WIDTH);
+		tab_stops[2] = (short)(left + scoreboard_widths.place + scoreboard_widths.name);
+		tab_stops[3] = (short)(tab_stops[2] + scoreboard_widths.score);
+		tab_count = 4;
+	}
+	draw_string_set_tab_stops(tabs ? tab_stops : NULL, tabs ? tab_count : 0);
 	/* (the row as wide as the screen once scaled) */
 	bounds.x1 = (short)(bounds.x0 + (bounds.x1 - bounds.x0) / SCOREBOARD_SCALE);
 	if (!tabs)
@@ -2241,12 +2297,15 @@ static void game_engine_rasterize_scoreboard(
 		scoreboard_widths.name = (short)(SCOREBOARD_COLUMN_WIDTH - ping_width - scoreboard_widths.place -
 			scoreboard_widths.score);
 	}
-	team_columns = has_teams && scoreboard_team_columns() && width >= 2 * SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP;
+	team_columns = !firefight_active() && has_teams && scoreboard_team_columns() &&
+		width >= 2 * SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP;
 	for (index = 0; index < ranked_count; index++)
 	{
 		struct player_datum *player = player_try_and_get(ranked[index].player_index);
 		short list = team_columns && player ? (short)PIN(player->team_index, 0, 1) : 0;
 
+		if (firefight_active() && player && player->team_index != 0)
+			continue;
 		lists[list][list_counts[list]++] = (short)index;
 	}
 	/* (a page: the rows of both team columns, or both columns of one list;
@@ -2255,6 +2314,12 @@ static void game_engine_rasterize_scoreboard(
 	{
 		columns = 2;
 		total = MAX(list_counts[0], list_counts[1]);
+		page = rows;
+	}
+	else if (firefight_active())
+	{
+		columns = 1;
+		total = list_counts[0];
 		page = rows;
 	}
 	else
@@ -2384,7 +2449,10 @@ static void game_engine_rasterize_scoreboard(
 			network_votekick_request((short)DATUM_INDEX_TO_ABSOLUTE_INDEX(scoreboard_pick.player_index));
 		scoreboard_pick.a_down = pick_a != 0;
 	}
-	left = (short)(bounds.x0 + (width - (columns * SCOREBOARD_COLUMN_WIDTH + (columns - 1) * SCOREBOARD_COLUMN_GAP)) / 2);
+	{
+		short board_col_w = firefight_active() ? 530 : SCOREBOARD_COLUMN_WIDTH;
+		left = (short)(bounds.x0 + (width - (columns * board_col_w + (columns - 1) * SCOREBOARD_COLUMN_GAP)) / 2);
+	}
 	/* (centred on the rows shown: the title's, the heading's, the longest
 	column's, and the footer telling where the scroll is) */
 	shown_rows = MIN(rows, total);
@@ -2400,7 +2468,8 @@ static void game_engine_rasterize_scoreboard(
 		{
 			pixel32 background = scoreboard_background_color();
 			real padding = 0.5f * line_height * SCOREBOARD_SCALE;
-			real block_width = (columns * SCOREBOARD_COLUMN_WIDTH + (columns - 1) * SCOREBOARD_COLUMN_GAP) * SCOREBOARD_SCALE;
+			short board_col_w = firefight_active() ? 530 : SCOREBOARD_COLUMN_WIDTH;
+			real block_width = (columns * board_col_w + (columns - 1) * SCOREBOARD_COLUMN_GAP) * SCOREBOARD_SCALE;
 			real block_left = bounds.x0 + (left - bounds.x0) * SCOREBOARD_SCALE;
 
 			if (background >> 24)
@@ -2545,8 +2614,21 @@ static void game_engine_rasterize_scoreboard(
 	else if (scored)
 		usprintf(score_string, L"Score");
 	/* port: bounded (the map's column names) */
-	usnprintf(row_string, NUMBEROF(row_string), L"\t%s\t%s\t%s\t%s", column_name, score_name, score_string,
-		network ? L"Ping" : L"");
+	if (firefight_active())
+	{
+		usnprintf(
+			row_string,
+			NUMBEROF(row_string),
+			L"\t%s\t%s\t%s\tKills\tAssists\tDeaths\tPing",
+			column_name[0] ? column_name : L"Place",
+			score_name[0] ? score_name : L"Player",
+			score_string[0] ? score_string : L"Score");
+	}
+	else
+	{
+		usnprintf(row_string, NUMBEROF(row_string), L"\t%s\t%s\t%s\t%s", column_name, score_name, score_string,
+			network ? L"Ping" : L"");
+	}
 	row_string[NUMBEROF(row_string) - 1] = 0;
 	{
 		long column;
@@ -2554,9 +2636,9 @@ static void game_engine_rasterize_scoreboard(
 		for (column = 0; column < columns; column++)
 		{
 			/* (a team column's heading in its team's colour, brightened) */
-			if (team_columns)
+			if (team_columns || firefight_active())
 			{
-				color = team_colors[column];
+				color = team_colors[firefight_active() ? 0 : column];
 				color.red = MIN(color.red + 0.25f, 1.0f);
 				color.green = MIN(color.green + 0.25f, 1.0f);
 				color.blue = MIN(color.blue + 0.25f, 1.0f);
@@ -2643,88 +2725,113 @@ static void game_engine_rasterize_scoreboard(
 		/* port: with the latency meter on, a known ping is drawn on its own,
 		in the meter's colour for it (display.latency_meter) */
 		ping_colored = ping != NONE && latency_meter_shown();
-		usnprintf(
-			row_string,
-			NUMBEROF(row_string),
-			L"\t%s\t%s\t%s\t%s",
-			campaign ? place_string : get_place_string(entry),
-			name_string,
-			status_string,
-			ping_colored ? L"" : ping_string);
-		row_string[NUMBEROF(row_string) - 1] = 0;
-		row_color = has_teams ? &team_colors[PIN(player->team_index, 0, 1)] : &color;
-		/* port: a player talking (or muted) in voice chat, its speaker just
-		right of the name */
-		if (network && (network_voice_machine_speaking(player->network_player_data.machine_index) ||
-			network_voice_machine_muted(player->network_player_data.machine_index)))
+		if (firefight_active())
 		{
-			rectangle2d icon;
+			usnprintf(
+				row_string,
+				NUMBEROF(row_string),
+				L"\t%s\t%s\t%s\t%ld\t%ld\t%ld\t%s",
+				get_place_string(entry),
+				name_string,
+				status_string,
+				(long)firefight_player_kills(entry->player_index),
+				(long)firefight_player_assists(entry->player_index),
+				(long)player->statistics.deaths,
+				ping_colored ? L"" : (ping_string[0] ? ping_string : L"0"));
+		}
+		else
+		{
+			usnprintf(
+				row_string,
+				NUMBEROF(row_string),
+				L"\t%s\t%s\t%s\t%s",
+				campaign ? place_string : get_place_string(entry),
+				name_string,
+				status_string,
+				ping_colored ? L"" : ping_string);
+		}
+		row_string[NUMBEROF(row_string) - 1] = 0;
+		row_color = firefight_active() ? &team_colors[0] :
+			(has_teams ? &team_colors[PIN(player->team_index, 0, 1)] : &color);
+		/* port: [Rank] [Medal] Name [Platform icon] */
+		{
+			rectangle2d icon_col;
+			rectangle2d prefix_rect;
 			rectangle2d text;
-			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
-			short size;
-			short middle;
-
 			rectangle2d ink;
 			rectangle2d cursor;
-			short name_end;
+			short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
+			short prefix_left = firefight_active() ? (short)(row_left + 45) : (short)(row_left + scoreboard_widths.place);
+			short name_col_left = (short)(prefix_left + SCOREBOARD_ICON_PREFIX_WIDTH);
+			short name_col_width = firefight_active() ? (235 - 45 - SCOREBOARD_ICON_PREFIX_WIDTH) : (short)(scoreboard_widths.name - SCOREBOARD_ICON_PREFIX_WIDTH);
+			short size;
+			short middle;
+			short cur_x;
 
-			/* (after the name's last letter, centred on its capitals: both
-			measured as the row is laid out, the name at its column's tab
-			stop, then scaled as it is drawn, as scoreboard_rectangle has it;
-			within the name's column) */
-			text.x0 = (short)(row_left + scoreboard_widths.place);
-			text.x1 = (short)(text.x0 + scoreboard_widths.name);
+			text.x0 = name_col_left;
+			text.x1 = (short)(text.x0 + name_col_width);
 			text.y0 = (short)(top + (head_rows + row) * line_height);
 			text.y1 = (short)(text.y0 + line_height);
 			draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
 			draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
 			middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
-			scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, head_rows + row, 1);
-			size = (short)((icon.y1 - icon.y0) * 2 / 3);
-			name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
-			icon.x0 = (short)MIN(name_end + 4, icon.x1 - size);
-			icon.x1 = (short)(icon.x0 + size);
-			icon.y0 = (short)(middle - size / 2);
-			icon.y1 = (short)(icon.y0 + size);
-			network_voice_draw_icon(&icon, network_voice_machine_muted(player->network_player_data.machine_index),
-				alpha);
-		}
-		/* port: a known network player's platform, beside its name */
-		if (network)
-		{
-			short platform = platform_icon_for_machine(player->network_player_data.machine_index);
+			scoreboard_rectangle(&prefix_rect, bounds.x0, top, line_height, prefix_left, SCOREBOARD_ICON_PREFIX_WIDTH, head_rows + row, 1);
+			scoreboard_rectangle(&icon_col, bounds.x0, top, line_height, text.x0, name_col_width, head_rows + row, 1);
+			size = (short)((icon_col.y1 - icon_col.y0) * 2 / 3);
+			cur_x = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE + 4);
 
-			if (platform != _platform_icon_none)
+#if OPENCE_ENABLE_SERVICE_RANK
 			{
-				rectangle2d icon;
-				rectangle2d text;
-				rectangle2d ink;
-				rectangle2d cursor;
-				short row_left = (short)(left + column * (SCOREBOARD_COLUMN_WIDTH + SCOREBOARD_COLUMN_GAP));
-				short size;
-				short middle;
-				short name_end;
-				short voice_gap = network_voice_machine_speaking(player->network_player_data.machine_index) ||
-					network_voice_machine_muted(player->network_player_data.machine_index);
+				struct firefight_mcc_rank_info rk;
+				struct firefight_emblem_info emb;
+				short badge_sz = (short)MAX(12, (prefix_rect.y1 - prefix_rect.y0) - 2);
+				short badge_y = (short)(middle - badge_sz / 2);
 
-				text.x0 = (short)(row_left + scoreboard_widths.place);
-				text.x1 = (short)(text.x0 + scoreboard_widths.name);
-				text.y0 = (short)(top + (head_rows + row) * line_height);
-				text.y1 = (short)(text.y0 + line_height);
-				draw_string_set_draw_mode(font_index, NONE, 0, 0, row_color);
-				draw_unicode_string_compute_bounds(&text, name_string, &ink, &cursor);
-				middle = (short)(top + (draw_unicode_string_capital_middle(&text, name_string) - top) * SCOREBOARD_SCALE);
-				scoreboard_rectangle(&icon, bounds.x0, top, line_height, text.x0, scoreboard_widths.name, head_rows + row, 1);
-				size = (short)((icon.y1 - icon.y0) * 2 / 3);
-				name_end = (short)(bounds.x0 + (MAX(ink.x1, text.x0) - bounds.x0) * SCOREBOARD_SCALE);
-				if (name_end + 4 + (voice_gap ? size + 4 : 0) + size <= icon.x1)
+				get_player_mcc_rank_and_emblem(entry->player_index, &rk, &emb);
+				firefight_draw_mcc_rank_icon(
+					prefix_rect.x0,
+					badge_y,
+					badge_sz,
+					rk.tour_number,
+					rk.rank_in_tour,
+					alpha);
+				firefight_draw_player_emblem(
+					(short)(prefix_rect.x0 + badge_sz + 2),
+					badge_y,
+					badge_sz,
+					&emb,
+					alpha);
+			}
+#endif
+
+			if (network && (network_voice_machine_speaking(player->network_player_data.machine_index) ||
+				network_voice_machine_muted(player->network_player_data.machine_index)))
+			{
+				if (cur_x + size <= icon_col.x1)
 				{
-					icon.x0 = (short)(name_end + 4 + (voice_gap ? size + 4 : 0));
-					icon.x1 = (short)(icon.x0 + size);
+					rectangle2d icon;
+					icon.x0 = cur_x;
+					icon.x1 = (short)(cur_x + size);
+					icon.y0 = (short)(middle - size / 2);
+					icon.y1 = (short)(icon.y0 + size);
+					network_voice_draw_icon(&icon, network_voice_machine_muted(player->network_player_data.machine_index),
+						alpha);
+					cur_x = (short)(cur_x + size + 4);
+				}
+			}
+			if (network)
+			{
+				short platform = platform_icon_for_machine(player->network_player_data.machine_index);
+				if (platform != _platform_icon_none && cur_x + size <= icon_col.x1)
+				{
+					rectangle2d icon;
+					icon.x0 = cur_x;
+					icon.x1 = (short)(cur_x + size);
 					icon.y0 = (short)(middle - size / 2);
 					icon.y1 = (short)(icon.y0 + size);
 					platform_icon_draw(platform, &icon,
 						((pixel32)(long)(255.0f * PIN(alpha, 0.0f, 1.0f) + 0.5f) << 24) | 0x00FFFFFF);
+					cur_x = (short)(cur_x + size + 4);
 				}
 			}
 		}
@@ -2778,7 +2885,10 @@ static void game_engine_rasterize_scoreboard(
 
 			latency_meter_color(ping, &ping_color);
 			ping_color.alpha = alpha;
-			usnprintf(row_string, NUMBEROF(row_string), L"\t\t\t\t%s", ping_string);
+			if (firefight_active())
+				usnprintf(row_string, NUMBEROF(row_string), L"\t\t\t\t\t\t\t%s", ping_string);
+			else
+				usnprintf(row_string, NUMBEROF(row_string), L"\t\t\t\t%s", ping_string);
 			row_string[NUMBEROF(row_string) - 1] = 0;
 			scoreboard_draw_row(
 				row_string,
@@ -2911,7 +3021,7 @@ static void game_engine_rasterize_in_game_score(
 
 	/* port: a full-screen view's its own, as is the campaign's
 	(game_engine_rasterize_scoreboard) */
-	if (local_player_count() <= 1 || !game_engine)
+	if (local_player_count() <= 1 || !game_engine || firefight_active())
 	{
 		game_engine_rasterize_scoreboard(player_index, alpha);
 		return;
@@ -3060,7 +3170,7 @@ void game_engine_post_rasterize_post_game(
 	struct statistic_buffer entries[MULTIPLAYER_MAXIMUM_PLAYERS];
 	wchar_t score_string[256];
 	wchar_t row_string[256];
-	short tab_stops[6];
+	short tab_stops[7];
 	real_argb_color winner_color;
 	real_argb_color normal_color;
 	real_argb_color hilite_color;
@@ -3071,12 +3181,13 @@ void game_engine_post_rasterize_post_game(
 	if (!game_engine)
 		return;
 
-	tab_stops[0] = 50;
-	tab_stops[1] = 125;
-	tab_stops[2] = 250;
-	tab_stops[3] = 350;
-	tab_stops[4] = 410;
-	tab_stops[5] = 500;
+	tab_stops[0] = 45;
+	tab_stops[1] = 95;
+	tab_stops[2] = 225;
+	tab_stops[3] = 315;
+	tab_stops[4] = 385;
+	tab_stops[5] = 460;
+	tab_stops[6] = 530;
 
 	font_index = hud_globals->messaging.single_player_font.index;
 	get_postgame_hilite_colors(
@@ -3115,7 +3226,10 @@ void game_engine_post_rasterize_post_game(
 		}
 	}
 
-	if (global_variant.universal_variant.teams)
+	/* port: firefight */
+	if (firefight_active())
+		firefight_hud_draw_postgame_summary(drawline);
+	else if (global_variant.universal_variant.teams)
 	{
 		short team_tab_stops[6] = { 50, 200, 300, 350, 410, 500 };
 		long team_order[2] = { 0, 1 };
@@ -3194,8 +3308,7 @@ void game_engine_post_rasterize_post_game(
 		usnprintf(
 			row_string,
 			NUMBEROF(row_string),
-			L"\t%s\t%s\t%s\t%s\t%s\t%s",
-			column_strings[0],
+			L"\tRank\t%s\t%s\t%s\t%s\t%s\tMedals",
 			column_strings[1],
 			score_string,
 			column_strings[2],
@@ -3213,20 +3326,33 @@ void game_engine_post_rasterize_post_game(
 		long draw_row = entry_index + 8;
 		struct player_datum *player = player_get(player_index);
 		real_argb_color team_colors[2];
-		wchar_t const *place_string;
+#if OPENCE_ENABLE_SERVICE_RANK
+		struct firefight_mcc_rank_info rk;
+		struct firefight_emblem_info emb;
+
+		get_player_mcc_rank_and_emblem(player_index, &rk, &emb);
+		firefight_draw_mcc_rank_icon(
+			(short)(46 - render.camera.viewport_bounds.x0),
+			(short)(draw_row * 18 - render.camera.viewport_bounds.y0),
+			17,
+			rk.tour_number,
+			rk.rank_in_tour,
+			1.0f);
+		firefight_draw_player_emblem(
+			(short)(66 - render.camera.viewport_bounds.x0),
+			(short)(draw_row * 18 - render.camera.viewport_bounds.y0),
+			17,
+			&emb,
+			1.0f);
+#endif
 
 		if (player->local_player_index != NONE)
 			draw_string_set_color(&normal_color);
 		else
 			draw_string_set_color(&winner_color);
 		draw_string_set_tab_stops(tab_stops, NUMBEROF(tab_stops));
-		place_string = get_place_string(&entries[entry_index]);
-		usnprintf(row_string, NUMBEROF(row_string), L" \t%s", place_string);
-		row_string[NUMBEROF(row_string) - 1] = 0;
-		drawline(row_string, draw_row, 0);
-		draw_string_set_color(&winner_color);
 
-		if (global_variant.universal_variant.teams)
+		if (global_variant.universal_variant.teams && !firefight_active())
 		{
 			long team_index = player->team_index;
 
@@ -3262,7 +3388,8 @@ void game_engine_post_rasterize_post_game(
 			row_string,
 			NUMBEROF(row_string),
 			L" \t \t \t \t%d",
-			(long)player->statistics.kills[0]);
+			/* port: firefight */
+			(long)(firefight_active() ? firefight_player_kills(player_index) : player->statistics.kills[0]));
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
 		draw_string_set_color(&winner_color);
@@ -3273,7 +3400,8 @@ void game_engine_post_rasterize_post_game(
 			row_string,
 			NUMBEROF(row_string),
 			L" \t \t \t \t \t%d",
-			(long)player->statistics.assists[0]);
+			/* port: firefight */
+			(long)(firefight_active() ? firefight_player_assists(player_index) : player->statistics.assists[0]));
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
 		draw_string_set_color(&winner_color);
@@ -3287,8 +3415,21 @@ void game_engine_post_rasterize_post_game(
 			(long)player->statistics.deaths);
 		row_string[NUMBEROF(row_string) - 1] = 0;
 		drawline(row_string, draw_row, 0);
+
+		draw_string_set_color(&winner_color);
+		usnprintf(
+			row_string,
+			NUMBEROF(row_string),
+			L" \t \t \t \t \t \t \t%ld",
+			firefight_stats_get_session_medals(player_index));
+		row_string[NUMBEROF(row_string) - 1] = 0;
+		drawline(row_string, draw_row, 0);
 		draw_string_set_tab_stops(tab_stops, NUMBEROF(tab_stops));
 	}
+
+	firefight_hud_draw_pgcr_extras(
+		entry_count > 0 ? entries[0].player_index : NONE,
+		8);
 
 	{
 		real_argb_color prompt_color;
@@ -4043,6 +4184,13 @@ boolean match_game_type(
 			short entry = game_types[index];
 
 			result = result | (entry == game_type);
+			/* port: firefight */
+			if (game_type == game_engine_firefight &&
+				(entry == game_engine_slayer || entry == game_engine_ctf || entry == game_engine_king ||
+				 entry == game_engine_oddball || entry == game_engine_race || entry == game_engine_none))
+			{
+				result = TRUE;
+			}
 			if (entry == _game_engine_all)
 			{
 				result = result | TRUE;
@@ -4097,11 +4245,12 @@ static boolean find_closest_player_callback(
 static void game_engine_update_purge(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: Forge session check */
 	long cutoff_time = game_time_get() - 900;
 
 	/* (a client of the distributed netcode removes items when the host does,
 	port/linux/game/network_distributed.c) */
-	if (!network_game_distributed_client())
+	if (!network_game_distributed_client() && !g_forge_session_enabled) /* port: keep Forge-placed weapons & equipment from despawning after 30s */
 	{
 		struct object_iterator item_iterator;
 
@@ -4640,6 +4789,9 @@ void game_variant_options_default(
 		variant ? (byte)variant->universal_variant.vehicle_set : 0;
 	/* port: OpenCE's gametypes' options at their defaults, with no mode */
 	game_modes_options_default(options);
+	/* port: firefight */
+	if (variant && variant->game_engine_index == game_engine_firefight)
+		firefight_variant_options_default(options);
 
 	return;
 }
@@ -5204,11 +5356,14 @@ static long game_engine_vehicle_home_current(
 static void game_engine_update_vehicle_respawn(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: Forge session check */
 	long respawn_ticks = game_variant_options_get()->vehicle_respawn_time * TICKS_PER_SECOND;
 	long now = game_time_get();
 	short index;
 
-	if (respawn_ticks <= 0 || network_game_distributed_client() || now % TICKS_PER_SECOND)
+	if (respawn_ticks <= 0 || network_game_distributed_client() || g_forge_session_enabled || now % TICKS_PER_SECOND) /* port: disable automatic vehicle home reset in Forge */
+		return;
+	if (firefight_active() && global_scenario_get()->type == _scenario_type_multiplayer)
 		return;
 	/* (where the map put them: the vehicles there at the first look) */
 	if (game_engine_vehicle_home_count == NONE)
@@ -5558,7 +5713,7 @@ void game_engine_player_killed(
 	next unit is the other team's, which the clients take it from:
 	network_player_attach_unit) */
 	/* port: (not Infection's teams, which are its roles: infection.c) */
-	if (global_variant.universal_variant.teams && game_variant_options_get()->auto_team_balance && !infection_enabled() &&
+	if (global_variant.universal_variant.teams && !firefight_active() && game_variant_options_get()->auto_team_balance && !infection_enabled() &&
 		!network_game_distributed_client() && VALID_INDEX(dead_player->team_index, 2) && !dead_player->quit_out_of_game)
 	{
 		struct data_iterator iterator;
@@ -5612,6 +5767,9 @@ void game_engine_player_killed(
 	/* port: (Infection's respawn time may be shorter) */
 	if (!infection_enabled())
 		dead_player->respawn_timer = MAX(dead_player->respawn_timer, 90);
+	/* port: firefight */
+	if (firefight_active())
+		dead_player->respawn_timer = firefight_compute_respawn_timer(dead_player_index);
 	dead_player = player_get(dead_player_index);
 
 	if (!dead_player->quit_out_of_game)
@@ -6106,7 +6264,16 @@ void game_engine_playlist_next(
 boolean game_engine_should_end_game(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: port/forge/src/forge_runtime_tags.c */
 	boolean should_end_game = FALSE;
+
+	/* port: Forge sessions continue indefinitely until ended from the menu */
+	if (g_forge_session_enabled)
+		return FALSE;
+
+	/* port: firefight */
+	if (firefight_active())
+		return firefight_should_end_game();
 
 	/* port: Infection's round ends by its own rules (infection.c) */
 	if (infection_enabled())
@@ -6166,6 +6333,8 @@ long get_flag_definition_index(
 
 	global_scenario_get();
 	game_globals = scenario_get_game_globals();
+	if (!game_globals || game_globals->multiplayer_information.count <= 0)
+		return NONE;
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,
@@ -6182,6 +6351,8 @@ long get_ball_definition_index(
 
 	global_scenario_get();
 	game_globals = scenario_get_game_globals();
+	if (!game_globals || game_globals->multiplayer_information.count <= 0)
+		return NONE;
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,
@@ -6222,6 +6393,8 @@ void game_engine_switch_to_postgame(
 		{
 			game_engine_globals.postgame_state = game_engine_mode_postgame_rasterize;
 		}
+		if (!firefight_active())
+			firefight_stats_record_multiplayer_match_end(NULL);
 	}
 
 	return;
@@ -6249,6 +6422,8 @@ void game_engine_end_game(
 		game_engine_globals.postgame_timer = 7.0f;
 		game_engine_play_multiplayer_sound(_multiplayer_sound_game_over);
 		ui_widgets_close_all();
+		if (!firefight_active())
+			firefight_stats_record_multiplayer_match_end(NULL);
 	}
 
 	return;
@@ -6308,6 +6483,10 @@ boolean game_engine_player_is_out_of_lives(
 	long player_index)
 {
 	boolean out_of_lives = FALSE;
+
+	/* port: firefight */
+	if (firefight_active())
+		return firefight_player_is_out_of_lives(player_index);
 
 	if (global_variant.universal_variant.lives>0)
 	{
@@ -7472,9 +7651,10 @@ long game_engine_did_player_win(
 boolean multiple_teams_alive(
 	void)
 {
+	extern int g_forge_session_enabled; /* port: port/forge/src/forge_runtime_tags.c */
 	boolean result = FALSE;
 
-	if (players_in_game() <= 1)
+	if (g_forge_session_enabled || players_in_game() <= 1)
 		return TRUE;
 	else
 	{
@@ -7566,7 +7746,10 @@ long game_engine_did_player_win_default(
 {
 	long result = 0;
 
-	if (global_variant.universal_variant.teams)
+	/* port: firefight */
+	if (firefight_active())
+		firefight_hud_draw_postgame_summary(drawline);
+	else if (global_variant.universal_variant.teams)
 	{
 		long team0_score = game_engine_get_team_score(0);
 		long team1_score = game_engine_get_team_score(1);
@@ -7656,6 +7839,9 @@ struct game_variant *game_engine_get_variant_by_name(
 		result = *build_game_variant_king(&temporary);
 	else if (csstrcmp(name, "team_king") == 0)
 		result = *build_game_variant_team_king(&temporary);
+	/* port: firefight */
+	else if (firefight_get_variant_by_name(&temporary, name))
+		result = temporary;
 
 	*variant = result;
 
@@ -7722,7 +7908,8 @@ real_rgb_color *game_engine_player_get_change_color(
 	struct player_datum *player = player_get(player_index);
 	real_rgb_color result;
 
-	if (global_variant.universal_variant.teams)
+	/* port: firefight uses each player's profile armor color */
+	if (global_variant.universal_variant.teams && !firefight_active())
 	{
 		if (player->team_index == 0)
 			result = *global_real_rgb_red;
@@ -7732,6 +7919,18 @@ real_rgb_color *game_engine_player_get_change_color(
 	else
 	{
 		long color_index = player->network_player_data.primary_color_index;
+		struct player_profile profile;
+
+		if (player->local_player_index != NONE &&
+			player->local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS &&
+			(game_connection() == _game_connection_local || color_index < 0 || color_index >= (long)player_profile_number_of_available_primary_colors()))
+		{
+			long prof_idx = player_ui_get_active_player_profile_index(player->local_player_index);
+			if (prof_idx == NONE && player->local_player_index == 0)
+				prof_idx = player_ui_get_player1_last_used_profile_index();
+			if (prof_idx != NONE && player_profile_get(prof_idx, &profile))
+				color_index = profile.primary_color_index;
+		}
 
 		if (debug_player_color != NONE)
 			color_index = debug_player_color;
@@ -7798,7 +7997,8 @@ void game_engine_variant_cleanup(
 		variant->game_engine_index = game_engine_ctf;
 		variant->game_engine_variant.ctf.kills_score = TRUE;
 	}
-	variant->game_engine_index = PIN(variant->game_engine_index, 1, 5);
+	/* port: firefight */
+	variant->game_engine_index = PIN(variant->game_engine_index, 1, 6);
 	variant->universal_variant.teams = !!variant->universal_variant.teams;
 	variant->universal_variant.odd_man_out = !!variant->universal_variant.odd_man_out;
 	variant->universal_variant.respawn_time_growth = MAX(variant->universal_variant.respawn_time_growth, 0);
@@ -7846,6 +8046,11 @@ void game_engine_variant_cleanup(
 		/* port: the balls' arrays and goals hold no more */
 		variant->game_engine_variant.oddball.ball_spawn_count =
 			PIN(variant->game_engine_variant.oddball.ball_spawn_count, 0, MAXIMUM_ODDBALLS);
+		break;
+
+	/* port: firefight */
+	case game_engine_firefight:
+		firefight_variant_cleanup(variant);
 		break;
 	}
 
@@ -8022,7 +8227,13 @@ void game_engine_player_added(
 
 		if (global_variant.universal_variant.teams)
 		{
-			if (global_network_game_client_get())
+			/* port: firefight */
+			if (firefight_active())
+			{
+				player->network_player_data.team_index = 0;
+				player->team_index = 0;
+			}
+			else if (global_network_game_client_get())
 			{
 				player->team_index =
 					PIN((signed char)player->network_player_data.team_index % 2, 0, 1);
@@ -8227,6 +8438,8 @@ boolean game_engine_vehicle_placement_allowed(
 
 	if (!game_engine || placement->palette_entry_index == NONE)
 		return TRUE;
+	if (firefight_active() && global_scenario_get()->type == _scenario_type_multiplayer)
+		return FALSE;
 	side = global_variant.universal_variant.teams ? game_engine_nearest_team(&placement->position) : 0;
 	set = options->vehicle_set[side];
 	if (set == VARIANT_VEHICLE_SET_PC)
@@ -8287,6 +8500,8 @@ short game_engine_friendly_damage(
 			return _friendly_damage_none;
 		friendly_fire = game->variant_options.friendly_fire;
 	}
+	else if (firefight_active())
+		return _friendly_damage_all;
 	else if (!game_engine || !global_variant.universal_variant.teams)
 		return _friendly_damage_all;
 	else
@@ -8806,6 +9021,9 @@ static void netgame_flag_verify_team_exists(
 static void game_engine_verify_current_map(
 	void)
 {
+	/* port: firefight */
+	if (firefight_active())
+		return;
 	netgame_flag_verify_team_exists(
 		_netgame_flag_ctf_flag,
 		0,
@@ -9454,6 +9672,8 @@ static void game_engine_update_item_spawn(
 	(port/linux/game/network_distributed.c) */
 	if (network_game_distributed_client())
 		return;
+	if (firefight_active() && scenario->type == _scenario_type_multiplayer)
+		return;
 
 	for (equipment_index = 0;
 		equipment_index < scenario->netgame_equipment.count;
@@ -9709,16 +9929,24 @@ void game_engine_postspawn_player_update(
 
 	player = player_get(player_index);
 	unit_index = player->unit_index;
-	fragmentation_grenade = TAG_BLOCK_GET_ELEMENT(
-		&scenario_get_game_globals()->grenades,
-		_unit_grenade_human_fragmentation,
-		struct game_globals_grenade);
-	plasma_grenade = TAG_BLOCK_GET_ELEMENT(
-		&scenario_get_game_globals()->grenades,
-		_unit_grenade_covenant_plasma,
-		struct game_globals_grenade);
-	plasma_grenade_count = plasma_grenade->maximum_count;
-	fragmentation_grenade_count = fragmentation_grenade->maximum_count;
+	if (scenario_get_game_globals()->grenades.count > _unit_grenade_covenant_plasma)
+	{
+		fragmentation_grenade = TAG_BLOCK_GET_ELEMENT(
+			&scenario_get_game_globals()->grenades,
+			_unit_grenade_human_fragmentation,
+			struct game_globals_grenade);
+		plasma_grenade = TAG_BLOCK_GET_ELEMENT(
+			&scenario_get_game_globals()->grenades,
+			_unit_grenade_covenant_plasma,
+			struct game_globals_grenade);
+		plasma_grenade_count = plasma_grenade->maximum_count;
+		fragmentation_grenade_count = fragmentation_grenade->maximum_count;
+	}
+	else
+	{
+		plasma_grenade_count = 4;
+		fragmentation_grenade_count = 4;
+	}
 
 	if (TEST_FLAG(game_engine_globals.flags, _game_engine_9_or_more_players_bit))
 	{
@@ -9806,6 +10034,10 @@ void game_engine_postspawn_player_update(
 	/* port: an OpenCE gametype's mode's equipment (Gun Game's weapon,
 	Infection's skull: port/linux/game/game_modes.c) */
 	game_modes_postspawn(player_index);
+
+	/* port: firefight */
+	if (firefight_active())
+		firefight_postspawn_player_update(player_index);
 
 	return;
 }
@@ -10188,6 +10420,7 @@ boolean game_engine_hud_score_get(
 		case game_engine_oddball: name = L"ODDBALL"; break;
 		case game_engine_king: name = L"KING OF THE HILL"; break;
 		case game_engine_race: name = L"RACE"; break;
+		case game_engine_firefight: name = L"FIREFIGHT"; break;
 		default: name = L""; break;
 		}
 	}
@@ -10253,6 +10486,7 @@ long game_engine_write_network_state(
 	case game_engine_oddball: written = game_engine_oddball_write_network_state(buffer, size); break;
 	case game_engine_king: written = game_engine_king_write_network_state(buffer, size); break;
 	case game_engine_race: written = game_engine_race_write_network_state(buffer, size); break;
+	case game_engine_firefight: written = firefight_write_network_state(buffer, size); break; /* port: firefight */
 	default: written = 0; break;
 	}
 	return sizeof(postgame_state) + written;
@@ -10281,6 +10515,7 @@ void game_engine_read_network_state(
 	case game_engine_oddball: read = game_engine_oddball_read_network_state(buffer, size, first); break;
 	case game_engine_king: read = game_engine_king_read_network_state(buffer, size, first); break;
 	case game_engine_race: read = game_engine_race_read_network_state(buffer, size, first); break;
+	case game_engine_firefight: read = firefight_read_network_state(buffer, size, first); break; /* port: firefight */
 	default: read = TRUE; break;
 	}
 	/* (a state the game type refused is not had: the first it takes is,

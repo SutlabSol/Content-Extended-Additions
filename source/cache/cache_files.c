@@ -1153,6 +1153,11 @@ boolean cache_files_map_plays_multiplayer(
 		return TRUE;
 	snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), tag_name_strip_path(map_name));
 	file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE)
+	{
+		snprintf(path, sizeof(path), "%s%s.map", CUSTOM_EDITION_MAP_DIRECTORY, tag_name_strip_path(map_name));
+		file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	}
 	if (file != INVALID_HANDLE_VALUE)
 	{
 		unsigned long bytes_read;
@@ -1258,6 +1263,11 @@ boolean cache_files_map_present(
 			return TRUE;
 		snprintf(path, sizeof(path), "%s%s.map", cache_files_map_directory(), name);
 		file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		if (file == INVALID_HANDLE_VALUE)
+		{
+			snprintf(path, sizeof(path), "%s%s.map", CUSTOM_EDITION_MAP_DIRECTORY, name);
+			file = CreateFileA(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+		}
 		if (file != INVALID_HANDLE_VALUE)
 		{
 			CloseHandle(file);
@@ -1355,7 +1365,7 @@ long scenario_tags_load(
 	own maps are (port/linux/game/custom_edition_cache.c). It has no Xbox
 	vertex or index buffers. It is never the game's own map of that file
 	name: a Custom Edition map that cannot load is not played at all. */
-	if (custom_edition_level_name(scenario_name))
+	if (custom_edition_level_name(scenario_name) && custom_edition_cache_playable(scenario_name))
 	{
 		/* port: a protected map's structure bsp names the groups of tags
 		whose own are scrambled (port/linux/game/tag_validate.c) */
@@ -1383,6 +1393,7 @@ long scenario_tags_load(
 
 				randomizer_custom_edition_tags_loaded(scenario_name);
 			}
+			skulls_level_loaded(cache_file_globals.tag_header->scenario_tag_index);
 			/* (the menus' tags, as for this build's maps below) */
 			{
 				extern void menu_tags_loaded(char const *map_name);

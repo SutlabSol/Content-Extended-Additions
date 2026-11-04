@@ -154,6 +154,8 @@ static void _game_engine_play_multiplayer_sound(
 
 	global_scenario_get();
 	game_globals = (struct game_globals_multiplayer_sound_view *)scenario_get_game_globals();
+	if (!game_globals || game_globals->multiplayer_information.count <= 0)
+		return;
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,
@@ -211,6 +213,8 @@ static long get_sound_length_in_ticks(
 
 	global_scenario_get();
 	game_globals = (struct game_globals_multiplayer_sound_view *)scenario_get_game_globals();
+	if (!game_globals || game_globals->multiplayer_information.count <= 0)
+		return 0;
 	multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 		&game_globals->multiplayer_information,
 		0,

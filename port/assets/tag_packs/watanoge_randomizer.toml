@@ -21,6 +21,6 @@ exclude_sound_prefixes = ["sound\\music\\", "sound\\sfx\\ambience\\"]
 
 [text]
 notice = "The randomizer needs to build\nits data from the campaign maps:\na few minutes and about 500 MB,\nonce. It starts when this closes."
-building = "Building the randomizer's data\nfrom the campaign maps: "
+building = "Building the randomizer's\ndata from the maps:\n"
 ready = "The randomizer's data is ready."
 failed = "The randomizer's data could not\nbe built (is the card full?).\nRandomized levels cannot load\nits tags until it is."
