@@ -50,6 +50,13 @@ Halo 1 CE-styled Firefight HUD module:
 #include "rasterizer/xbox/rasterizer_xbox.h"
 #include <stdlib.h>
 
+/* (the C library's allocator, not the game's tracked one (cseries.h): the
+rank icons' file comes from config_file_read, which allocates with it; the
+icons and the working pictures are kept for the whole run) */
+#undef malloc
+#undef free
+#undef realloc
+
 unsigned long system_milliseconds(void);
 /* the platform layer's (port_config.c) */
 void config_folder(char *path, size_t size);
