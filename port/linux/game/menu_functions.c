@@ -10000,7 +10000,7 @@ static void tags_update(struct widget_instance *list)
 		/* (made again only when what they show, or its fonts, change) */
 		needs_state = previewed ? tag_preview_needs(&needs) : _tag_preview_needs_waiting;
 		snprintf(shown, sizeof(shown), "%d %ld %d %lu %ld %d %d %ld %lu %d %d %d %d %ld %ld %d %s %lu %d %ld %ld %ld "
-			"%d %ld %d %ld %d %d %s",
+			"%ld %d %ld %d %d %s",
 			tags_screen.list, tags_screen.mp_profile, tags_screen.mp_weapon, port_tag_mp_profiles_scans(),
 			tags_screen.campaign_profile, tags_screen.campaign_enemies, tags_screen.campaign_stock,
 			(long)tags_screen.campaign_rank, port_tag_campaign_profiles_scans(), *chosen,
