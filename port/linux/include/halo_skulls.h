@@ -124,6 +124,8 @@ void skulls_game_state_loaded(void);
 /* the skulls on in the level, their icons at the bottom right of the local
 player's screen (hud.c) */
 void skulls_hud_draw(short local_player_index);
+/* whether a skull is turned on for the level (Firefight's own are apart) */
+int skull_on_for_level(int skull);
 
 /* a level loaded: the skulls it is played with, taken now (the host's for
 a client), and Grunt Birthday Party's sound added to its tags; the level

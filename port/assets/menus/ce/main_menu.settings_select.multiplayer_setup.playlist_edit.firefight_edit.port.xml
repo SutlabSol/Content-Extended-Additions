@@ -6,14 +6,10 @@
 		<on event="start" run="mp profile set game engine" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_options_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_page_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="0" font="ui\large_ui" color="#FFFFD040" text_x="13" text_y="4">
-	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_page_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_page" font="ui\large_ui" color="#FFFFD040" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
-		<on event="left_mouse" run="mouse spinner 1wide click"/>
-	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FFFFD040">
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_page_label"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_page_spinner" x="286" y="1"/>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_0" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="WAVE &amp; LIVES" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_screen"/>
+		<on event="start" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_set_limit_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="1" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
@@ -96,6 +92,34 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_bonus_dur_label"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_bonus_dur_spinner" x="286" y="1"/>
 	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_help" type="text" controller="1" left="68" top="348" width="482" height="62" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_0" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_help">
+		<data input="game settings lists text update"/>
+		<on event="created" run="mp profile init firefight rules"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_set_limit" x="54" y="73"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_start_lives" x="54" y="100"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_round_lives" x="54" y="127"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_bonus_lives" x="54" y="154"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_max_lives" x="54" y="181"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_prep_time" x="54" y="208"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_wave_limit" x="54" y="235"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_bonus_round" x="54" y="262"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_bonus_dur" x="54" y="289"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_0" type="text" controller="1" left="35" top="11" width="605" height="59" text="WAVE &amp; LIVES" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="created" run="NULL"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_0"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_0_menu"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_1" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="FACTIONS &amp; AI" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_screen"/>
+		<on event="start" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_faction_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="10" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_faction_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_faction" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
@@ -176,6 +200,34 @@
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_ai_weapons" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_ai_weapons_label"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_ai_weapons_spinner" x="286" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_help" type="text" controller="1" left="68" top="348" width="482" height="62" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_1" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_help">
+		<data input="game settings lists text update"/>
+		<on event="created" run="mp profile init firefight rules"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_faction" x="54" y="73"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_allegiance" x="54" y="100"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_difficulty" x="54" y="127"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_escalation" x="54" y="154"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_enemy_hp" x="54" y="181"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_enemy_shd" x="54" y="208"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_wave_size" x="54" y="235"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_boss_freq" x="54" y="262"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_ai_weapons" x="54" y="289"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_1" type="text" controller="1" left="35" top="11" width="605" height="59" text="FACTIONS &amp; AI" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="created" run="NULL"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_1"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_1_menu"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_2" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="ENEMY UNITS" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_screen"/>
+		<on event="start" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_u_grunts_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="19" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
@@ -258,6 +310,34 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_u_sents_label"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_u_sents_spinner" x="286" y="1"/>
 	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_help" type="text" controller="1" left="68" top="348" width="482" height="62" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_2" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_help">
+		<data input="game settings lists text update"/>
+		<on event="created" run="mp profile init firefight rules"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_grunts" x="54" y="73"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_jackals" x="54" y="100"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_elites" x="54" y="127"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_specops" x="54" y="154"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_zealots" x="54" y="181"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_hunters" x="54" y="208"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_flood_c" x="54" y="235"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_flood_k" x="54" y="262"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_sents" x="54" y="289"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_2" type="text" controller="1" left="35" top="11" width="605" height="59" text="ENEMY UNITS" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="created" run="NULL"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_2"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_2_menu"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_3" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="VEHICLES &amp; DROPS" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_screen"/>
+		<on event="start" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_dropships_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="28" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_dropships_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_dropships" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
@@ -339,6 +419,34 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_fail_label"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_fail_spinner" x="286" y="1"/>
 	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_help" type="text" controller="1" left="68" top="348" width="482" height="62" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_3" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_help">
+		<data input="game settings lists text update"/>
+		<on event="created" run="mp profile init firefight rules"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_dropships" x="54" y="73"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_boss_veh" x="54" y="100"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_ordnance" x="54" y="127"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r1_veh" x="54" y="154"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r2_veh" x="54" y="181"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r3_veh" x="54" y="208"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_allies" x="54" y="235"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_generators" x="54" y="262"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_gen_fail" x="54" y="289"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_3" type="text" controller="1" left="35" top="11" width="605" height="59" text="VEHICLES &amp; DROPS" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="created" run="NULL"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_3"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_menu"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_4" type="text" width="512" height="28" bitmap="bitmaps/option_bkds" text="SKULLS &amp; TRAITS" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+		<on event="a" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_screen"/>
+		<on event="start" open="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_prog_skulls_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="37" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_prog_skulls_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_prog_skulls" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
@@ -350,12 +458,14 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_start_skulls_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="38" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_start_skulls_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_start_skulls" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
-		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_start_skulls_value" type="text" controller="1" left="2" top="2" width="206" height="20" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_start_skulls" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="firefight skulls open"/>
+		<on event="start" run="firefight skulls open"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_start_skulls_label"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_start_skulls_spinner" x="286" y="1"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_start_skulls_value" x="286" y="1"/>
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_shields_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="40" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
@@ -402,14 +512,38 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_hp_label"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_hp_spinner" x="286" y="1"/>
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_custom_skulls_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="45" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_tag_profile_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="45" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_custom_skulls_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_custom_skulls" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
-		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_tag_profile_value" type="text" controller="1" left="2" top="2" width="206" height="20" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_custom_skulls" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_custom_skulls_label"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_custom_skulls_spinner" x="286" y="1"/>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_tag_profile" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<on event="a" run="firefight tag profile open"/>
+		<on event="start" run="firefight tag profile open"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_tag_profile_label"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_tag_profile_value" x="286" y="1"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_help" type="text" controller="1" left="68" top="348" width="482" height="62" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_4" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_help">
+		<data input="game settings lists text update"/>
+		<on event="created" run="mp profile init firefight rules"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_prog_skulls" x="54" y="73"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_start_skulls" x="54" y="100"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_shields" x="54" y="127"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_speed" x="54" y="154"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_gravity" x="54" y="181"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_ammo" x="54" y="208"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_gen_hp" x="54" y="235"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_tag_profile" x="54" y="262"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_4" type="text" controller="1" left="35" top="11" width="605" height="59" text="SKULLS &amp; TRAITS" font="ui\large_ui" color="#FFFFFFFF">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="created" run="NULL"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_4"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_4_menu"/>
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<data input="common button bar update"/>
@@ -425,61 +559,22 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_options_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_options_help">
 		<data input="game settings lists text update"/>
-		<on event="created" run="mp profile init firefight rules"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page" x="54" y="73"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_set_limit" x="54" y="100"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_start_lives" x="54" y="127"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_round_lives" x="54" y="154"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_bonus_lives" x="54" y="181"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_max_lives" x="54" y="208"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_prep_time" x="54" y="235"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_wave_limit" x="54" y="262"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_bonus_round" x="54" y="289"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff0_bonus_dur" x="54" y="316"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_faction" x="54" y="100"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_allegiance" x="54" y="127"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_difficulty" x="54" y="154"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_escalation" x="54" y="181"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_enemy_hp" x="54" y="208"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_enemy_shd" x="54" y="235"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_wave_size" x="54" y="262"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_boss_freq" x="54" y="289"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff1_ai_weapons" x="54" y="316"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_grunts" x="54" y="100"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_jackals" x="54" y="127"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_elites" x="54" y="154"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_specops" x="54" y="181"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_zealots" x="54" y="208"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_hunters" x="54" y="235"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_flood_c" x="54" y="262"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_flood_k" x="54" y="289"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff2_u_sents" x="54" y="316"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_dropships" x="54" y="100"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_boss_veh" x="54" y="127"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_ordnance" x="54" y="154"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r1_veh" x="54" y="181"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r2_veh" x="54" y="208"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r3_veh" x="54" y="235"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_allies" x="54" y="262"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_generators" x="54" y="289"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_gen_fail" x="54" y="316"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_prog_skulls" x="54" y="100"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_start_skulls" x="54" y="127"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_shields" x="54" y="154"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_speed" x="54" y="181"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_gravity" x="54" y="208"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_ammo" x="54" y="235"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_gen_hp" x="54" y="262"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff4_custom_skulls" x="54" y="289"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_0" x="54" y="100"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_1" x="54" y="131"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_2" x="54" y="162"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_3" x="54" y="193"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff_page_4" x="54" y="224"/>
+		<child widget="main_menu/multiplayer_type_select/gamemode/gamemode_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_options" type="text" controller="1" left="35" top="11" width="605" height="59" text="FIREFIGHT OPTIONS" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_options_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
 		<on event="created" run="NULL"/>
-		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/game_type_select/header_rules"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_options"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_options_menu"/>
 	</widget>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels">
-		<string text="SETTINGS PAGE:"/>
+		<string text=""/>
 		<string text="SET LIMIT:"/>
 		<string text="STARTING LIVES:"/>
 		<string text="BONUS LIVES / ROUND:"/>
@@ -524,17 +619,10 @@
 		<string text="PLAYER GRAVITY:"/>
 		<string text="INFINITE AMMO:"/>
 		<string text="GENERATOR HEALTH:"/>
-		<string text="40-SKULL EXTRAS:"/>
+		<string text="TAG PROFILE:"/>
 		<string text="STATS CATEGORY:"/>
 		<string text="WEB &amp; JSON SYNC:"/>
 		<string text="SERVICE RECORD"/>
-	</strings>
-	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_page">
-		<string text="1. WAVE &amp; LIVES"/>
-		<string text="2. FACTIONS &amp; AI"/>
-		<string text="3. ENEMY UNITS"/>
-		<string text="4. VEHICLES/DROPS"/>
-		<string text="5. SKULLS/TRAITS"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_set_limit">
 		<string text="UNLIMITED"/>
@@ -705,15 +793,6 @@
 		<string text="OFF (LOCKED)"/>
 		<string text="REACH STANDARD"/>
 		<string text="RANDOM / ROUND"/>
-		<string text="ALL SKULLS ON"/>
-	</strings>
-	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_start_skulls">
-		<string text="NONE"/>
-		<string text="GRUNT BIRTHDAY"/>
-		<string text="TOUGH + CATCH"/>
-		<string text="MYTHIC + TILT"/>
-		<string text="FAMINE + B.EYE"/>
-		<string text="LASO (ALL 13)"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_species">
 		<string text="SPARTAN (UNSC)"/>
@@ -750,13 +829,6 @@
 		<string text="HEAVY (5000)"/>
 		<string text="FORTRESS (10K)"/>
 	</strings>
-	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_custom_skulls">
-		<string text="NONE"/>
-		<string text="BANDANA + BOOM"/>
-		<string text="SYNTH + ACRO"/>
-		<string text="OUTBREAK PACK"/>
-		<string text="CHAOS PACK (8)"/>
-	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_stats_view">
 		<string text="CAREER OVERVIEW"/>
 		<string text="COMBAT &amp; SPREES"/>
@@ -773,11 +845,13 @@
 		<string text="PRESS A: COPY ID"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight">
-		<string text="Page 1/5: Configure Set limits, shared team lives,\nprep countdowns, and Bonus Rounds."/>
-		<string text="Page 2/5: Configure enemy factions, allegiances,\nAI combat difficulty, and per-Set scaling."/>
-		<string text="Page 3/5: Enable or disable individual Covenant,\nFlood, Sentinel, and Human enemy unit types."/>
-		<string text="Page 4/5: Configure Wave Insertion beacons, Boss\nvehicles, Round 1-3 vehicles, and Generators."/>
-		<string text="Page 5/5: Configure Skull rotation, starting skulls,\nSpartan traits, and 40-Skull extras."/>
+		<string text="Configure Set limits, shared team lives,\nprep countdowns, and Bonus Rounds."/>
+		<string text="Configure enemy factions, allegiances,\nAI combat difficulty, and per-Set scaling."/>
+		<string text="Enable or disable individual Covenant,\nFlood, Sentinel, and Human enemy unit types."/>
+		<string text="Configure Wave Insertion beacons, Boss\nvehicles, Round 1-3 vehicles, and Generators."/>
+		<string text="Configure Skull rotation, starting skulls,\nSpartan traits, and the Tag Injector profile."/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_0">
 		<string text="Play endless sets until all defenders fall."/>
 		<string text="Complete 1 Set (3 Rounds + Bonus Round) to win."/>
 		<string text="Complete 2 Sets for victory."/>
@@ -826,6 +900,8 @@
 		<string text="60-second Bonus Round timer (Reach default)."/>
 		<string text="90-second Bonus Round timer."/>
 		<string text="120-second Bonus Round timer."/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_1">
 		<string text="Spawn Covenant waves (Grunts, Jackals, Elites,\nand Hunters)."/>
 		<string text="Rotate Covenant, Flood, and Sentinels across Rounds."/>
 		<string text="Spawn Flood waves (Infection, Combat, and Carrier\nForms)."/>
@@ -865,6 +941,8 @@
 		<string text="Enemies wield their standard faction weapons."/>
 		<string text="Enemies wield promoted heavy tier weapons\n(Fuel Rods, Swords, Rockets)."/>
 		<string text="Fiesta: Every enemy spawns with a random UNSC\nor Covenant weapon!"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_2">
 		<string text="Allow Covenant Grunts (Minor, Major, Heavy) to\nspawn."/>
 		<string text="Disable Covenant Grunts from spawning."/>
 		<string text="Allow Covenant Shield Jackals to spawn."/>
@@ -883,6 +961,9 @@
 		<string text="Disable Flood Carrier and Infection Forms."/>
 		<string text="Allow Forerunner Sentinels and UNSC Marine enemy\nunits to spawn."/>
 		<string text="Disable Forerunner Sentinels and UNSC Marine\nenemy units."/>
+		<string text="CANNOT DISABLE ALL ENEMY TYPES -\nAT LEAST 1 MUST REMAIN ON"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_3">
 		<string text="Insert enemy squads with Covenant Teleportation\nbeacons at each active wave zone."/>
 		<string text="Spawn enemy squads directly at ground zones\nwith no insertion beacon effect."/>
 		<string text="Highlight wave insertion zones with Covenant\nPlasma Orbital Beacons."/>
@@ -928,16 +1009,12 @@
 		<string text="Defend 3 UNSC Generators (ALPHA, BETA, GAMMA)\nwith 30s Lockdown switches."/>
 		<string text="Defeat only when all generators are destroyed."/>
 		<string text="Defeat immediately if any single generator is\ndestroyed."/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_4">
 		<string text="Only your chosen Starting Skulls are active;\nno automatic Round skulls."/>
 		<string text="Activate Tough Luck (R2), Catch (R3), Black Eye\n(Bonus), and Set Skulls."/>
-		<string text="Activate a random Skull from the 40-Skull pool\nevery Round."/>
-		<string text="Activate all Firefight progression Skulls from\nWave 1."/>
-		<string text="Start Wave 1 with no pre-activated Reach Skulls."/>
-		<string text="Start with Grunt Birthday Party active from\nWave 1."/>
-		<string text="Start with Tough Luck and Catch active from\nWave 1."/>
-		<string text="Start with Mythic (2x AI Vitality) and Tilt\nactive from Wave 1."/>
-		<string text="Start with Famine and Black Eye active from\nWave 1."/>
-		<string text="Start with all 13 Reach/ODST Firefight Skulls\nactive (LASO)."/>
+		<string text="Activate a random Firefight Skull every Round,\nnever one already on."/>
+		<string text="Press A to choose the skulls on from Wave 1. One\nalso turned on by a round is simply left on."/>
 		<string text="Standard 100% Spartan energy shields."/>
 		<string text="Disable player energy shields (0% Shields)."/>
 		<string text="50% player energy shield capacity."/>
@@ -959,11 +1036,6 @@
 		<string text="Fragile Generator durability (1250 HP)."/>
 		<string text="Reinforced Generator durability (5000 HP)."/>
 		<string text="Fortress Generator durability (10000 HP)."/>
-		<string text="No extra 40-Skull pack modifiers."/>
-		<string text="Enable Bandana (Infinite Ammo) and Boom\n(2x Explosion Radius)."/>
-		<string text="Enable Synthesis and Acrophobia\n(Fly/Jetpack by holding Jump)."/>
-		<string text="Enable Outbreak and Undead\n(fallen bodies reanimate as Flood)."/>
-		<string text="Enable 8-Skull Chaos Pack (Bandana, Boom,\nSputnik, Pinata, Funeral, etc.)."/>
-		<string text="CANNOT DISABLE ALL ENEMY TYPES -\nAT LEAST 1 MUST REMAIN ON"/>
+		<string text="Press A to choose the Tag Injector profile whose\nAI and weapons join the waves and drops."/>
 	</strings>
 </menus>

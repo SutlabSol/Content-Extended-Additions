@@ -320,11 +320,17 @@ struct game_variant_options
 	unsigned long firefight_custom_skulls;
 	short firefight_generator_health;
 	short firefight_score_life_threshold;
-	byte firefight_round_1_skull;
-	byte firefight_round_2_skull;
-	byte firefight_round_3_skull;
+	/* (indices of the rules' 100%, 50%, 150%, 200%, 300%) */
+	byte firefight_enemy_health_scale;
+	byte firefight_enemy_shield_scale;
+	/* the bonus round's seconds (else FIREFIGHT_BONUS_ROUND_TICKS') */
+	byte firefight_bonus_seconds;
 	byte firefight_faction_diplomacy;
-	unsigned long firefight_skull_exclude_mask;
+	/* the Tag Injector profile the variant plays, by its folder's hash
+	(firefight_tag_profile_hash; 0: none), whose tags the host shares */
+	unsigned long firefight_tag_profile;
+	/* the skulls on from the start: a bit of each enum skull's, and
+	FIREFIGHT_STARTING_SKULLS_EXACT (firefight_starting_skulls_get) */
 	unsigned long firefight_starting_skulls[2];
 	unsigned short firefight_unit_toggles;
 	byte firefight_set_escalation;

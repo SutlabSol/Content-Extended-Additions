@@ -3,9 +3,11 @@ Forge), which port_settings.multiplayer_files writes into files of their own
 beside the PC version's (content_extended_files):
 
 - the gametype editor's FIREFIGHT (the list's row after RACE's: its patch,
-  port_settings.WIDGET_PATCHES) and its screen of Firefight's rules, five
-  pages of rows (FIREFIGHT_ROWS) that menu_functions.c shows a page at a time
-  ("mp profile init/set firefight rules", its option table's ff_ rows);
+  port_settings.WIDGET_PATCHES) and Firefight's rules, a screen of five
+  buttons (FIREFIGHT_PAGES), each with its own screen of rows (FIREFIGHT_ROWS:
+  "mp profile init/set firefight rules", its option table's ff_ rows);
+- Firefight's menu (FIREFIGHT_MENU: SOLO, MULTIPLAYER, its variants, the Tag
+  Injector), as Forge's is;
 - Multiplayer's headers and pictures for the mode chosen (STANDARD, FIREFIGHT
   or FORGE: menu_functions.c's "mp type screen update") and Forge's menus,
   whose screens port/forge (forge_hooks.c) runs: FORGE_WIDGETS, as the fork
@@ -20,6 +22,18 @@ GAMETYPE_SELECT = "main_menu/settings_select/multiplayer_setup/playlist_edit/gam
 # the Tag Injector's screen, which Forge's menu opens (port_settings.py writes it)
 TAG_INJECTOR_SCREEN = ("main_menu/settings_select/player_setup/player_profile_edit/gameplay/"
                        "tag_injector/tag_injector_screen")
+
+# Firefight's menu
+FIREFIGHT_SELECT = "main_menu/firefight_select"
+MULTIPLAYER_SCREEN = "main_menu/multiplayer_type_select/multiplayer_type_select_screen"
+VARIANTS_SCREEN = "main_menu/settings_select/multiplayer_setup/playlist_select/gametype_select_screen"
+LOCAL_MAP_SCREEN = "main_menu/multiplayer_type_select/connected/connected_map_select_wrapper"
+# the rules' buttons, each its page of FIREFIGHT_ROWS, and the units' page
+FIREFIGHT_PAGES = ['WAVE & LIVES', 'FACTIONS & AI', 'ENEMY UNITS', 'VEHICLES & DROPS', 'SKULLS & TRAITS']
+FIREFIGHT_UNITS_PAGE = 2
+# the rows that open a screen over the rules (no choices of their own):
+# what A runs (menu_functions.c's, which shows each its value)
+FIREFIGHT_ACTION_ROWS = {'start_skulls': 'firefight skulls open', 'tag_profile': 'firefight tag profile open'}
 
 # the rules' rows: their page, the row's key (op_ff<page>_<key>), the
 # setting's (ff_<key>_label and _spinner, menu_functions.c's), its label's
@@ -61,15 +75,15 @@ FIREFIGHT_ROWS = [(0, 'set_limit', 'set_limit', 1, 'set_limit'),
  (3, 'generators', 'generators', 35, 'generators'),
  (3, 'gen_fail', 'gen_fail', 36, 'gen_fail'),
  (4, 'prog_skulls', 'prog_skulls', 37, 'prog_skulls'),
- (4, 'start_skulls', 'start_skulls', 38, 'start_skulls'),
+ (4, 'start_skulls', 'start_skulls', 38, None),
  (4, 'shields', 'shields', 40, 'shields'),
  (4, 'speed', 'speed', 41, 'speed'),
  (4, 'gravity', 'gravity', 42, 'gravity'),
  (4, 'ammo', 'ammo', 43, 'ammo'),
  (4, 'gen_hp', 'gen_hp', 44, 'gen_hp'),
- (4, 'custom_skulls', 'custom_skulls', 45, 'custom_skulls')]
-# the rows' labels (the first SETTINGS PAGE:'s, the page chooser's)
-FIREFIGHT_LABELS = ['SETTINGS PAGE:',
+ (4, 'tag_profile', 'tag_profile', 45, None)]
+# the rows' labels
+FIREFIGHT_LABELS = ['',
  'SET LIMIT:',
  'STARTING LIVES:',
  'BONUS LIVES / ROUND:',
@@ -114,17 +128,17 @@ FIREFIGHT_LABELS = ['SETTINGS PAGE:',
  'PLAYER GRAVITY:',
  'INFINITE AMMO:',
  'GENERATOR HEALTH:',
- '40-SKULL EXTRAS:',
+ 'TAG PROFILE:',
  'STATS CATEGORY:',
  'WEB & JSON SYNC:',
  'SERVICE RECORD']
-# the help of each row's choices, in menu_functions.c's order (its
-# gametype_option_help)
-FIREFIGHT_HELP = ['Page 1/5: Configure Set limits, shared team lives,\\nprep countdowns, and Bonus Rounds.',
- 'Page 2/5: Configure enemy factions, allegiances,\\nAI combat difficulty, and per-Set scaling.',
- 'Page 3/5: Enable or disable individual Covenant,\\nFlood, Sentinel, and Human enemy unit types.',
- 'Page 4/5: Configure Wave Insertion beacons, Boss\\nvehicles, Round 1-3 vehicles, and Generators.',
- 'Page 5/5: Configure Skull rotation, starting skulls,\\nSpartan traits, and 40-Skull extras.',
+# the help of the rules' buttons, then of each row's choices, in order
+# (firefight_page_helps), then of the units' guard
+FIREFIGHT_HELP = ['Configure Set limits, shared team lives,\\nprep countdowns, and Bonus Rounds.',
+ 'Configure enemy factions, allegiances,\\nAI combat difficulty, and per-Set scaling.',
+ 'Enable or disable individual Covenant,\\nFlood, Sentinel, and Human enemy unit types.',
+ 'Configure Wave Insertion beacons, Boss\\nvehicles, Round 1-3 vehicles, and Generators.',
+ 'Configure Skull rotation, starting skulls,\\nSpartan traits, and the Tag Injector profile.',
  'Play endless sets until all defenders fall.',
  'Complete 1 Set (3 Rounds + Bonus Round) to win.',
  'Complete 2 Sets for victory.',
@@ -277,14 +291,8 @@ FIREFIGHT_HELP = ['Page 1/5: Configure Set limits, shared team lives,\\nprep cou
  'Defeat immediately if any single generator is\\ndestroyed.',
  'Only your chosen Starting Skulls are active;\\nno automatic Round skulls.',
  'Activate Tough Luck (R2), Catch (R3), Black Eye\\n(Bonus), and Set Skulls.',
- 'Activate a random Skull from the 40-Skull pool\\nevery Round.',
- 'Activate all Firefight progression Skulls from\\nWave 1.',
- 'Start Wave 1 with no pre-activated Reach Skulls.',
- 'Start with Grunt Birthday Party active from\\nWave 1.',
- 'Start with Tough Luck and Catch active from\\nWave 1.',
- 'Start with Mythic (2x AI Vitality) and Tilt\\nactive from Wave 1.',
- 'Start with Famine and Black Eye active from\\nWave 1.',
- 'Start with all 13 Reach/ODST Firefight Skulls\\nactive (LASO).',
+ 'Activate a random Firefight Skull every Round,\\nnever one already on.',
+ 'Press A to choose the skulls on from Wave 1. One\\nalso turned on by a round is simply left on.',
  'Standard 100% Spartan energy shields.',
  'Disable player energy shields (0% Shields).',
  '50% player energy shield capacity.',
@@ -306,15 +314,10 @@ FIREFIGHT_HELP = ['Page 1/5: Configure Set limits, shared team lives,\\nprep cou
  'Fragile Generator durability (1250 HP).',
  'Reinforced Generator durability (5000 HP).',
  'Fortress Generator durability (10000 HP).',
- 'No extra 40-Skull pack modifiers.',
- 'Enable Bandana (Infinite Ammo) and Boom\\n(2x Explosion Radius).',
- 'Enable Synthesis and Acrophobia\\n(Fly/Jetpack by holding Jump).',
- 'Enable Outbreak and Undead\\n(fallen bodies reanimate as Flood).',
- 'Enable 8-Skull Chaos Pack (Bandana, Boom,\\nSputnik, Pinata, Funeral, etc.).',
+ 'Press A to choose the Tag Injector profile whose\\nAI and weapons join the waves and drops.',
  'CANNOT DISABLE ALL ENEMY TYPES -\\nAT LEAST 1 MUST REMAIN ON']
 # the spinners' choices (var_ff_<name>), the page chooser's first
-FIREFIGHT_CHOICES = {'var_ff_page': ['1. WAVE & LIVES', '2. FACTIONS & AI', '3. ENEMY UNITS', '4. VEHICLES/DROPS', '5. SKULLS/TRAITS'],
- 'var_ff_set_limit': ['UNLIMITED', '1 SET', '2 SETS', '3 SETS', '5 SETS', '10 SETS'],
+FIREFIGHT_CHOICES = {'var_ff_set_limit': ['UNLIMITED', '1 SET', '2 SETS', '3 SETS', '5 SETS', '10 SETS'],
  'var_ff_starting_lives': ['UNLIMITED',
                            '0 LIVES',
                            '3 LIVES',
@@ -353,20 +356,13 @@ FIREFIGHT_CHOICES = {'var_ff_page': ['1. WAVE & LIVES', '2. FACTIONS & AI', '3. 
  'var_ff_allies': ['OFF', '2 ALLIES / SET', '4 ALLIES / SET', 'ODST / SPECOPS', 'PER ROUND'],
  'var_ff_generators': ['OFF', '1 GENERATOR', '2 GENERATORS', '3 GENERATORS'],
  'var_ff_gen_fail': ['LOSE ALL', 'LOSE ANY'],
- 'var_ff_prog_skulls': ['OFF (LOCKED)', 'REACH STANDARD', 'RANDOM / ROUND', 'ALL SKULLS ON'],
- 'var_ff_start_skulls': ['NONE',
-                         'GRUNT BIRTHDAY',
-                         'TOUGH + CATCH',
-                         'MYTHIC + TILT',
-                         'FAMINE + B.EYE',
-                         'LASO (ALL 13)'],
+ 'var_ff_prog_skulls': ['OFF (LOCKED)', 'REACH STANDARD', 'RANDOM / ROUND'],
  'var_ff_species': ['SPARTAN (UNSC)', 'ELITE (COV)'],
  'var_ff_shields': ['NORMAL (100%)', 'NO SHIELDS', 'HALF (50%)', '1.5X (150%)', '2X OVERSHIELD', '4X JUGGERNAUT'],
  'var_ff_speed': ['100%', '75%', '125%', '150%'],
  'var_ff_gravity': ['100%', '50% (LOW GRAV)', '75%', '150% (HEAVY)'],
  'var_ff_ammo': ['OFF', 'INF. RESERVE', 'BOTTOMLESS'],
  'var_ff_gen_hp': ['NORMAL (2500)', 'FRAGILE (1250)', 'HEAVY (5000)', 'FORTRESS (10K)'],
- 'var_ff_custom_skulls': ['NONE', 'BANDANA + BOOM', 'SYNTH + ACRO', 'OUTBREAK PACK', 'CHAOS PACK (8)'],
  'var_ff_stats_view': ['CAREER OVERVIEW',
                        'COMBAT & SPREES',
                        'MULTIKILL MEDALS',
@@ -722,10 +718,58 @@ def _option(name: str, key: str, color: str) -> list:
                    f'<child widget="{FIREFIGHT_EDIT}/ff_{key}_spinner" x="286" y="1"/>'])
 
 
+def _action_row(key: str, label_index: int, color: str) -> list:
+    """a row that opens a screen: its label, and the value menu_functions.c
+    shows where a spinner's would be"""
+    return widget(f"{FIREFIGHT_EDIT}/ff_{key}_label",
+                  [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
+                   ("string_list", f"{FIREFIGHT_EDIT}/firefight_labels"), ("string_index", label_index),
+                   ("font", "ui\\large_ui"), ("color", color), ("text_x", 13), ("text_y", 4)], []) + \
+        widget(f"{FIREFIGHT_EDIT}/ff_{key}_value",
+               [("type", "text"), ("controller", 1), ("left", 2), ("top", 2), ("width", 206), ("height", 20),
+                ("font", "ui\\large_ui"), ("color", color), ("align", "center"), ("text_y", 4)], [])
+
+
+def _action_option(name: str, key: str, color: str) -> list:
+    run = FIREFIGHT_ACTION_ROWS[key]
+    return widget(name, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                         ("bitmap", "bitmaps/option_bkds"), ("color", color)],
+                  [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
+                   '<on event="left_mouse" run="mouse emit accept event"/>',
+                   f'<child widget="{FIREFIGHT_EDIT}/ff_{key}_label"/>',
+                   f'<child widget="{FIREFIGHT_EDIT}/ff_{key}_value" x="286" y="1"/>'])
+
+
+def firefight_page_helps() -> list:
+    """FIREFIGHT_HELP's for each page, after the hub's: its rows' in order, a
+    help for each of a spinner's choices, one for a row that opens a screen
+    (menu_functions.c's gametype_option_help counts them so); the units'
+    guard's last, on its page (FF_UNIT_GUARD_HELP_STRING_INDEX)"""
+    pages = [[] for _ in FIREFIGHT_PAGES]
+    place = len(FIREFIGHT_PAGES)
+    for page, _, setting, _, choices in FIREFIGHT_ROWS:
+        count = 1 if setting in FIREFIGHT_ACTION_ROWS else len(FIREFIGHT_CHOICES[f"var_ff_{choices}"])
+        pages[page] += FIREFIGHT_HELP[place:place + count]
+        place += count
+    pages[FIREFIGHT_UNITS_PAGE].append(FIREFIGHT_HELP[place])
+    return pages
+
+
+def _header(name: str, text: str) -> list:
+    return widget(name, [("type", "text"), ("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
+                         ("text", text), ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+
+
+def _help(name: str, texts: str) -> list:
+    return widget(name, [("type", "text"), ("controller", 1), ("left", 68), ("top", 348), ("width", 482),
+                         ("height", 62), ("string_list", texts), ("font", "ui\\large_ui"),
+                         ("color", "#FFFFFFFF")], [])
+
+
 def firefight_editor() -> list:
-    """the gametype editor's FIREFIGHT row and its rules' screen: SETTINGS
-    PAGE (gold) at the top, under it the page's rows 27 apart, all of them
-    the menu's children (menu_functions.c shows those of the page chosen)"""
+    """the gametype editor's FIREFIGHT row, and a variant's rules: a screen of
+    a button for each page, each opening its own screen of rows 27 apart,
+    whose OK keeps them ("mp profile set firefight rules")"""
     lines = widget(f"{GAMETYPE_SELECT}/gametype_select_firefight_item",
                    [("type", "text"), ("left", 51), ("top", 78), ("width", 232), ("height", 32),
                     ("bitmap", "bitmaps/list_item_bkd_top"),
@@ -734,16 +778,41 @@ def firefight_editor() -> list:
                    [f'<on event="{event}" run="mp profile set game engine" '
                     f'open="{FIREFIGHT_EDIT}/firefight_options_screen"/>' for event in ("a", "start")] +
                    ['<on event="left_mouse" run="mouse emit accept event"/>'])
-    lines += _row("page", 0, "page", "#FFFFD040")
-    lines += _option(f"{FIREFIGHT_EDIT}/op_ff_page", "page", "#FFFFD040")
-    children = [f'<child widget="{FIREFIGHT_EDIT}/op_ff_page" x="54" y="73"/>']
-    for page, key, setting, label_index, choices in FIREFIGHT_ROWS:
-        lines += _row(setting, label_index, choices, "#FF2896FF")
-        lines += _option(f"{FIREFIGHT_EDIT}/op_ff{page}_{key}", setting, "#FF2896FF")
-        place = [row[0] for row in FIREFIGHT_ROWS[:FIREFIGHT_ROWS.index((page, key, setting, label_index, choices))]
-                 ].count(page)
-        children.append(f'<child widget="{FIREFIGHT_EDIT}/op_ff{page}_{key}" x="54" y="{100 + 27 * place}"/>')
-    children.append(f'<child widget="{FIREFIGHT_EDIT}/firefight_button_bar" y="414"/>')
+    buttons = []
+    for page, title in enumerate(FIREFIGHT_PAGES):
+        screen = f"{FIREFIGHT_EDIT}/firefight_page_{page}_screen"
+        lines += widget(f"{FIREFIGHT_EDIT}/op_ff_page_{page}",
+                        [("type", "text"), ("width", 512), ("height", 28), ("bitmap", "bitmaps/option_bkds"),
+                         ("text", title), ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
+                         ("text_y", 4)],
+                        [*[f'<on event="{event}" open="{screen}"/>' for event in ("a", "start")],
+                         '<on event="left_mouse" run="mouse emit accept event"/>'])
+        buttons.append(f'<child widget="{FIREFIGHT_EDIT}/op_ff_page_{page}" x="54" y="{100 + 31 * page}"/>')
+        children = []
+        for row_page, key, setting, label_index, choices in FIREFIGHT_ROWS:
+            if row_page != page:
+                continue
+            if setting in FIREFIGHT_ACTION_ROWS:
+                lines += _action_row(setting, label_index, "#FF2896FF")
+                lines += _action_option(f"{FIREFIGHT_EDIT}/op_ff{page}_{key}", setting, "#FF2896FF")
+            else:
+                lines += _row(setting, label_index, choices, "#FF2896FF")
+                lines += _option(f"{FIREFIGHT_EDIT}/op_ff{page}_{key}", setting, "#FF2896FF")
+            children.append(f'<child widget="{FIREFIGHT_EDIT}/op_ff{page}_{key}" x="54" y="{73 + 27 * len(children)}"/>')
+        children.append(f'<child widget="{FIREFIGHT_EDIT}/firefight_button_bar" y="414"/>')
+        lines += _help(f"{FIREFIGHT_EDIT}/firefight_page_{page}_help", f"{FIREFIGHT_EDIT}/cap_firefight_{page}")
+        lines += widget(f"{FIREFIGHT_EDIT}/firefight_page_{page}_menu",
+                        [("type", "column_list"), ("width", 640), ("height", 480),
+                         ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                         ("description", f"{FIREFIGHT_EDIT}/firefight_page_{page}_help")],
+                        ['<data input="game settings lists text update"/>',
+                         '<on event="created" run="mp profile init firefight rules"/>', *children])
+        lines += _header(f"{FIREFIGHT_EDIT}/header_firefight_page_{page}", title)
+        lines += widget(screen, [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                                 ("bitmap", "bitmaps/gradient")],
+                        ['<on event="created" run="NULL"/>',
+                         f'<child widget="{FIREFIGHT_EDIT}/header_firefight_page_{page}"/>',
+                         f'<child widget="{FIREFIGHT_EDIT}/firefight_page_{page}_menu"/>'])
     lines += widget(f"{FIREFIGHT_EDIT}/firefight_button_bar",
                     [("type", "column_list"), ("width", 640), ("height", 28),
                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
@@ -756,35 +825,81 @@ def firefight_editor() -> list:
                      ("font", "ui\\small_ui"), ("color", "#FFFFFFFF"), ("align", "center"), ("text_y", 2)],
                     [f'<on event="{event}" run="mp profile set firefight rules" back="true"/>'
                      for event in ("a", "start")] + ['<on event="left_mouse" run="mouse emit accept event"/>'])
-    lines += widget(f"{FIREFIGHT_EDIT}/firefight_options_help",
-                    [("type", "text"), ("controller", 1), ("left", 68), ("top", 348), ("width", 482),
-                     ("height", 62), ("string_list", f"{FIREFIGHT_EDIT}/cap_firefight"), ("font", "ui\\large_ui"),
-                     ("color", "#FFFFFFFF")], [])
+    lines += _help(f"{FIREFIGHT_EDIT}/firefight_options_help", f"{FIREFIGHT_EDIT}/cap_firefight")
     lines += widget(f"{FIREFIGHT_EDIT}/firefight_options_menu",
                     [("type", "column_list"), ("width", 640), ("height", 480),
                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
                      ("description", f"{FIREFIGHT_EDIT}/firefight_options_help")],
-                    ['<data input="game settings lists text update"/>',
-                     '<on event="created" run="mp profile init firefight rules"/>', *children])
+                    ['<data input="game settings lists text update"/>', *buttons,
+                     '<child widget="main_menu/multiplayer_type_select/gamemode/gamemode_button_bar" y="414"/>'])
+    lines += _header(f"{FIREFIGHT_EDIT}/header_firefight_options", "FIREFIGHT OPTIONS")
     lines += widget(f"{FIREFIGHT_EDIT}/firefight_options_screen",
                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
                      ("bitmap", "bitmaps/gradient")],
-                    ['<on event="created" run="NULL"/>', f'<child widget="{GAMETYPE_SELECT}/header_rules"/>',
+                    ['<on event="created" run="NULL"/>', f'<child widget="{FIREFIGHT_EDIT}/header_firefight_options"/>',
                      f'<child widget="{FIREFIGHT_EDIT}/firefight_options_menu"/>'])
     lines += strings(f"{FIREFIGHT_EDIT}/firefight_labels", FIREFIGHT_LABELS)
     for name, texts in FIREFIGHT_CHOICES.items():
         lines += strings(f"{FIREFIGHT_EDIT}/{name}", texts)
-    lines += strings(f"{FIREFIGHT_EDIT}/cap_firefight", FIREFIGHT_HELP)
+    lines += strings(f"{FIREFIGHT_EDIT}/cap_firefight", FIREFIGHT_HELP[:len(FIREFIGHT_PAGES)])
+    for page, texts in enumerate(firefight_page_helps()):
+        lines += strings(f"{FIREFIGHT_EDIT}/cap_firefight_{page}", texts)
+    return lines
+
+
+def _menu_item(name: str, text: str, bitmap: str, events: list) -> list:
+    return widget(f"{FIREFIGHT_SELECT}/{name}",
+                  [("type", "text"), ("left", 51), ("width", 232), ("height", 32), ("bitmap", bitmap), ("text", text),
+                   ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 5)],
+                  [*events, '<on event="left_mouse" run="mouse emit accept event"/>'])
+
+
+def _opens(target: str) -> list:
+    return [f'<on event="{event}" open="{target}"/>' for event in ("a", "start")]
+
+
+def firefight_menu() -> list:
+    """PLAY's FIREFIGHT, as Forge's menu: SOLO, a LOCAL game at once (its
+    name is what makes it one: menu_functions.c's multiplayer_mode_set, as
+    port_settings.py's _create_local), MULTIPLAYER, Multiplayer's screen and
+    browser for Firefight's games, FIREFIGHT VARIANTS, the gametype editor
+    for its variants alone, and the Tag Injector for their profiles"""
+    solo = [line for event in ("a", "start") for line in
+            (f'<on event="{event}" run="join controller to mp game"/>',
+             f'<on event="{event}" run="mp type set mode" open="{LOCAL_MAP_SCREEN}"/>')]
+    lines = _menu_item("firefight_item_create_local", "SOLO", "bitmaps/list_item_bkd_top", solo)
+    lines += _menu_item("firefight_item_multiplayer", "MULTIPLAYER", "bitmaps/list_item_bkd", _opens(MULTIPLAYER_SCREEN))
+    lines += _menu_item("firefight_item_variants", "FIREFIGHT VARIANTS", "bitmaps/list_item_bkd", _opens(VARIANTS_SCREEN))
+    lines += _menu_item("firefight_item_tag_injector", "TAG INJECTOR", "bitmaps/list_item_bkd",
+                        _opens(TAG_INJECTOR_SCREEN))
+    items = ["firefight_item_create_local", "firefight_item_multiplayer", "firefight_item_variants",
+             "firefight_item_tag_injector"]
+    lines += widget(f"{FIREFIGHT_SELECT}/firefight_menu_select_list",
+                    [("type", "column_list"), ("width", 640), ("height", 480),
+                     ("flags", "pass_unhandled_to_focused_child up_down_tabs_items"),
+                     ("description", "main_menu/multiplayer_type_select/gamemode/gamemode_ext_desc")],
+                    ['<data input="gamemode menu update"/>',
+                     *[f'<child widget="{FIREFIGHT_SELECT}/{item}" y="{78 + 33 * index}"/>'
+                       for index, item in enumerate(items)],
+                     '<child widget="main_menu/multiplayer_type_select/gamemode/gamemode_button_bar" y="414"/>'])
+    lines += widget(f"{FIREFIGHT_SELECT}/firefight_menu",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="created" run="mp type menu initialize"/>', '<on event="b" back="true"/>',
+                     '<on event="back" back="true"/>',
+                     '<child widget="main_menu/multiplayer_type_select/header_firefight"/>',
+                     f'<child widget="{FIREFIGHT_SELECT}/firefight_menu_select_list"/>',
+                     '<child widget="main_menu/blueline" x="64" y="349"/>'])
     return lines
 
 
 def forge_menus() -> list:
     """Multiplayer's mode headers and pictures, and Forge's menus
-    (FORGE_WIDGETS)"""
+    (FORGE_WIDGETS), then Firefight's"""
     lines = []
     for name, pairs, inner in FORGE_WIDGETS:
         lines += widget(name, pairs, [f"<{tag}{attributes(items)}/>" for tag, items in inner])
-    return lines
+    return lines + firefight_menu()
 
 
 def files(head: list) -> dict:

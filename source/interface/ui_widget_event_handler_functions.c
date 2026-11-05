@@ -1085,6 +1085,8 @@ long playlist_profile_new(
 	wchar_t *name);
 struct game_variant_data *build_game_variant_slayer(
 	struct game_variant_data *variant);
+/* port: (Firefight's menu makes Firefight variants) */
+boolean multiplayer_firefight_mode(void);
 
 typedef boolean (*ui_widget_event_handler_function)(
 	struct widget_instance *,
@@ -1869,7 +1871,13 @@ static boolean create_and_begin_editing_new_gametype_profile(
 			profile = (byte *)player_ui_get_edit_playlist_profile();
 			if (profile)
 			{
-				variant = *build_game_variant_slayer(&source_variant);
+				if (multiplayer_firefight_mode())
+				{
+					variant = *(struct game_variant_data *)build_game_variant_firefight((struct game_variant *)&source_variant);
+					firefight_variant_options_default(player_ui_get_edit_playlist_options());
+				}
+				else
+					variant = *build_game_variant_slayer(&source_variant);
 				memcpy(profile, &variant, sizeof(variant));
 				*(short *)(profile + 0x64) = 0;
 				ustrncpy((wchar_t *)profile, name, 11);

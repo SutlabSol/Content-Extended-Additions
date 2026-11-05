@@ -1210,6 +1210,11 @@ void campaign_score_unit_damaged(
 		if (!base)
 			base = campaign_score_actor_points(values->allies, values->ally_count, variant_index);
 	}
+	/* (the allies' tables go by type: in Firefight marines and their
+	vehicles can be the wave's, worth half what killing a friendly one
+	costs, about a Jackal's to an Elite's) */
+	if (base < 0 && firefight_active() && firefight_team_is_hostile(unit->object.owner_team_index))
+		base = -base / 2;
 	if (base < 0)
 	{
 		if (killing_player_index != NONE)

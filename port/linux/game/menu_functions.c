@@ -2315,6 +2315,15 @@ static struct
 by its OK (tools/port_settings.py's SKULLS); and the screen Back returns to
 from it, or from the question of how the skulls are had before it */
 static struct skull_set skulls_menu_set;
+/* the skulls screen edits a Firefight variant's starting skulls, all of them
+to choose from, and OK goes back to its rules (firefight_skulls_open) */
+static boolean skulls_menu_variant;
+/* those it cannot turn off: Server Setup's are the variant's own, which its
+host adds to (firefight_game_skulls: as the gametype was chosen, for the
+options have the host's own among them after that) */
+static struct skull_set skulls_menu_locked;
+static struct skull_set firefight_game_skulls;
+static boolean firefight_skulls_chosen(struct widget_instance *widget, boolean *widget_deleted);
 static long skulls_menu_back_tag = NONE;
 /* the question of how the skulls are had, asked by itself (skulls_setup_poll)
 rather than before the skulls screen: asked already, and open, its answer
@@ -3278,6 +3287,8 @@ static boolean skulls_open_over(long back_tag, boolean *widget_deleted)
 
 	skulls_menu_back_tag = back_tag;
 	skulls_setup.open = FALSE;
+	skulls_menu_variant = FALSE;
+	skulls_menu_locked = skull_set_none();
 	skulls_menu_set = skull_set_intersection(skulls_set_from_text(config_string("game.skulls_active")),
 		skulls_unlocked_set());
 	if (!ui_widget_load_by_name_or_tag(screen, NONE, NULL, NONE, back_tag, NONE, NONE))
@@ -3350,16 +3361,43 @@ static int skull_of(struct widget_instance *widget)
 	return NONE;
 }
 
+/* the skulls the screen offers: those had, or all for a Firefight variant */
+static struct skull_set skulls_menu_offered(void)
+{
+	struct skull_set set = skull_set_none();
+	int skull;
+
+	if (!skulls_menu_variant)
+		return skulls_unlocked_set();
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+		skull_set_add(&set, skull);
+	return set;
+}
+
+/* a variant's starting skulls as a set */
+static struct skull_set skull_set_from_words(unsigned long const words[2])
+{
+	struct skull_set set = skull_set_none();
+	int skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (words[skull >> 5] & (1UL << (skull & 31)))
+			skull_set_add(&set, skull);
+	}
+	return set;
+}
+
 /* "skull toggle" (A on a skull): it on or off */
 static boolean skull_toggle(struct widget_instance *widget)
 {
 	int skull = skull_of(widget);
-	struct skull_set unlocked = skulls_unlocked_set();
+	struct skull_set unlocked = skulls_menu_offered();
 
 	if (skull == NONE)
 		return FALSE;
-	/* (one not found yet stays off) */
-	if (!skull_set_has(&unlocked, skull))
+	/* (one not found yet stays off, a variant's own on) */
+	if (!skull_set_has(&unlocked, skull) || skull_set_has(&skulls_menu_locked, skull))
 	{
 		ui_play_audio_feedback_sound(SOUND_ERROR);
 		return TRUE;
@@ -3379,8 +3417,8 @@ off; back to the skulls screen, which shows them */
 static boolean skulls_random_roll(struct widget_instance *widget, boolean *widget_deleted)
 {
 	static unsigned long state;
-	struct skull_set unlocked = skulls_unlocked_set();
-	struct skull_set chosen = skull_set_none();
+	struct skull_set unlocked = skull_set_difference(skulls_menu_offered(), skulls_menu_locked);
+	struct skull_set chosen = skulls_menu_locked;
 	int had[NUMBER_OF_SKULLS];
 	long count = 0;
 	long fewest, most, wanted, index;
@@ -3495,6 +3533,8 @@ static boolean skulls_start(struct widget_instance *widget, boolean *widget_dele
 {
 	char text[SKULLS_TEXT_LENGTH];
 
+	if (skulls_menu_variant)
+		return firefight_skulls_chosen(widget, widget_deleted);
 	skulls_text_from_set(skull_set_intersection(skulls_menu_set, skulls_unlocked_set()), text, sizeof(text));
 	if (!config_write("game.skulls_active", text))
 		error(_error_silent, "skulls: could not write game.skulls_active");
@@ -3530,7 +3570,7 @@ static void skulls_screen_update(struct widget_instance *list)
 	struct widget_instance *focused = list->focused_child;
 	int focused_skull = skull_of(focused);
 	struct widget_instance *help = list->parameters.list.extended_description;
-	struct skull_set unlocked = skulls_unlocked_set();
+	struct skull_set unlocked = skulls_menu_offered();
 	char line[256];
 	wchar_t text[ROW_TEXT_LENGTH];
 	int skull;
@@ -3539,6 +3579,7 @@ static void skulls_screen_update(struct widget_instance *list)
 	{
 		struct widget_instance *item;
 		boolean locked = !skull_set_has(&unlocked, skull);
+		boolean fixed = skull_set_has(&skulls_menu_locked, skull);
 
 		snprintf(line, sizeof(line), "skull_%s", skull_descriptions[skull].key);
 		item = named(list, line, 0);
@@ -3549,12 +3590,14 @@ static void skulls_screen_update(struct widget_instance *list)
 			skull_descriptions[skull].label);
 		text_widen(text, NUMBEROF(text), line);
 		text_set(item, text);
-		item->alpha_modifier = locked ? 0.4f : 1.0f;
+		item->alpha_modifier = locked || fixed ? 0.4f : 1.0f;
 	}
 	if (!help)
 		return;
 	if (focused_skull != NONE && !skull_set_has(&unlocked, focused_skull))
 		snprintf(line, sizeof(line), "Locked. An enemy carries it: pick it up,\nthen finish the level to keep it.");
+	else if (focused_skull != NONE && skull_set_has(&skulls_menu_locked, focused_skull))
+		snprintf(line, sizeof(line), "%s\nPart of this variant: it stays on.", skull_descriptions[focused_skull].description);
 	else if (focused_skull != NONE)
 		snprintf(line, sizeof(line), "%s", skull_descriptions[focused_skull].description);
 	else
@@ -10756,6 +10799,9 @@ static struct
 	and Server Setup, whose TAG PROFILE row shows its choice), and the first
 	of its rows shown */
 	boolean tag_profile_shown;
+	/* the screen chooses a Firefight variant's profile, of those made, and
+	goes back to its rules (firefight_tag_profile_open) */
+	boolean tag_profile_variant;
 	short tag_profile_first;
 } multiplayer = { .maximum_players_index = NONE };
 
@@ -10978,6 +11024,8 @@ before Server Setup when the game asks for its profile: below) */
 #define TAG_PROFILE_SCREEN_NAME \
 	"pc\\main_menu\\multiplayer_type_select\\server_settings\\tag_profile\\tag_profile_screen"
 static boolean tag_profile_asked(void);
+static long firefight_tag_profile_of(unsigned long hash);
+static struct game_variant_options *edit_options(void);
 
 static short map_step_count(void)
 {
@@ -11762,6 +11810,8 @@ Of one (from 0), the campaign profile it is and the profile the randomizer
 plays (each NONE when it is not one), or the multiplayer profile (returned) */
 static long tag_profile_count(void)
 {
+	if (multiplayer.tag_profile_variant)
+		return port_tag_profiles_count();
 	if (!tag_profile_cooperative())
 		return port_tag_mp_profiles_count();
 	return port_tag_campaign_profiles_count() + (config_boolean("game.randomizer") ? port_tag_profiles_count() : 0);
@@ -11773,6 +11823,8 @@ static long tag_profile_place(long index, long *campaign_profile, long *profile)
 
 	*campaign_profile = NONE;
 	*profile = NONE;
+	if (multiplayer.tag_profile_variant)
+		return NONE;
 	if (index < 0 || !tag_profile_cooperative())
 		return index;
 	if (index < campaign_profiles)
@@ -11790,7 +11842,9 @@ static void tag_profile_name(long index, char *text, unsigned int size)
 	long mp_profile = tag_profile_place(index, &campaign_profile, &profile);
 	char name[96];
 
-	if (profile != NONE)
+	if (multiplayer.tag_profile_variant)
+		snprintf(name, sizeof(name), "%s", port_tag_profiles_name(index));
+	else if (profile != NONE)
 		snprintf(name, sizeof(name), "%s (RANDOMIZER)", port_tag_profiles_name(profile));
 	else
 		snprintf(name, sizeof(name), "%s", campaign_profile != NONE ? port_tag_campaign_profiles_name(campaign_profile) :
@@ -11812,11 +11866,13 @@ static short tag_profile_row(struct widget_instance *widget)
 /* "mp tag profiles init": the profile chosen last focused, else NONE */
 static boolean tag_profiles_initialize(struct widget_instance *list)
 {
-	long chosen = tag_profile_cooperative() ? tag_campaign_profile_chosen() : tag_multiplayer_profile_chosen();
+	long chosen = multiplayer.tag_profile_variant ? firefight_tag_profile_of(edit_options()->firefight_tag_profile) :
+		tag_profile_cooperative() ? tag_campaign_profile_chosen() : tag_multiplayer_profile_chosen();
 	short place = (short)(chosen == NONE ? 0 : chosen + 1);
 
 	/* (a co-op game's: else the profile the randomizer played last) */
-	if (tag_profile_cooperative() && chosen == NONE && config_boolean("game.randomizer"))
+	if (!multiplayer.tag_profile_variant && tag_profile_cooperative() && chosen == NONE &&
+		config_boolean("game.randomizer"))
 	{
 		chosen = tag_injector_profile_playable();
 		place = (short)(chosen == NONE ? 0 : port_tag_campaign_profiles_count() + chosen + 1);
@@ -11880,7 +11936,15 @@ static void tag_profiles_update(struct widget_instance *list)
 		if (index != focused || !help)
 			continue;
 		tag_profile_place(place - 1, &campaign_profile, &randomizer_profile);
-		if (!place)
+		if (multiplayer.tag_profile_variant && !place)
+			snprintf(text, sizeof(text), "The waves' own enemies and the drops' own weapons.");
+		else if (multiplayer.tag_profile_variant && !halo_custom_edition_tag_cache())
+			snprintf(text, sizeof(text), "Needs Custom Edition maps on (Settings > Gameplay).");
+		else if (multiplayer.tag_profile_variant)
+			snprintf(text, sizeof(text), "%ld AI join the waves, %ld weapons the drops. Only\nthis build's "
+				"players see the game.", tag_injector_profile_enabled_count(place - 1, 'actv'),
+				tag_injector_profile_enabled_count(place - 1, 'weap'));
+		else if (!place)
 			snprintf(text, sizeof(text), cooperative ? "The levels' own AI and weapons, or the\nrandomizer's if it is on (Server Setup)." :
 				"The map's own weapons. Every player can see and\njoin the game, on any build.");
 		/* (the Tag Injector's bundles are Custom Edition maps': game.custom_edition) */
@@ -11930,6 +11994,15 @@ static boolean tag_profile_choose(struct widget_instance *widget, boolean *widge
 
 	if (place == NONE || place > tag_profile_count() || (profile != NONE && !halo_custom_edition_tag_cache()))
 		return campaign_fail();
+	if (multiplayer.tag_profile_variant)
+	{
+		edit_options()->firefight_tag_profile = profile == NONE ? 0UL :
+			firefight_tag_profile_hash(port_tag_profiles_folder(profile));
+		ui_play_audio_feedback_sound(SOUND_FORWARD);
+		ui_widget_port_go_back(widget);
+		*widget_deleted = TRUE;
+		return TRUE;
+	}
 	/* (a co-op game's campaign profile, which its levels play in the
 	randomizer's place, or the profile whose tags join its pools) */
 	if (tag_profile_cooperative())
@@ -11957,6 +12030,17 @@ static boolean tag_profile_choose(struct widget_instance *widget, boolean *widge
 	return ui_widget_port_open(widget, SERVER_SETUP_NAME, widget_deleted);
 }
 
+/* a Firefight gametype chosen: its own starting skulls, Server Setup's locked */
+static void firefight_game_skulls_remember(void)
+{
+	struct game_variant variant;
+	unsigned long skulls[2] = { 0UL, 0UL };
+
+	if (player_ui_game_variant_specified(&variant) && variant.game_engine_index == game_engine_firefight)
+		firefight_starting_skulls_get(&variant.game_engine_variant.firefight, player_ui_get_game_variant_options(), skulls);
+	firefight_game_skulls = skull_set_from_words(skulls);
+}
+
 /* "mp profile set for game": the gametype, then Server Setup, or first the
 game's TAG PROFILE screen (tag_profile_asked); the game plays no profile
 until that chooses one */
@@ -11968,6 +12052,7 @@ static boolean gametype_choose(struct widget_instance *list, boolean *widget_del
 		return campaign_fail();
 	if (!ui_widget_port_gametype_choose(multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]]))
 		return FALSE;
+	firefight_game_skulls_remember();
 	tag_multiplayer_game_profile_set(NONE);
 	multiplayer.tag_profile_shown = tag_profile_asked();
 	if (multiplayer.tag_profile_shown)
@@ -12061,6 +12146,8 @@ FIREFIGHT_SETUP_ROWS: SCALE WITH PLAYERS, SCORING), after the sections':
 their help */
 #define FF_PLAYER_SCALE_HELP 25
 #define SERVER_SCORING_HELP 26
+#define FF_START_SKULLS_HELP 27
+static void firefight_skulls_summary(char *text, unsigned int size);
 static boolean gametype_setup_floodfection(void);
 #define SERVER_SETTINGS_FIRST_ROW 73
 #define SERVER_SETTINGS_ROWS 8
@@ -12516,6 +12603,16 @@ static void server_settings_update(struct widget_instance *list)
 			visible_set(named(list, "op_map_share_options", 0), !local);
 			visible_set(named(list, "op_bots_options", 0), bots);
 			visible_set(named(list, "op_scoring", 0), firefight);
+			visible_set(named(list, "op_ff_start_skulls", 0), firefight);
+			if (firefight && named(list, "ff_start_skulls_value", 0))
+			{
+				char skulls[64];
+
+				firefight_skulls_summary(skulls, sizeof(skulls));
+				text_field_show(named(list, "ff_start_skulls_value", 0), skulls, FALSE);
+				if (help && list->focused_child == named(list, "op_ff_start_skulls", 0))
+					help->parameters.text_box.string_list_index = FF_START_SKULLS_HELP;
+			}
 			if (help && bots && list->focused_child == named(list, "op_bots_options", 0))
 				help->parameters.text_box.string_list_index = BOTS_SETUP_HELP;
 			/* (its value, what its screen chose: "4, DISTRIBUTED, EVEN, KEEP
@@ -13148,6 +13245,8 @@ Forge's in a Forge session, whose browser lists only Forge's games */
 extern long forge_get_network_version(void);
 #define BROWSER_NETWORK_VERSION forge_get_network_version()
 #define BROWSER_FORGE_ONLY (forge_get_network_version() != HALO_PORT_NETWORK_VERSION)
+/* (Firefight's Multiplayer lists only Firefight's games) */
+#define BROWSER_SHOWS_ENGINE(engine) (!multiplayer_firefight_mode() || (engine) == game_engine_firefight)
 
 static void browser_games_read(void)
 {
@@ -13169,7 +13268,8 @@ static void browser_games_read(void)
 			if (network_game_client_advertised_game_is_valid(game) && !advertised_in_progress(game) == (pass < 2) &&
 				!network_game_client_port_advertised_modded(index) == (pass % 2 == 1) &&
 				game_from_peer(game) == (multiplayer.mode == _multiplayer_mode_direct_link) &&
-				(!BROWSER_FORGE_ONLY || network_game_client_port_advertised_version(index) == BROWSER_NETWORK_VERSION))
+				(!BROWSER_FORGE_ONLY || network_game_client_port_advertised_version(index) == BROWSER_NETWORK_VERSION) &&
+				BROWSER_SHOWS_ENGINE(game->engine_type))
 			{
 				multiplayer.games[multiplayer.game_count++] = game;
 			}
@@ -13904,6 +14004,8 @@ static short lobby_browser_valid_games(struct p2p_listing *games, short count)
 		/* (Forge's browser: Forge's games alone, modded or not, whose
 		listing carries the host's own version either way) */
 		if (BROWSER_FORGE_ONLY && games[read].network_version != BROWSER_NETWORK_VERSION)
+			continue;
+		if (!BROWSER_SHOWS_ENGINE(games[read].engine_type))
 			continue;
 		text_to_wide(games[read].name, name, NUMBEROF(name));
 		if (!player_name_clean(name, NUMBEROF(name)))
@@ -17809,7 +17911,6 @@ enum
 	_option_variant_short,	/* a short of the variant */
 	_option_variant_u8,	/* a byte of the variant, value stored directly */
 	_option_unit_mask,	/* bit in firefight.disabled_unit_mask (argument=bit, 0=enabled/ON, 1=disabled/OFF) */
-	_option_option_ulong,	/* an unsigned long bit inside game_variant_options (argument=bitmask) */
 };
 
 /* OPENCE OPTIONS' MODE's value of a mode and its take on it (_option_mode) */
@@ -18055,7 +18156,7 @@ static struct gametype_option const gametype_options[] =
 		  _firefight_next_wave_timer_90s, _firefight_next_wave_timer_120s, _firefight_next_wave_clear_all } },
 	{ "ff_bonus_round_spinner", _option_variant_u8, VARIANT_FIELD(game_engine_variant.firefight.bonus_round_enabled), 0, 2,
 		{ 1, 0 } },
-	{ "ff_bonus_dur_spinner", _option_option_byte, OPTIONS_FIELD(firefight_round_3_skull), 0, 5,
+	{ "ff_bonus_dur_spinner", _option_option_byte, OPTIONS_FIELD(firefight_bonus_seconds), 0, 5,
 		{ 30, 45, 60, 90, 120 } },
 	/* firefight options: Page 1 (Factions & AI) */
 	{ "ff_faction_spinner", _option_variant_u8, VARIANT_FIELD(game_engine_variant.firefight.wave_faction), 0, 8,
@@ -18069,9 +18170,9 @@ static struct gametype_option const gametype_options[] =
 		{ 0, 1, 2, 3 } },
 	{ "ff_escalation_spinner", _option_option_byte, OPTIONS_FIELD(firefight_set_escalation), 0, 5,
 		{ 0, 1, 2, 3, 4 } },
-	{ "ff_enemy_hp_spinner", _option_option_byte, OPTIONS_FIELD(firefight_round_1_skull), 0, 5,
+	{ "ff_enemy_hp_spinner", _option_option_byte, OPTIONS_FIELD(firefight_enemy_health_scale), 0, 5,
 		{ 0, 1, 2, 3, 4 } },
-	{ "ff_enemy_shd_spinner", _option_option_byte, OPTIONS_FIELD(firefight_round_2_skull), 0, 5,
+	{ "ff_enemy_shd_spinner", _option_option_byte, OPTIONS_FIELD(firefight_enemy_shield_scale), 0, 5,
 		{ 0, 1, 2, 3, 4 } },
 	{ "ff_wave_size_spinner", _option_option_byte, OPTIONS_FIELD(firefight_wave_size_scale), 0, 4,
 		{ 0, 1, 2, 3 } },
@@ -18112,14 +18213,8 @@ static struct gametype_option const gametype_options[] =
 	{ "ff_gen_fail_spinner", _option_variant_u8, VARIANT_FIELD(game_engine_variant.firefight.generator_fail_mode), 0, 2,
 		{ 0, 1 } },
 	/* firefight options: Page 4 (Skulls & Traits) */
-	{ "ff_prog_skulls_spinner", _option_option_byte, OPTIONS_FIELD(firefight_skull_progression_mode), 0, 4,
-		{ 0, 1, 2, 3 } },
-	{ "ff_start_skulls_spinner", _option_option_ulong, OPTIONS_FIELD(firefight_custom_skulls), 0, 6,
-		{ 0, (1L << _firefight_skull_grunt_birthday_party_bit),
-		  (1L << _firefight_skull_tough_luck_bit) | (1L << _firefight_skull_catch_bit),
-		  (1L << _firefight_skull_mythic_bit) | (1L << _firefight_skull_tilt_bit),
-		  (1L << _firefight_skull_famine_bit) | (1L << _firefight_skull_black_eye_bit),
-		  0x1FFFL } },
+	{ "ff_prog_skulls_spinner", _option_option_byte, OPTIONS_FIELD(firefight_skull_progression_mode), 0, 3,
+		{ _firefight_skull_prog_off, _firefight_skull_prog_standard, _firefight_skull_prog_random_round } },
 	{ "ff_shields_spinner", _option_option_byte, OPTIONS_FIELD(firefight_player_shields), 0, 6,
 		{ 0, 1, 0, 2, 2, 3 } },
 	{ "ff_speed_spinner", _option_option_byte, OPTIONS_FIELD(firefight_player_speed), 0, 4,
@@ -18130,13 +18225,6 @@ static struct gametype_option const gametype_options[] =
 		{ 0, 1, 2 } },
 	{ "ff_gen_hp_spinner", _option_short, OPTIONS_FIELD(firefight_generator_health), 0, 4,
 		{ 2000, 1000, 4000, 8000 } },
-	{ "ff_custom_skulls_spinner", _option_option_ulong, OPTIONS_FIELD(firefight_starting_skulls[0]), 0, 5,
-		{ 0,
-		  (1L << _skull_bandanna) | (1L << _skull_boom),
-		  (1L << 1) | (1L << 2), /* Scarab + Sputnik (mapped in firefight_40_skull_active) */
-		  (1L << _skull_outbreak) | (1L << 9), /* Outbreak + Swarm */
-		  (1L << _skull_bandanna) | (1L << _skull_boom) | (1L << 2) | (1L << _skull_pinata) |
-		  (1L << _skull_grunt_funeral) | (1L << _skull_recession) | (1L << _skull_malfunction) | (1L << 8) } },
 };
 
 /* TEXT CHAT's (network.text_chat) OFF, which it shows while the game is
@@ -18213,7 +18301,6 @@ static long gametype_option_value(struct gametype_option const *option, struct g
 			options->firefight_unit_toggles : FIREFIGHT_UNIT_MASK_ALL;
 		return (mask & (unsigned short)option->argument) != 0 ? 1 : 0;
 	}
-	case _option_option_ulong: return (long)(*(unsigned long *)(o + option->offset));
 	}
 	return 0;
 }
@@ -18267,9 +18354,6 @@ static void gametype_option_value_set(struct gametype_option const *option, long
 			options->firefight_unit_toggles |= (unsigned short)option->argument;
 		else
 			options->firefight_unit_toggles &= ~(unsigned short)option->argument;
-		break;
-	case _option_option_ulong:
-		*(unsigned long *)(o + option->offset) = (unsigned long)value;
 		break;
 	}
 }
@@ -18503,6 +18587,168 @@ static void vehicles_update(struct widget_instance *list)
 	}
 }
 
+/* ---- a Firefight variant's rules: a screen of a button for each of its
+pages (tools/content_extended_menus.py). On SKULLS & TRAITS' page, STARTING
+SKULLS and TAG PROFILE are rows that open the skulls screen and the TAG
+PROFILE screen, which go back to it (made again) */
+
+#define FIREFIGHT_RULES_SCREEN \
+	"pc\\main_menu\\settings_select\\multiplayer_setup\\playlist_edit\\firefight_edit\\firefight_options_screen"
+
+/* a Firefight variant has one type: its GAME OPTIONS, and Server Setup's,
+are its rules (FALSE: the type's list is not opened) */
+static boolean gametype_game_options_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	struct game_variant *variant = edit_variant();
+
+	if (!variant || variant->game_engine_index != game_engine_firefight)
+		return TRUE;
+	ui_widget_port_open(widget, FIREFIGHT_RULES_SCREEN, widget_deleted);
+	return FALSE;
+}
+
+static boolean gametype_options_save(struct widget_instance *widget);
+
+/* the profile of a variant's firefight_tag_profile, NONE if not on this
+machine */
+static long firefight_tag_profile_of(unsigned long hash)
+{
+	long count;
+	long profile;
+
+	if (!hash)
+		return NONE;
+	port_tag_profiles_scan();
+	count = port_tag_profiles_count();
+	for (profile = 0; profile < count; profile++)
+	{
+		if (firefight_tag_profile_hash(port_tag_profiles_folder(profile)) == hash)
+			return profile;
+	}
+	return NONE;
+}
+
+static void firefight_rule_value(struct widget_instance *list, char const *name, char const *value)
+{
+	wchar_t text[ROW_TEXT_LENGTH];
+
+	text_widen(text, NUMBEROF(text), value);
+	if (named(list, name, 0))
+		text_set(named(list, name, 0), text);
+}
+
+/* STARTING SKULLS' value: how many, and in Server Setup how many are the
+variant's own */
+static void firefight_skulls_summary(char *text, unsigned int size)
+{
+	unsigned long words[2] = { 0UL, 0UL };
+	struct skull_set set;
+	short count = 0;
+	short locked = 0;
+	short skull;
+
+	if (edit_variant())
+		firefight_starting_skulls_get(&edit_variant()->game_engine_variant.firefight, edit_options(), words);
+	set = skull_set_from_words(words);
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		count += skull_set_has(&set, skull) != 0;
+		locked += gametype_edit.setup && skull_set_has(&set, skull) && skull_set_has(&firefight_game_skulls, skull);
+	}
+	if (locked)
+		snprintf(text, size, "%d SKULL%s (%d LOCKED)", count, count == 1 ? "" : "S", locked);
+	else if (count)
+		snprintf(text, size, "%d SKULL%s", count, count == 1 ? "" : "S");
+	else
+		snprintf(text, size, "NONE");
+}
+
+/* SKULLS & TRAITS' list made: what the two rows show, and the rotation OFF
+for a variant with no progression (Gruntpocalypse's) */
+static void firefight_rules_show(struct widget_instance *list)
+{
+	struct game_variant *variant = edit_variant();
+	struct game_variant_options *options = edit_options();
+	struct widget_instance *rotation = named(list, "ff_prog_skulls_spinner", 0);
+	char text[64];
+	long profile;
+
+	skulls_menu_variant = FALSE;
+	multiplayer.tag_profile_variant = FALSE;
+	if (rotation && !variant->game_engine_variant.firefight.progression_skulls)
+		rotation->parameters.list.selected_index = 0;
+	firefight_skulls_summary(text, sizeof(text));
+	firefight_rule_value(list, "ff_start_skulls_value", text);
+	profile = firefight_tag_profile_of(options->firefight_tag_profile);
+	if (profile != NONE)
+		upper_copy(text, sizeof(text), port_tag_profiles_name(profile));
+	else
+		snprintf(text, sizeof(text), options->firefight_tag_profile ? "NOT ON THIS MACHINE" : "NONE");
+	firefight_rule_value(list, "ff_tag_profile_value", text);
+}
+
+/* the skulls screen for what is being edited: a variant, all of it, or
+Server Setup's copy, its own skulls locked on */
+static boolean firefight_skulls_choose(struct widget_instance *widget, boolean *widget_deleted)
+{
+	unsigned long skulls[2];
+
+	firefight_starting_skulls_get(&edit_variant()->game_engine_variant.firefight, edit_options(), skulls);
+	skulls_menu_set = skull_set_from_words(skulls);
+	skulls_menu_locked = gametype_edit.setup ? skull_set_intersection(firefight_game_skulls, skulls_menu_set) :
+		skull_set_none();
+	skulls_setup.open = FALSE;
+	skulls_menu_variant = TRUE;
+	return ui_widget_port_open(widget, "pc\\main_menu\\difficulty_select\\skulls\\skulls_screen", widget_deleted);
+}
+
+/* "firefight skulls open" (STARTING SKULLS' A, on the rules) */
+static boolean firefight_skulls_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	/* (the page's spinners kept, for the screen opened over it) */
+	if (!gametype_options_save(widget))
+		return campaign_fail();
+	return firefight_skulls_choose(widget, widget_deleted);
+}
+
+/* "ss firefight skulls" (STARTING SKULLS' A, on Server Setup) */
+static boolean firefight_skulls_setup_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	gametype_setup_begin();
+	if (!gametype_edit.setup)
+		return campaign_fail();
+	return firefight_skulls_choose(widget, widget_deleted);
+}
+
+/* (OK on the skulls screen) the variant's starting skulls, back to its rules */
+static boolean firefight_skulls_chosen(struct widget_instance *widget, boolean *widget_deleted)
+{
+	unsigned long skulls[2] = { 0UL, 0UL };
+	struct skull_set chosen = skull_set_union(skulls_menu_set, skulls_menu_locked);
+	short skull;
+
+	for (skull = 0; skull < NUMBER_OF_SKULLS; skull++)
+	{
+		if (skull_set_has(&chosen, skull))
+			skulls[skull >> 5] |= 1UL << (skull & 31);
+	}
+	firefight_starting_skulls_set(&edit_variant()->game_engine_variant.firefight, edit_options(), skulls);
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "firefight tag profile open" (TAG PROFILE's A) */
+static boolean firefight_tag_profile_open(struct widget_instance *widget, boolean *widget_deleted)
+{
+	if (!gametype_options_save(widget))
+		return campaign_fail();
+	port_tag_profiles_scan();
+	multiplayer.tag_profile_variant = TRUE;
+	return ui_widget_port_open(widget, TAG_PROFILE_SCREEN_NAME, widget_deleted);
+}
+
 /* "mp profile init X" (the list's creation): its spinners from the gametype */
 static boolean gametype_options_init(struct widget_instance *list)
 {
@@ -18511,8 +18757,8 @@ static boolean gametype_options_init(struct widget_instance *list)
 	gametype_options_each(list, FALSE);
 	if (named(list, "op_team", 0))
 		vehicles_show(list);
-	if (named(list, "ff_page_spinner", 0))
-		named(list, "ff_page_spinner", 0)->parameters.list.selected_index = 0;
+	if (named(list, "ff_prog_skulls_spinner", 0))
+		firefight_rules_show(list);
 	return TRUE;
 }
 
@@ -18526,6 +18772,16 @@ static boolean gametype_options_save(struct widget_instance *widget)
 	if (named(list, "op_team", 0))
 		vehicles_keep(list);
 	gametype_options_each(list, TRUE);
+	/* (a faction chosen whose units were all turned off, on the page that
+	cannot see it: all on again) */
+	if (named(list, "ff_faction_spinner", 0) &&
+		!firefight_validate_unit_toggles(edit_variant()->game_engine_variant.firefight.wave_faction,
+			edit_options()->firefight_unit_toggles ? edit_options()->firefight_unit_toggles : FIREFIGHT_UNIT_MASK_ALL))
+		edit_options()->firefight_unit_toggles = FIREFIGHT_UNIT_MASK_ALL;
+	/* (SKULL ROTATION MODE's OFF is the variant's too) */
+	if (named(list, "ff_prog_skulls_spinner", 0))
+		edit_variant()->game_engine_variant.firefight.progression_skulls =
+			edit_options()->firefight_skull_progression_mode != _firefight_skull_prog_off;
 	/* (FLOODFECTION's SPARTAN LOADOUT: the weapons its own, a custom loadout) */
 	if (named(list, "primary_weapon_spinner", 0) && !named(list, "loadout_spinner", 0))
 		edit_options()->loadout = _loadout_custom;
@@ -18597,19 +18853,44 @@ static boolean gametype_setup_floodfection(void)
 }
 
 /* "port setup edit" (a Server Setup option's row): its screen edits the copy */
-static boolean gametype_setup_edit(void)
+static boolean gametype_setup_edit(struct widget_instance *widget, boolean *widget_deleted)
 {
 	gametype_setup_begin();
-	return gametype_edit.setup || campaign_fail();
+	if (!gametype_edit.setup)
+		return campaign_fail();
+	return strcmp(widget->name, "op_game_type") || gametype_game_options_open(widget, widget_deleted);
 }
 
 /* ---- Edit Gametypes' list */
+
+/* the gametypes to edit, and the place of the one used last: Firefight's
+menu's, its variants alone */
+static void gametype_edit_gather(short *last)
+{
+	short index;
+	short kept = 0;
+	short kept_last = 0;
+
+	gametype_edit.count = ui_widget_port_gametypes(gametype_edit.gametypes, MAXIMUM_GAMETYPES, last);
+	if (!multiplayer_firefight_mode())
+		return;
+	for (index = 0; index < gametype_edit.count; index++)
+	{
+		if (!gametype_profile_matches_gamemode(gametype_edit.gametypes[index]))
+			continue;
+		if (index == *last)
+			kept_last = kept;
+		gametype_edit.gametypes[kept++] = gametype_edit.gametypes[index];
+	}
+	gametype_edit.count = kept;
+	*last = kept_last;
+}
 
 static void gametype_edit_read(void)
 {
 	short last;
 
-	gametype_edit.count = ui_widget_port_gametypes(gametype_edit.gametypes, MAXIMUM_GAMETYPES, &last);
+	gametype_edit_gather(&last);
 	gametype_edit.chosen = (short)MIN(gametype_edit.chosen, MAX(0, gametype_edit.count - 1));
 	gametype_edit.stale = FALSE;
 	gametype_shown_forget();
@@ -18621,7 +18902,7 @@ static boolean gametype_edit_list_initialize(struct widget_instance *list)
 	short last;
 
 	gametype_edit.setup = FALSE;
-	gametype_edit.count = ui_widget_port_gametypes(gametype_edit.gametypes, MAXIMUM_GAMETYPES, &last);
+	gametype_edit_gather(&last);
 	gametype_edit.chosen = last;
 	gametype_edit.first = (short)MAX(0, MIN(last - GAMETYPE_EDIT_ROWS / 2, gametype_edit.count - GAMETYPE_EDIT_ROWS));
 	gametype_edit.stale = FALSE;
@@ -18757,8 +19038,7 @@ static void gametype_edit_name(struct widget_instance *text_box)
 	}
 }
 
-#define FF_SETTINGS_PAGE_COUNT 5
-#define FF_UNIT_GUARD_HELP_STRING_INDEX 191
+#define FF_UNIT_GUARD_HELP_STRING_INDEX 18
 static unsigned long ff_unit_guard_warning_time = 0;
 
 /* "game settings lists text update": the help of the option with the
@@ -18770,34 +19050,14 @@ static void gametype_option_help(struct widget_instance *list)
 	struct widget_instance *row;
 	short index = 0;
 
-	/* Firefight 5-page Custom Gametype Editor & Unit Toggle Validation Guard */
-	if (named(list, "ff_page_spinner", 0))
+	/* (ENEMY UNITS' page: at least one of the variant's faction's stays on) */
+	if (named(list, "ff_u_grunts_spinner", 0))
 	{
-		short page = (short)PIN(named(list, "ff_page_spinner", 0)->parameters.list.selected_index, 0, FF_SETTINGS_PAGE_COUNT - 1);
-		short y = 100;
 		unsigned short candidate_unit_mask = FIREFIGHT_UNIT_MASK_ALL;
-		byte wave_faction = _firefight_faction_covenant;
-
-		if (named(list, "ff_faction_spinner", 0))
-		{
-			struct gametype_option const *f_opt = gametype_option_named("ff_faction_spinner");
-			short f_idx = named(list, "ff_faction_spinner", 0)->parameters.list.selected_index;
-			if (f_opt)
-				wave_faction = (byte)f_opt->values[PIN(f_idx, 0, f_opt->count - 1)];
-		}
+		byte wave_faction = edit_variant()->game_engine_variant.firefight.wave_faction;
 
 		for (row = list->child; row; row = row->next)
 		{
-			if (!strncmp(row->name, "op_ff", 5) && row->name[5] >= '0' && row->name[5] <= '4')
-			{
-				boolean show = (row->name[5] - '0') == page;
-				visible_set(row, show);
-				if (show)
-				{
-					row->vertical_offset = y;
-					y += 27;
-				}
-			}
 			if (!strncmp(row->name, "op_ff2_u_", 9))
 			{
 				struct widget_instance *sp;
@@ -18812,10 +19072,6 @@ static void gametype_option_help(struct widget_instance *list)
 			}
 		}
 
-		if (list->focused_child && !list->focused_child->visible && named(list, "op_ff_page", 0))
-			list->focused_child = named(list, "op_ff_page", 0);
-
-		/* Enforce: at least 1 enemy unit type must remain enabled for the active faction(s) */
 		if (!firefight_validate_unit_toggles(wave_faction, candidate_unit_mask))
 		{
 			if (list->focused_child && !strncmp(list->focused_child->name, "op_ff2_u_", 9))
@@ -18841,7 +19097,7 @@ static void gametype_option_help(struct widget_instance *list)
 			}
 		}
 
-		if (page == 2 && ff_unit_guard_warning_time != 0 &&
+		if (ff_unit_guard_warning_time != 0 &&
 			system_milliseconds() - ff_unit_guard_warning_time < 3000 && description)
 		{
 			description->parameters.text_box.string_list_index = FF_UNIT_GUARD_HELP_STRING_INDEX;
@@ -19029,14 +19285,15 @@ static void gametype_option_help(struct widget_instance *list)
 		{
 			if (spinner)
 				description->parameters.text_box.string_list_index = (short)(index + spinner->parameters.list.selected_index);
-			/* (FLOODFECTION SETTINGS' rows, which open screens: a help each) */
-			else if (!strncmp(row->name, "op_fl_", 6))
+			/* (FLOODFECTION SETTINGS' rows, which open screens: a help each;
+			and a Firefight variant's) */
+			else if (!strncmp(row->name, "op_fl_", 6) || !strncmp(row->name, "op_ff", 5))
 				description->parameters.text_box.string_list_index = index;
 			return;
 		}
 		if (spinner)
 			index += spinner->parameters.list.number_of_items;
-		else if (!strncmp(row->name, "op_fl_", 6))
+		else if (!strncmp(row->name, "op_fl_", 6) || !strncmp(row->name, "op_ff", 5))
 			index++;
 	}
 }
@@ -19166,6 +19423,9 @@ static boolean gamemode_menu_init(struct widget_instance *list)
 	return TRUE;
 }
 
+/* (gamemode_options' frame: PORT_BITMAPS, tools/port_settings.py) */
+#define GAMEMODE_PICTURE_FIREFIGHT 1
+
 boolean multiplayer_firefight_mode(void)
 {
 	return multiplayer.firefight_mode || multiplayer.gamemode == _gamemode_firefight;
@@ -19202,6 +19462,33 @@ static void gamemode_menu_update(struct widget_instance *list)
 	if (!list)
 		return;
 
+	if (list->name && !strcmp(list->name, "firefight_menu_select_list"))
+	{
+		if (desc)
+		{
+			struct widget_instance *pic = named(desc, "gamemode_options_pic", 0);
+			struct widget_instance *txt = named(desc, "gamemode_options_txt", 0);
+			char const *fc = (list->focused_child && list->focused_child->name) ? list->focused_child->name : "";
+
+			if (pic)
+				pic->animation.current_frame_index = GAMEMODE_PICTURE_FIREFIGHT;
+			if (txt)
+			{
+				text_set_length(
+					txt,
+					!strcmp(fc, "firefight_item_multiplayer") ?
+						L"MULTIPLAYER FIREFIGHT\r\nHOST OR JOIN GAMES\r\nOF FIREFIGHT" :
+					!strcmp(fc, "firefight_item_variants") ?
+						L"FIREFIGHT VARIANTS\r\nMAKE YOUR OWN RULESETS\r\nFROM NEW OR FROM ANY\r\nOF THE BUILT-IN ONES" :
+					!strcmp(fc, "firefight_item_tag_injector") ?
+						L"TAG INJECTOR\r\nPROFILES OF TAGS FROM\r\nCUSTOM MAPS, TO ADD\r\nTO A VARIANT" :
+						L"SOLO FIREFIGHT\r\nA LOCAL GAME ON THIS\r\nMACHINE, WITH BOTS\r\nIF YOU WANT THEM",
+					160);
+			}
+			profile_name_show(desc);
+		}
+		return;
+	}
 	if (list->name && !strcmp(list->name, "forge_menu_select_list"))
 	{
 		if (desc)
@@ -19238,8 +19525,9 @@ static void mp_type_screen_update(struct widget_instance *list)
 	struct widget_instance *gametypes_item = list ? named(list, "multiplayer_type_gametypes_item", 0) : NULL;
 	struct widget_instance *desc = list ? list->parameters.list.extended_description : NULL;
 	boolean is_standard = multiplayer.gamemode == _gamemode_standard;
-	boolean can_edit_gametypes = multiplayer.gamemode == _gamemode_standard ||
-		multiplayer.gamemode == _gamemode_firefight;
+	/* (Firefight's menu has FIREFIGHT VARIANTS and SOLO in their place) */
+	boolean can_edit_gametypes = multiplayer.gamemode == _gamemode_standard;
+	struct widget_instance *local_item = list ? named(list, "multiplayer_type_create_local_item", 0) : NULL;
 
 	if (screen)
 	{
@@ -19257,6 +19545,11 @@ static void mp_type_screen_update(struct widget_instance *list)
 	{
 		gametypes_item->visible = can_edit_gametypes;
 		gametypes_item->disabled = !can_edit_gametypes;
+	}
+	if (local_item)
+	{
+		local_item->visible = multiplayer.gamemode != _gamemode_firefight;
+		local_item->disabled = multiplayer.gamemode == _gamemode_firefight;
 	}
 	if (list && list->focused_child && (!list->focused_child->visible || list->focused_child->disabled))
 	{
@@ -19405,7 +19698,7 @@ boolean pc_menu_event_function_invoke(
 		}
 		else if (!strcmp(name, "port setup edit"))
 		{
-			return gametype_setup_edit();
+			return gametype_setup_edit(widget, widget_deleted);
 		}
 		/* (co-op's options' screens: their settings shown, and OK's) */
 		else if (!strcmp(name, "port setup options init"))
@@ -20051,10 +20344,10 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "skulls toggle all"))
 		{
 			/* (any of those had on: all off; none on: all those had on) */
-			struct skull_set unlocked = skulls_unlocked_set();
+			struct skull_set unlocked = skull_set_difference(skulls_menu_offered(), skulls_menu_locked);
 			struct skull_set on = skull_set_intersection(skulls_menu_set, unlocked);
 
-			skulls_menu_set = skull_set_is_empty(&on) ? unlocked : skull_set_none();
+			skulls_menu_set = skull_set_union(skulls_menu_locked, skull_set_is_empty(&on) ? unlocked : skull_set_none());
 			ui_play_audio_feedback_sound(skull_set_is_empty(&on) ? SOUND_FORWARD : SOUND_BACK);
 		}
 		else if (!strcmp(name, "skulls start"))
@@ -20130,6 +20423,22 @@ boolean pc_menu_event_function_invoke(
 		else if (!strcmp(name, "gamemode select forge"))
 		{
 			return gamemode_select_forge();
+		}
+		else if (!strcmp(name, "mp edit game options"))
+		{
+			return gametype_game_options_open(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "ss firefight skulls"))
+		{
+			return firefight_skulls_setup_open(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "firefight skulls open"))
+		{
+			return firefight_skulls_open(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "firefight tag profile open"))
+		{
+			return firefight_tag_profile_open(widget, widget_deleted);
 		}
 		else if (!strcmp(name, "gamespy back handler") || !strcmp(name, "gamespy dismiss error") ||
 			!strcmp(name, "gamespy dismiss filters"))

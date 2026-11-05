@@ -239,29 +239,17 @@ boolean firefight_40_skull_active(
 	int skull_enum_index)
 {
 	struct game_variant_options const *opts;
+	unsigned long started[2];
 	short bit;
 
 	if (!firefight_active())
 		return FALSE;
 
 	opts = game_variant_options_get();
-	if (opts && skull_enum_index >= 0 && skull_enum_index < 64)
+	if (opts && skull_enum_index >= 0 && skull_enum_index < NUMBER_OF_SKULLS)
 	{
-		unsigned long word_idx = (unsigned long)skull_enum_index >> 5;
-		unsigned long bit_mask = 1UL << ((unsigned long)skull_enum_index & 31);
-
-		if ((opts->firefight_starting_skulls[word_idx] & bit_mask) != 0)
-			return TRUE;
-
-		/* High-word skulls (>= 32) encoded in unused low-word bits of firefight_starting_skulls[0]
-		   by ff_custom_skulls_spinner in menu_functions.c */
-		if (skull_enum_index == _skull_scarab && (opts->firefight_starting_skulls[0] & (1UL << 1)) != 0)
-			return TRUE;
-		if (skull_enum_index == _skull_sputnik && (opts->firefight_starting_skulls[0] & (1UL << 2)) != 0)
-			return TRUE;
-		if (skull_enum_index == _skull_streaking && (opts->firefight_starting_skulls[0] & (1UL << 8)) != 0)
-			return TRUE;
-		if (skull_enum_index == _skull_swarm && (opts->firefight_starting_skulls[0] & (1UL << 9)) != 0)
+		firefight_starting_skulls_get(&global_variant.game_engine_variant.firefight, opts, started);
+		if (started[skull_enum_index >> 5] & (1UL << (skull_enum_index & 31)))
 			return TRUE;
 	}
 
@@ -274,6 +262,92 @@ boolean firefight_40_skull_active(
 		}
 	}
 	return FALSE;
+}
+
+boolean firefight_40_skull_temporary(
+	int skull_enum_index)
+{
+	short bit;
+
+	if (!firefight_active())
+		return FALSE;
+	for (bit = 0; bit < NUMBER_OF_FIREFIGHT_SKULLS; bit++)
+	{
+		if (firefight_map_reach_skull_to_40_skull((enum firefight_skull_bit)bit) == skull_enum_index &&
+			(ff_state.temporary_skulls & (1UL << bit)) != 0)
+		{
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
+void firefight_starting_skulls_get(
+	struct game_engine_firefight_variant const *variant,
+	struct game_variant_options const *options,
+	unsigned long skulls[2])
+{
+	unsigned long reach = variant ? variant->custom_skulls : 0UL;
+	short bit;
+
+	skulls[0] = skulls[1] = 0UL;
+	if (options)
+	{
+		skulls[0] = options->firefight_starting_skulls[0];
+		skulls[1] = options->firefight_starting_skulls[1];
+		reach |= options->firefight_custom_skulls;
+		/* (the old presets kept four skulls past the word's in bits of other
+		skulls: 1 Scarab, 2 Sputnik, 8 Streaking, 9 Swarm) */
+		if (!(skulls[1] & FIREFIGHT_STARTING_SKULLS_EXACT))
+		{
+			static struct { short from, skull; } const moved[] = {
+				{ 1, _skull_scarab }, { 2, _skull_sputnik }, { 8, _skull_streaking }, { 9, _skull_swarm } };
+			short index;
+
+			for (index = 0; index < (short)NUMBEROF(moved); index++)
+			{
+				if (skulls[0] & (1UL << moved[index].from))
+				{
+					skulls[0] &= ~(1UL << moved[index].from);
+					skulls[moved[index].skull >> 5] |= 1UL << (moved[index].skull & 31);
+				}
+			}
+		}
+	}
+	for (bit = 0; bit < NUMBER_OF_FIREFIGHT_SKULLS; bit++)
+	{
+		if (reach & (1UL << bit))
+		{
+			int skull = firefight_map_reach_skull_to_40_skull((enum firefight_skull_bit)bit);
+
+			if (skull >= 0)
+				skulls[skull >> 5] |= 1UL << (skull & 31);
+		}
+	}
+	skulls[1] &= ~FIREFIGHT_STARTING_SKULLS_EXACT;
+}
+
+void firefight_starting_skulls_set(
+	struct game_engine_firefight_variant *variant,
+	struct game_variant_options *options,
+	unsigned long const skulls[2])
+{
+	variant->custom_skulls = 0UL;
+	options->firefight_custom_skulls = 0UL;
+	options->firefight_starting_skulls[0] = skulls[0];
+	options->firefight_starting_skulls[1] = skulls[1] | FIREFIGHT_STARTING_SKULLS_EXACT;
+}
+
+unsigned long firefight_tag_profile_hash(
+	char const *folder)
+{
+	unsigned long hash = 2166136261UL;
+
+	if (!folder || !folder[0])
+		return 0UL;
+	for (; *folder; folder++)
+		hash = (hash ^ (unsigned char)*folder) * 16777619UL;
+	return (hash & 0xFFFFFFFFUL) | FIREFIGHT_TAG_PROFILE_MARK;
 }
 
 /* ---------- multipliers & escalation */
@@ -301,17 +375,40 @@ static real firefight_compute_set_vitality_scale(
 	return 1.0f + (real)step * per_set_bonus;
 }
 
+/* the Firefight skulls on for the whole game: the variant's starting skulls
+and those turned on for the level (the Skulls screen's) */
+static unsigned long firefight_started_skulls(
+	void)
+{
+	struct game_variant_options const *opts = game_variant_options_get();
+	unsigned long skulls[2];
+	unsigned long started = 0UL;
+	short bit;
+
+	firefight_starting_skulls_get(&global_variant.game_engine_variant.firefight, opts, skulls);
+	for (bit = 0; bit < NUMBER_OF_FIREFIGHT_SKULLS; bit++)
+	{
+		int skull = firefight_map_reach_skull_to_40_skull((enum firefight_skull_bit)bit);
+
+		if (skull >= 0 && ((skulls[skull >> 5] & (1UL << (skull & 31))) || skull_on_for_level(skull)))
+			started |= 1UL << bit;
+	}
+	return started;
+}
+
 static void firefight_recalculate_skulls_and_multiplier(
 	void)
 {
 	struct game_engine_firefight_variant const *ff = &global_variant.game_engine_variant.firefight;
-	struct game_variant_options const *opts = game_variant_options_get();
-	unsigned long exclude_mask = opts ? opts->firefight_skull_exclude_mask : 0UL;
-	unsigned long custom_mask = opts ? opts->firefight_custom_skulls : 0UL;
+	unsigned long started = firefight_started_skulls();
 	unsigned long combined;
 	real mult = 1.0f;
 
-	combined = (ff->custom_skulls | custom_mask | ff_state.round_skulls | ff_state.set_skulls) & ~exclude_mask;
+	/* (a skull on from the start is on: the rounds and sets adding it again
+	add nothing, and never make it one that goes) */
+	ff_state.round_skulls &= ~started;
+	ff_state.set_skulls &= ~started;
+	combined = started | ff_state.round_skulls | ff_state.set_skulls;
 	if (ff_state.in_bonus_round)
 	{
 		combined |= (1UL << _firefight_skull_grunt_birthday_party_bit) |
@@ -320,6 +417,7 @@ static void firefight_recalculate_skulls_and_multiplier(
 			(1UL << _firefight_skull_cowbell_bit);
 	}
 	ff_state.active_skulls = combined;
+	ff_state.temporary_skulls = combined & ~(started | ff_state.set_skulls);
 	ff_state.set_vitality_scale = firefight_compute_set_vitality_scale(ff_state.current_set);
 
 	switch (ff->difficulty)
@@ -350,16 +448,29 @@ real firefight_set_vitality_scale_get(
 	return ff_state.set_vitality_scale > 0.0f ? ff_state.set_vitality_scale : 1.0f;
 }
 
+boolean firefight_team_is_hostile(
+	short team_index)
+{
+	if (team_index == _game_team_default || team_index == _game_team_player)
+		return FALSE;
+	if (team_index == _game_team_human)
+		return ff_state.elite_player_mode ||
+			global_variant.game_engine_variant.firefight.wave_faction == _firefight_faction_unsc_humans;
+	return TRUE;
+}
+
 real firefight_enemy_vitality_scale(
 	short team_index,
 	boolean is_shield)
 {
-	(void)is_shield;
+	static real const scales[] = { 1.0f, 0.5f, 1.5f, 2.0f, 3.0f };
+	struct game_variant_options const *opts = game_variant_options_get();
+	byte chosen = !opts ? 0 : is_shield ? opts->firefight_enemy_shield_scale : opts->firefight_enemy_health_scale;
+	real scale = scales[MIN(chosen, (byte)(NUMBEROF(scales) - 1))];
+
 	if (!firefight_active())
 		return 1.0f;
-	if (team_index == _game_team_default || team_index == _game_team_player)
-		return 1.0f;
-	if (!ff_state.elite_player_mode && team_index == _game_team_human)
+	if (!firefight_team_is_hostile(team_index))
 		return 1.0f;
 	if (ff_state.elite_player_mode && team_index == _game_team_covenant &&
 		global_variant.game_engine_variant.firefight.wave_faction == _firefight_faction_unsc_humans)
@@ -367,7 +478,7 @@ real firefight_enemy_vitality_scale(
 		return 1.0f;
 	}
 
-	return firefight_set_vitality_scale_get();
+	return firefight_set_vitality_scale_get() * scale;
 }
 
 void firefight_apply_unit_vitality_scaling(
@@ -887,7 +998,6 @@ static void firefight_update_round_and_set_skulls(
 	struct game_engine_firefight_variant const *ff = &global_variant.game_engine_variant.firefight;
 	struct game_variant_options const *opts = game_variant_options_get();
 	byte prog_mode = opts ? opts->firefight_skull_progression_mode : _firefight_skull_prog_standard;
-	unsigned long exclude_mask = opts ? opts->firefight_skull_exclude_mask : 0UL;
 	unsigned long newly_added = 0;
 	unsigned long before = ff_state.active_skulls;
 
@@ -908,7 +1018,8 @@ static void firefight_update_round_and_set_skulls(
 		short count = 0;
 		short bit;
 
-		pool &= ~exclude_mask;
+		/* (never one already on from the start: a round's is a new one) */
+		pool &= ~firefight_started_skulls();
 		for (bit = 0; bit < NUMBER_OF_FIREFIGHT_SKULLS; bit++)
 		{
 			if ((pool & (1UL << bit)) != 0)
@@ -927,23 +1038,16 @@ static void firefight_update_round_and_set_skulls(
 		ff_state.round_skulls = 0;
 		if (ff_state.current_round == 1)
 		{
-			if (opts && opts->firefight_round_1_skull > 0 && opts->firefight_round_1_skull <= NUMBER_OF_FIREFIGHT_SKULLS)
-				ff_state.round_skulls |= (1UL << (opts->firefight_round_1_skull - 1));
-			else if (ff_state.current_set > 1)
+			if (ff_state.current_set > 1)
 				ff_state.round_skulls |= (1UL << _firefight_skull_tough_luck_bit);
 		}
 		else if (ff_state.current_round == 2)
 		{
-			if (opts && opts->firefight_round_2_skull > 0 && opts->firefight_round_2_skull <= NUMBER_OF_FIREFIGHT_SKULLS)
-				ff_state.round_skulls |= (1UL << (opts->firefight_round_2_skull - 1));
-			else
-				ff_state.round_skulls |= (1UL << _firefight_skull_catch_bit);
+			ff_state.round_skulls |= (1UL << _firefight_skull_catch_bit);
 		}
 		else if (ff_state.current_round >= 3)
 		{
-			if (opts && opts->firefight_round_3_skull > 0 && opts->firefight_round_3_skull <= NUMBER_OF_FIREFIGHT_SKULLS)
-				ff_state.round_skulls |= (1UL << (opts->firefight_round_3_skull - 1));
-			else if (ff_state.current_round == 3)
+			if (ff_state.current_round == 3)
 				ff_state.round_skulls |= (1UL << _firefight_skull_black_eye_bit);
 			else if (ff_state.current_round == 4)
 				ff_state.round_skulls |= (1UL << _firefight_skull_tough_luck_bit);
@@ -1268,11 +1372,11 @@ void firefight_variant_options_default(
 	options->firefight_custom_skulls = 0UL;
 	options->firefight_generator_health = 2000;
 	options->firefight_score_life_threshold = FIREFIGHT_DEFAULT_SCORE_LIFE_BONUS;
-	options->firefight_round_1_skull = 0;
-	options->firefight_round_2_skull = 0;
-	options->firefight_round_3_skull = 0;
+	options->firefight_enemy_health_scale = 0;
+	options->firefight_enemy_shield_scale = 0;
+	options->firefight_bonus_seconds = FIREFIGHT_BONUS_ROUND_TICKS / TICKS_PER_SECOND;
 	options->firefight_faction_diplomacy = _firefight_diplomacy_allied_against_players;
-	options->firefight_skull_exclude_mask = (1UL << _firefight_skull_blind_bit);
+	options->firefight_tag_profile = 0UL;
 	options->firefight_starting_skulls[0] = 0UL;
 	options->firefight_starting_skulls[1] = 0UL;
 	options->firefight_unit_toggles = FIREFIGHT_UNIT_MASK_ALL;
@@ -1684,7 +1788,12 @@ static void firefight_update(
 				firefight_despawn_round_vehicles();
 				ff_state.in_bonus_round = TRUE;
 				ff_state.phase_state = _ff_phase_bonus_round;
-				ff_state.phase_timer_ticks = FIREFIGHT_BONUS_ROUND_TICKS;
+				{
+					struct game_variant_options const *bonus_opts = game_variant_options_get();
+
+					ff_state.phase_timer_ticks = bonus_opts && bonus_opts->firefight_bonus_seconds >= 30 ?
+						bonus_opts->firefight_bonus_seconds * TICKS_PER_SECOND : FIREFIGHT_BONUS_ROUND_TICKS;
+				}
 				firefight_recalculate_skulls_and_multiplier();
 				firefight_spawn_wave(ff_state.current_set, ff_state.current_round, 1, TRUE);
 				firefight_announce_banner(_ff_banner_bonus_round, 0, 4 * TICKS_PER_SECOND);

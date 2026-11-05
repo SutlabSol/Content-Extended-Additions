@@ -161,8 +161,9 @@ zombies' cries too, which move them again, and tells its first zombies
 (_distributed_message_floodfection_originals); 8 its leap and melee cries
 and its music, which move them again; 10 a Forge game's Tag Injector share
 (_distributed_message_tag_share's kind; 9 is main's own, not on this branch
-when this was written) */
-#define HALO_PORT_MOD_NETWORK_VERSION 10
+when this was written); 11 a Firefight variant's share (its kind) and the
+temporary skulls in Firefight's state */
+#define HALO_PORT_MOD_NETWORK_VERSION 11
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

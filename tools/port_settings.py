@@ -2784,6 +2784,12 @@ PORT_BITMAPS = {
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added or removed, game data inputs added
 WIDGET_PATCHES = {
+    # (GAME OPTIONS: a Firefight variant has no type to choose, and goes
+    # straight to its rules: menu_functions.c's gametype_game_options_open)
+    f"{PLAYLIST_EDIT}/playlist_edit_game_type_item": {"handlers": [
+        f'<on event="{event}" run="mp edit game options" '
+        f'open="{PLAYLIST_EDIT}/game_type_select/gametype_select_screen"/>' for event in ("a", "start")] +
+        ['<on event="left_mouse" run="mouse emit accept event"/>']},
     # The host returns here after a round with no menu history. Back must
     # reopen the main menu when it closes the last screen, as the lobby does.
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
@@ -3505,6 +3511,24 @@ def _server_settings() -> list:
     # SETTINGS' the last of the rows' own, then SERVER_SETUP_SECTIONS')
     firefight_label = 15 + len(COOP_SETUP_SCREENS) + len(CAMPAIGN_SETUP_SCREENS) + len(SERVER_SETUP_SECTIONS)
     for index, (key, _, choices, _) in enumerate(FIREFIGHT_SETUP_ROWS):
+        if choices is None:
+            run = "ss firefight skulls"
+            extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                                 ("flags", "pass_unhandled_to_focused_child"),
+                                                 ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                             [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
+                              '<on event="left_mouse" run="mouse emit accept event"/>',
+                              f'<child widget="{base}/{key}_label"/>',
+                              f'<child widget="{base}/{key}_value" x="230" y="1"/>'])
+            extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
+                                                     ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
+                                                     ("text_y", 5), ("text_flags", "no_focus_test")], [])
+            extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 230),
+                                                     ("height", 22), ("string_list", f"{base}/labels"),
+                                                     ("string_index", firefight_label + index), ("font", "ui\\large_ui"),
+                                                     ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+            rows.append((f"{base}/op_{key}", None))
+            continue
         extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
                                              ("flags", "pass_unhandled_to_focused_child"),
                                              ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
@@ -3777,7 +3801,7 @@ SERVER_SETUP_SECTIONS = [
      ["max_players", "invite", "listing", "password", "map_share_options"]),
     ("game_settings", "GAME SETTINGS", "The gametype and its rules for this game (co-op's\\noptions, for a co-op game).",
      ["game_type", "player_options", "item_options", "vehicle_options", "indicator_options", "team_options",
-      "coop_options", "voice_options", "ff_player_scale", "scoring"]),
+      "coop_options", "voice_options", "ff_player_scale", "ff_start_skulls", "scoring"]),
     ("fork_settings", "FORK SETTINGS", "This fork's own: game modes' settings, the tag\\nprofile, the randomizer and skulls.",
      ["floodfection_options", "tag_profile", "randomizer", "skulls"]),
 ]
@@ -3788,6 +3812,10 @@ FIREFIGHT_SETUP_ROWS = [
     ("ff_player_scale", "SCALE WITH PLAYERS", ["0%", "5%", "10%", "20%", "50%"],
      "Extra enemies added per player from the 2nd player\\nonwards (non-compounding from the base count)."),
     ("scoring", "SCORING", ["ON", "OFF"], "Turn Campaign and Firefight scoring on or off for\\nthis game."),
+    # (no choices: a row that opens the skulls screen, with the variant's own
+    # locked on: menu_functions.c's "ss firefight skulls")
+    ("ff_start_skulls", "STARTING SKULLS", None,
+     "Add skulls for this game. Those the variant starts\\nwith stay on."),
 ]
 # Server Setup's TAG PROFILE (port/linux/game/tag_multiplayer.c, the setting
 # game.multiplayer_tag_profile), a multiplayer game's on one of the game's own
@@ -5461,12 +5489,12 @@ def _play() -> list:
                                            ("flags", "pass_unhandled_to_focused_child up_down_tabs_items")],
                      ['<on event="created" run="port play init"/>'] +
                      [f'<child widget="{name}" x="{x}" y="{top[name]}"/>' for name, x in places])
-    # (FORGE, Content Extended's: its own menu, port/forge's; FIREFIGHT:
-    # Multiplayer's screen, its gametypes Firefight's; "gamemode select" says
-    # which, menu_functions.c)
+    # (FORGE, Content Extended's: its own menu, port/forge's; FIREFIGHT: its
+    # own too, whose games are Firefight's; "gamemode select" says which,
+    # menu_functions.c)
     for item, mode, bitmap, target in [
             (FORGE_ITEM, "forge", "main_menu/menu_forge", "main_menu/forge_select/forge_menu"),
-            (FIREFIGHT_ITEM, "firefight", "main_menu/menu_firefight", f"{MT}/multiplayer_type_select_screen")]:
+            (FIREFIGHT_ITEM, "firefight", "main_menu/menu_firefight", "main_menu/firefight_select/firefight_menu")]:
         lines += _widget(item, [("type", "text"), ("width", 256), ("height", 33), ("bitmap", bitmap)],
                          [f'<on event="a" run="gamemode select {mode}" open="{target}"/>',
                           f'<on event="start" run="gamemode select {mode}" open="{target}"/>',

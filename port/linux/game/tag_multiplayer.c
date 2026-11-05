@@ -77,6 +77,8 @@ one, as chosen, so a game listed for every build stays so.
 #include "tag_campaign.h"
 #include "tag_multiplayer.h"
 #include "network_replay.h"
+#include "halo_firefight.h"
+#include "interface/player_ui.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,6 +125,7 @@ long port_tag_mp_profiles_manual_count(long profile, char const *key);
 char const *port_tag_mp_profiles_manual(long profile, char const *key, long entry);
 void port_tag_mp_profiles_path(long profile, char *path, unsigned long size);
 char const *port_tag_profiles_folder(long profile);
+long port_tag_profiles_count(void);
 int randomizer_show_prefix(void);
 long port_tag_campaign_profiles_scan(void);
 long port_tag_campaign_profiles_find(char const *file);
@@ -202,6 +205,9 @@ enum
 	_played_randomizer,
 	/* a Forge game's: all its tags, for the palette and to place */
 	_played_forge,
+	/* a Firefight variant's: all its tags, for the waves and drops, on any
+	map Firefight plays */
+	_played_firefight,
 };
 
 /* what a share is played as: the game's profile (a multiplayer or campaign
@@ -212,6 +218,8 @@ enum
 	_share_randomizer,
 	/* (a Forge game's: nothing swapped, the tags are placed by hand) */
 	_share_forge,
+	/* (a Firefight game's: nothing swapped, the spawner adds them) */
+	_share_firefight,
 	NUMBER_OF_SHARE_KINDS
 };
 
@@ -275,6 +283,8 @@ static struct
 	unsigned long built_signature;
 	boolean built;
 	boolean look_again;
+	/* the variant's profile a Firefight game was last given (0: none) */
+	unsigned long firefight_profile_hash;
 	unsigned long checked_changes;
 	/* what it is to be made of, and since when */
 	boolean checked;
@@ -467,7 +477,7 @@ static long played_profile(
 	if (played == NONE)
 		return NONE;
 	port_tag_profiles_scan();
-	if (kind == _played_randomizer || kind == _played_forge)
+	if (kind == _played_randomizer || kind == _played_forge || kind == _played_firefight)
 		return played;
 	return port_tag_profiles_find(kind == _played_campaign ? port_tag_campaign_profiles_option(played, "profile") :
 		port_tag_mp_profiles_option(played, "profile"));
@@ -614,7 +624,7 @@ static boolean share_build(
 	free(piece_hashes);
 	hosted->active = TRUE;
 	hosted->kind = kind == _played_randomizer ? _share_randomizer : kind == _played_forge ? _share_forge :
-		_share_profile;
+		kind == _played_firefight ? _share_firefight : _share_profile;
 	tag_multiplayer.hosted_serial++;
 	error(_error_silent, "tag multiplayer: shared %ld %s of %s as %s, %lu bytes, in %lu ms", shared,
 		kind == _played_multiplayer ? "weapons" : "tags", port_tag_profiles_name(profile), hosted->id, hosted->size,
@@ -673,8 +683,9 @@ static boolean game_takes(
 {
 	if (!game || !game->map.name[0])
 		return FALSE;
-	/* (a Forge game, on any map: its own custom maps too) */
-	if (tag_multiplayer.game_kind == _played_forge)
+	/* (a Forge game, on any map: its own custom maps too; a Firefight game
+	too, on campaign levels and all) */
+	if (tag_multiplayer.game_kind == _played_forge || tag_multiplayer.game_kind == _played_firefight)
 		return TRUE;
 	return game->variant.game_engine_index == game_engine_none ? tag_multiplayer_campaign_takes(game->map.name) :
 		tag_multiplayer_map_takes(game->map.name);
@@ -690,6 +701,8 @@ static boolean host_takes(
 		return FALSE;
 	if (tag_multiplayer.game_kind == _played_forge)
 		return TRUE;
+	if (tag_multiplayer.game_kind == _played_firefight)
+		return game->variant.game_engine_index == game_engine_firefight;
 	if (game->variant.game_engine_index != game_engine_none)
 		return tag_multiplayer.game_kind == _played_multiplayer;
 	return tag_multiplayer.game_kind == _played_campaign ||
@@ -703,7 +716,7 @@ static long host_played(
 	*kind = tag_multiplayer.game_kind;
 	if (*kind == _played_campaign)
 		return tag_multiplayer_game_campaign_profile();
-	if (*kind == _played_forge)
+	if (*kind == _played_forge || *kind == _played_firefight)
 		return tag_multiplayer_game_forge_profile();
 	return *kind == _played_randomizer ? tag_multiplayer_game_randomizer_profile() : tag_multiplayer_game_profile();
 }
@@ -932,6 +945,9 @@ void tag_multiplayer_game_profile_set(
 	tag_multiplayer.game_kind = _played_multiplayer;
 	tag_multiplayer.game_profile_set = TRUE;
 	tag_multiplayer.look_again = TRUE;
+	/* (a Firefight variant chosen again takes its profile again:
+	host_firefight_profile) */
+	tag_multiplayer.firefight_profile_hash = 0UL;
 	error(_error_silent, "tag multiplayer: the game hosted plays %s%s%s", profile == NONE ? "no multiplayer profile" :
 		"the multiplayer profile ", profile == NONE ? "" : tag_multiplayer.game_profile,
 		profile == NONE ? " (listed for every build)" : " (listed for builds with the mod alone)");
@@ -998,10 +1014,51 @@ void tag_multiplayer_game_randomizer_profile_set(
 		profile == NONE ? " (listed for every build)" : " (listed for builds with the mod alone)");
 }
 
+/* (the host) a Firefight game plays the profile of its variant, whichever
+screen chose the variant; any other game goes back to none */
+static void host_firefight_profile(
+	struct network_game const *game)
+{
+	boolean firefight = game->variant.game_engine_index == game_engine_firefight;
+	unsigned long wanted = firefight ? player_ui_get_game_variant_options()->firefight_tag_profile : 0UL;
+	char const *folder = "";
+
+	if (!firefight && tag_multiplayer.game_kind != _played_firefight)
+		return;
+	if (wanted == tag_multiplayer.firefight_profile_hash)
+		return;
+	tag_multiplayer.firefight_profile_hash = wanted;
+	if (wanted)
+	{
+		long count;
+		long profile;
+
+		port_tag_profiles_scan();
+		count = port_tag_profiles_count();
+		for (profile = 0; profile < count; profile++)
+		{
+			if (firefight_tag_profile_hash(port_tag_profiles_folder(profile)) == wanted)
+			{
+				folder = port_tag_profiles_folder(profile);
+				break;
+			}
+		}
+		if (!folder[0])
+			error(_error_silent, "tag multiplayer: the variant's Tag Injector profile is not on this machine");
+	}
+	snprintf(tag_multiplayer.game_profile, sizeof(tag_multiplayer.game_profile), "%s", folder);
+	tag_multiplayer.game_kind = folder[0] ? _played_firefight : _played_multiplayer;
+	tag_multiplayer.game_profile_set = TRUE;
+	tag_multiplayer.look_again = TRUE;
+	error(_error_silent, "tag multiplayer: the Firefight game hosted plays %s%s", folder[0] ? "the profile " : "no profile",
+		folder);
+}
+
 long tag_multiplayer_game_forge_profile(
 	void)
 {
-	char const *folder = tag_multiplayer.game_kind == _played_forge ? tag_multiplayer.game_profile : "";
+	char const *folder = tag_multiplayer.game_kind == _played_forge || tag_multiplayer.game_kind == _played_firefight ?
+		tag_multiplayer.game_profile : "";
 	long profile;
 
 	if (!hosting() || !folder[0])
@@ -1089,6 +1146,7 @@ void tag_multiplayer_update(
 		tag_multiplayer.game_profile[0] = 0;
 		tag_multiplayer.game_kind = _played_multiplayer;
 		tag_multiplayer.game_profile_set = FALSE;
+		tag_multiplayer.firefight_profile_hash = 0UL;
 		return;
 	}
 	/* (a dedicated server, which no menu chooses for: config.toml's, as
@@ -1107,7 +1165,10 @@ void tag_multiplayer_update(
 				NONE);
 	}
 	if (hosting())
+	{
+		host_firefight_profile(game);
 		host_update();
+	}
 	else if (network_game_distributed_client())
 		client_update();
 }
@@ -1200,7 +1261,8 @@ void tag_multiplayer_handle_message(
 	tag_multiplayer.remote_heard = TRUE;
 	error(_error_silent, "tag multiplayer: the host plays the tags of its share %s (%lu bytes)%s%s", remote->id,
 		remote->size, remote->kind == _share_randomizer ? " in the randomizer's pools" :
-			remote->kind == _share_forge ? " for Forge" : "",
+			remote->kind == _share_forge ? " for Forge" :
+			remote->kind == _share_firefight ? " for Firefight" : "",
 		port_tag_profiles_shared_present(remote->id) ? ", which this machine has" : "");
 }
 
@@ -1446,6 +1508,12 @@ long tag_multiplayer_forge_level_profile(
 	char const *scenario_name)
 {
 	return network_game_get_game() ? level_share_open(scenario_name, _share_forge) : NONE;
+}
+
+long tag_multiplayer_firefight_level_profile(
+	char const *scenario_name)
+{
+	return network_game_get_game() ? level_share_open(scenario_name, _share_firefight) : NONE;
 }
 
 long tag_multiplayer_campaign_level_profile(

@@ -838,3 +838,14 @@ menu opens it (TAG INJECTOR).
   `NETGAME_FLAGS_SAVED` to say they stand in place of the map's) and put in the
   scenario as the level loads, so they play the same solo, for a client, and
   in a normal game of the saved map.
+
+## In Firefight
+
+A Firefight variant can play a profile. Open **PLAY > FIREFIGHT > FIREFIGHT VARIANTS**, edit a variant, open **GAME OPTIONS > SKULLS & TRAITS** and press A on **TAG PROFILE**. The variant keeps the profile's folder as a hash (`firefight_tag_profile` in its options), so renaming a profile keeps it and a variant moved to a machine without the profile shows NOT ON THIS MACHINE and plays without it.
+
+In the game:
+
+- The profile's AI join the waves alongside the stock enemies, whatever the variant's faction: about half of each wave's picks are theirs. Each is placed by its type (the tag's `type` setting, else its unit's): grunts and infection forms are fodder, elites and carriers are commanders, hunters are bosses, and the rest are infantry. They always fight the players.
+- The profile's weapons join the ordnance drops, one per player per drop. A heavy drop prefers the ones whose class is power.
+
+The host shares the profile's tags as it does a Forge game's (`_share_firefight`), so its clients download them. A game playing a profile is a modded game: only builds with the same mod version see it. Solo games do the same on this machine alone.

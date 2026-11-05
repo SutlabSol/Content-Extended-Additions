@@ -2137,6 +2137,10 @@ void randomizer_tags_loaded(char const *scenario_name)
 	if (forge_level_tags(scenario_name, firefight, &forge_profile, &forge_baked))
 		return;
 #endif
+	/* (a Firefight variant's Tag Injector profile, shared by its host; a
+	saved Forge map's bake stays beside it) */
+	if (firefight && forge_profile == NONE)
+		forge_profile = tag_multiplayer_firefight_level_profile(scenario_name);
 	/* (a multiplayer game's shared weapons, on the game's own multiplayer
 	maps) */
 	if (!firefight)
@@ -2308,6 +2312,65 @@ void randomizer_tags_loaded(char const *scenario_name)
 		tag_import_tag_table_fingerprint(&count, &hash);
 		error(_error_silent, "randomizer: %s's tag table: %ld tags, fingerprint %08lx", leaf, count, hash);
 	}
+}
+
+long randomizer_firefight_tags(
+	unsigned long group,
+	long *tags,
+	long maximum)
+{
+	long count = 0;
+	long root;
+
+	for (root = 0; root < custom_root_count && count < maximum; root++)
+	{
+		if (custom_roots[root] != NONE && tag_index_is_group(custom_roots[root], group))
+			tags[count++] = custom_roots[root];
+	}
+	return count;
+}
+
+short randomizer_firefight_actor_tier(
+	long variant_tag)
+{
+	long root;
+
+	for (root = 0; root < custom_root_count; root++)
+	{
+		if (custom_roots[root] == variant_tag)
+		{
+			struct actor_variant_definition *variant = actor_variant_definition_get(variant_tag);
+			char words[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+			int kind;
+
+			kind = classify(variant && variant->unit_reference.index != NONE ?
+				tag_get_name(variant->unit_reference.index) : NULL);
+			custom_words(root, tag_get_name(variant_tag), words, sizeof(words));
+			if (kind == TYPE_NONE)
+				kind = classify(words);
+			switch (custom_variant_type(root, kind))
+			{
+			case TYPE_GRUNT: case TYPE_FLOOD_INFECTION: return _ff_tier_fodder;
+			case TYPE_ELITE: case TYPE_FLOOD_CARRIER: return _ff_tier_commander;
+			case TYPE_HUNTER: return _ff_tier_boss_heavy;
+			}
+			return _ff_tier_infantry;
+		}
+	}
+	return _ff_tier_infantry;
+}
+
+boolean randomizer_firefight_weapon_power(
+	long weapon_tag)
+{
+	long root;
+
+	for (root = 0; root < custom_root_count; root++)
+	{
+		if (custom_roots[root] == weapon_tag)
+			return (custom_weapon_classes(root, tag_get_name(weapon_tag)) & WEAPON_CLASS_POWER_BIT) != 0;
+	}
+	return FALSE;
 }
 
 void randomizer_tags_unloaded(void)

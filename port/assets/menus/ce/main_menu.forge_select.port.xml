@@ -158,4 +158,42 @@
 		<child widget="main_menu/forge_select/forge_edit_maps_list"/>
 		<child widget="main_menu/multiplayer_type_select/header_forge"/>
 	</widget>
+	<widget name="main_menu/firefight_select/firefight_item_create_local" type="text" left="51" width="232" height="32" bitmap="bitmaps/list_item_bkd_top" text="SOLO" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" run="join controller to mp game"/>
+		<on event="a" run="mp type set mode" open="main_menu/multiplayer_type_select/connected/connected_map_select_wrapper"/>
+		<on event="start" run="join controller to mp game"/>
+		<on event="start" run="mp type set mode" open="main_menu/multiplayer_type_select/connected/connected_map_select_wrapper"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/firefight_select/firefight_item_multiplayer" type="text" left="51" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="MULTIPLAYER" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="main_menu/multiplayer_type_select/multiplayer_type_select_screen"/>
+		<on event="start" open="main_menu/multiplayer_type_select/multiplayer_type_select_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/firefight_select/firefight_item_variants" type="text" left="51" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="FIREFIGHT VARIANTS" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="main_menu/settings_select/multiplayer_setup/playlist_select/gametype_select_screen"/>
+		<on event="start" open="main_menu/settings_select/multiplayer_setup/playlist_select/gametype_select_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/firefight_select/firefight_item_tag_injector" type="text" left="51" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="TAG INJECTOR" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
+		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_injector_screen"/>
+		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_injector_screen"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
+	</widget>
+	<widget name="main_menu/firefight_select/firefight_menu_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/multiplayer_type_select/gamemode/gamemode_ext_desc">
+		<data input="gamemode menu update"/>
+		<child widget="main_menu/firefight_select/firefight_item_create_local" y="78"/>
+		<child widget="main_menu/firefight_select/firefight_item_multiplayer" y="111"/>
+		<child widget="main_menu/firefight_select/firefight_item_variants" y="144"/>
+		<child widget="main_menu/firefight_select/firefight_item_tag_injector" y="177"/>
+		<child widget="main_menu/multiplayer_type_select/gamemode/gamemode_button_bar" y="414"/>
+	</widget>
+	<widget name="main_menu/firefight_select/firefight_menu" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
+		<on event="created" run="mp type menu initialize"/>
+		<on event="b" back="true"/>
+		<on event="back" back="true"/>
+		<child widget="main_menu/multiplayer_type_select/header_firefight"/>
+		<child widget="main_menu/firefight_select/firefight_menu_select_list"/>
+		<child widget="main_menu/blueline" x="64" y="349"/>
+	</widget>
 </menus>

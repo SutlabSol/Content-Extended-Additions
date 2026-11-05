@@ -632,6 +632,11 @@ int skull_active(int skull)
 	return global_scenario && (global_scenario->type == _scenario_type_solo || firefight_active());
 }
 
+int skull_on_for_level(int skull)
+{
+	return skull_set_has(&level_set, skull);
+}
+
 static void skull_set_to_bytes(struct skull_set set, unsigned char *bytes);
 
 void skulls_advertisement(unsigned char *reserved)
@@ -2488,6 +2493,13 @@ menus' bitmaps (display.menus "xbox") */
 #define SKULL_ICON_MARGIN 12
 #define SKULL_ICONS_PER_ROW 10
 
+/* (a skull found and not yet kept, or on for now only: fading in and out,
+once a second) */
+static real skull_pending_alpha(void)
+{
+	return 0.6f + 0.4f * cosine((real)(game_time_get() % TICKS_PER_SECOND) * (2.0f * _pi / TICKS_PER_SECOND));
+}
+
 void skulls_hud_draw(short local_player_index)
 {
 	long bitmap_index;
@@ -2550,8 +2562,15 @@ void skulls_hud_draw(short local_player_index)
 		/* (found, not yet kept: pulsing, once a second; unlocked in the
 		level: faint, a green check on it; dropped and lying about: faint, a
 		yellow mark on it; lost: faint, crossed out in red. The marks are the
-		frames after the skulls': the cross, the mark, the check) */
-		if (skull_set_has(&level_set, skull))
+		frames after the skulls': the cross, the mark, the check. Firefight's:
+		plain, pulsing while they are on for now only, a round's) */
+		if (firefight_active() && firefight_40_skull_active(skull))
+		{
+			if (firefight_40_skull_temporary(skull))
+				alpha = skull_pending_alpha();
+			overlay = NONE;
+		}
+		else if (skull_set_has(&level_set, skull))
 			overlay = NONE;
 		else if (skull_set_has(&unlocked, skull))
 		{
@@ -2560,7 +2579,7 @@ void skulls_hud_draw(short local_player_index)
 		}
 		else if (skull_set_has(&found, skull))
 		{
-			alpha = 0.6f + 0.4f * cosine((real)(game_time_get() % TICKS_PER_SECOND) * (2.0f * _pi / TICKS_PER_SECOND));
+			alpha = skull_pending_alpha();
 			overlay = NONE;
 		}
 		else if (skull_set_has(&lying, skull))

@@ -280,6 +280,13 @@ enum
 	NUMBER_OF_FIREFIGHT_SPAWNER_MODES
 };
 
+/* firefight_starting_skulls[1]'s: its words are enum skull's bits. A variant
+saved without it has the old presets', firefight_starting_skulls_get's */
+#define FIREFIGHT_STARTING_SKULLS_EXACT 0x80000000UL
+/* (firefight_tag_profile's: always in a hash, so that 0, and the skull mask
+that field once was, are none) */
+#define FIREFIGHT_TAG_PROFILE_MARK 0x80000000UL
+
 enum
 {
 	FIREFIGHT_ROUNDS_PER_SET = 5,
@@ -458,6 +465,9 @@ struct firefight_globals
 	unsigned long active_skulls;
 	unsigned long round_skulls;
 	unsigned long set_skulls;
+	/* those of active_skulls that will go again: a round's, the bonus
+	round's (the HUD pulses them) */
+	unsigned long temporary_skulls;
 	long team_score;
 	long next_bonus_life_score;
 	real active_multiplier;
@@ -704,6 +714,21 @@ struct firefight_globals *firefight_globals_mutable(void);
 unsigned long firefight_active_skulls_get(void);
 boolean firefight_skull_active(enum firefight_skull_bit skull);
 boolean firefight_40_skull_active(int skull_enum_index);
+/* whether a skull on is on for now only, a round's or the bonus round's */
+boolean firefight_40_skull_temporary(int skull_enum_index);
+/* the skulls a variant starts with, as enum skull's bits: its rules' and,
+from older variants, its own and its options' Firefight skulls */
+void firefight_starting_skulls_get(
+	struct game_engine_firefight_variant const *variant,
+	struct game_variant_options const *options,
+	unsigned long skulls[2]);
+/* ... and set, wholly in its options */
+void firefight_starting_skulls_set(
+	struct game_engine_firefight_variant *variant,
+	struct game_variant_options *options,
+	unsigned long const skulls[2]);
+/* a Tag Injector profile's folder as firefight_tag_profile has it */
+unsigned long firefight_tag_profile_hash(char const *folder);
 real firefight_score_multiplier_get(void);
 real firefight_set_vitality_scale_get(void);
 boolean firefight_should_end_game(void);
@@ -718,6 +743,9 @@ boolean firefight_elite_mode_active(void);
 long firefight_session_elapsed_seconds(void);
 void firefight_format_session_time(wchar_t *out_buf, long count);
 void firefight_setup_faction_allegiances(void);
+/* whether a team fights the players in this game: the marines' only in a
+UNSC wave (not game_team_is_enemy's, which Woe Is Me makes every team) */
+boolean firefight_team_is_hostile(short team_index);
 real firefight_enemy_vitality_scale(short team_index, boolean is_shield);
 void firefight_apply_unit_vitality_scaling(long unit_index);
 long firefight_resolve_player_biped_tag(long player_index, long default_biped_tag);
@@ -740,6 +768,15 @@ void firefight_announce_banner(
 int firefight_map_reach_skull_to_40_skull(enum firefight_skull_bit bit);
 short firefight_server_player_scale_percent_get(void);
 void firefight_server_player_scale_percent_set(short percent);
+
+/* ---------- randomizer.c: the level's Tag Injector profile, for the spawner */
+
+/* the profile's roots of a tag group, loaded on this level: their count */
+long randomizer_firefight_tags(unsigned long group, long *tags, long maximum);
+/* an actor variant's tier (enum firefight_enemy_tier), by its type */
+short randomizer_firefight_actor_tier(long variant_tag);
+/* whether a weapon is a power weapon, for a heavy drop */
+boolean randomizer_firefight_weapon_power(long weapon_tag);
 
 /* ---------- Public API: firefight_spawner.c */
 

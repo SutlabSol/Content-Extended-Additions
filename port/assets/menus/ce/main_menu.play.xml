@@ -27,8 +27,8 @@
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/play/menu_item_firefight" type="text" width="256" height="33" bitmap="main_menu/menu_firefight">
-		<on event="a" run="gamemode select firefight" open="main_menu/multiplayer_type_select/multiplayer_type_select_screen"/>
-		<on event="start" run="gamemode select firefight" open="main_menu/multiplayer_type_select/multiplayer_type_select_screen"/>
+		<on event="a" run="gamemode select firefight" open="main_menu/firefight_select/firefight_menu"/>
+		<on event="start" run="gamemode select firefight" open="main_menu/firefight_select/firefight_menu"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 </menus>

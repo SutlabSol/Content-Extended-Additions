@@ -88,6 +88,10 @@ boolean tag_multiplayer_campaign_takes(
 	char const *level_name);
 
 /* the share a Forge game's level plays (opened; NONE: none) */
+/* the host's share a Firefight variant's game plays, on a level loading:
+opened, on every machine alike; NONE for none */
+long tag_multiplayer_firefight_level_profile(
+	char const *scenario_name);
 long tag_multiplayer_forge_level_profile(
 	char const *scenario_name);
 

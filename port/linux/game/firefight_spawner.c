@@ -134,6 +134,15 @@ static short ff_ammo_tag_count = 0;
 static long ff_grenade_tags[MAX_ORDNANCE_TAG_POOL];
 static short ff_grenade_tag_count = 0;
 
+/* a variant's Tag Injector profile: its AI, which join the waves whatever
+the faction, and its weapons, which join the drops */
+static long ff_custom_enemy_tags[MAX_ROSTER_VARIANTS];
+static byte ff_custom_enemy_tiers[MAX_ROSTER_VARIANTS];
+static short ff_custom_enemy_count = 0;
+static long ff_custom_weapon_tags[MAX_ROSTER_VARIANTS];
+static boolean ff_custom_weapon_power[MAX_ROSTER_VARIANTS];
+static short ff_custom_weapon_count = 0;
+
 static short g_queued_reinforcement_enemies = 0;
 static byte g_queued_reinforcement_subtypes[256];
 static byte g_dropship_squad_subtypes[32];
@@ -891,6 +900,103 @@ static void scan_ordnance_weapon_and_equipment_tags(void)
 	}
 }
 
+/* the variant's profile's tags, from the level's (randomizer.c) */
+static void scan_custom_tags(void)
+{
+	short index;
+
+	ff_custom_enemy_count = 0;
+	ff_custom_weapon_count = 0;
+	{
+		long found[MAX_ROSTER_VARIANTS];
+		long count = randomizer_firefight_tags(ACTOR_VARIANT_DEFINITION_TAG, found, MAX_ROSTER_VARIANTS);
+
+		for (index = 0; index < count; index++)
+		{
+			struct actor_variant_definition *variant_def = actor_variant_definition_get(found[index]);
+
+			if (!variant_def || variant_def->unit_reference.index == NONE || variant_def->actor_reference.index == NONE)
+				continue;
+			ff_custom_enemy_tags[ff_custom_enemy_count] = found[index];
+			ff_custom_enemy_tiers[ff_custom_enemy_count++] = (byte)randomizer_firefight_actor_tier(found[index]);
+		}
+		count = randomizer_firefight_tags(WEAPON_DEFINITION_TAG, found, MAX_ROSTER_VARIANTS);
+		for (index = 0; index < count; index++)
+		{
+			ff_custom_weapon_tags[ff_custom_weapon_count] = found[index];
+			ff_custom_weapon_power[ff_custom_weapon_count++] = randomizer_firefight_weapon_power(found[index]);
+		}
+	}
+	if (ff_custom_enemy_count || ff_custom_weapon_count)
+		error(_error_silent, "firefight: the variant's profile adds %d AI and %d weapons", ff_custom_enemy_count,
+			ff_custom_weapon_count);
+}
+
+/* one of the profile's AI in place of a stock enemy, half the time: of the
+tier wanted, else of any below the bosses (NONE: stock's) */
+static long pick_custom_enemy(byte wanted_tier, byte *out_tier)
+{
+	short candidates[MAX_ROSTER_VARIANTS];
+	short count = 0;
+	short index;
+
+	if (!ff_custom_enemy_count || (spawner_rand() & 1))
+		return NONE;
+	for (index = 0; index < ff_custom_enemy_count; index++)
+	{
+		if (ff_custom_enemy_tiers[index] == wanted_tier)
+			candidates[count++] = index;
+	}
+	if (!count)
+	{
+		for (index = 0; index < ff_custom_enemy_count; index++)
+		{
+			if (ff_custom_enemy_tiers[index] != _ff_tier_boss_heavy || wanted_tier == _ff_tier_boss_heavy)
+				candidates[count++] = index;
+		}
+	}
+	/* (all of them bosses, and none wanted) */
+	if (!count)
+		return NONE;
+	index = candidates[spawner_rand() % (unsigned long)count];
+	if (out_tier)
+		*out_tier = ff_custom_enemy_tiers[index];
+	return ff_custom_enemy_tags[index];
+}
+
+static boolean is_custom_enemy(long variant_tag_index)
+{
+	short index;
+
+	for (index = 0; index < ff_custom_enemy_count; index++)
+	{
+		if (ff_custom_enemy_tags[index] == variant_tag_index)
+			return TRUE;
+	}
+	return FALSE;
+}
+
+/* one of the profile's weapons for a drop (a heavy one's its power weapons
+first), NONE without any */
+static long pick_custom_weapon(boolean heavy)
+{
+	short candidates[MAX_ROSTER_VARIANTS];
+	short count = 0;
+	short index;
+
+	for (index = 0; heavy && index < ff_custom_weapon_count; index++)
+	{
+		if (ff_custom_weapon_power[index])
+			candidates[count++] = index;
+	}
+	if (!count)
+	{
+		for (index = 0; index < ff_custom_weapon_count; index++)
+			candidates[count++] = index;
+	}
+	return count ? ff_custom_weapon_tags[candidates[spawner_rand() % (unsigned long)count]] : NONE;
+}
+
 void firefight_spawner_tags_loaded(char const *scenario_name)
 {
 	(void)scenario_name;
@@ -918,12 +1024,15 @@ void firefight_spawner_initialize_map(void)
 	}
 
 	scan_ordnance_weapon_and_equipment_tags();
+	scan_custom_tags();
 	discover_map_spawn_points();
 	ensure_active_firefight_structure_bsp();
 }
 
 void firefight_spawner_dispose_map(void)
 {
+	ff_custom_enemy_count = 0;
+	ff_custom_weapon_count = 0;
 	g_roster_count = 0;
 	g_spawn_point_count = 0;
 	g_friendly_unit_count = 0;
@@ -1600,6 +1709,9 @@ static long spawn_single_actor_at(
 		return NONE;
 
 	patch_actor_for_firefight_pursuit(actor_def, variant_def);
+	/* (the profile's AI fight the players, whatever team its unit is of) */
+	if (forced_team_index == NONE && is_custom_enemy(variant_tag_index))
+		forced_team_index = _game_team_covenant;
 
 	pos = *base_pos;
 	pos.x += spawner_rand_range(-1.8f, 1.8f);
@@ -1732,6 +1844,11 @@ static long pick_wave_enemy_variant(
 	short candidates[MAX_ROSTER_VARIANTS];
 	short candidate_count = 0;
 	short i;
+	long custom = pick_custom_enemy(
+		is_bonus ? _ff_tier_fodder : want_heavy_or_boss ? _ff_tier_boss_heavy : _ff_tier_infantry, out_tier);
+
+	if (custom != NONE)
+		return custom;
 
 	for (i = 0; i < g_roster_count; i++)
 	{
@@ -1812,6 +1929,19 @@ static long pick_variant_for_subtype(
 
 	if (wave_faction == _firefight_faction_grunts)
 		target_subtype = _ff_sub_grunt;
+
+	/* 0. The variant's own AI, of the tier the subtype is */
+	{
+		long custom = pick_custom_enemy(
+			target_subtype == _ff_sub_grunt ? _ff_tier_fodder :
+			target_subtype == _ff_sub_elite_major || target_subtype == _ff_sub_elite_stealth ? _ff_tier_commander :
+			target_subtype == _ff_sub_elite_zealot || target_subtype == _ff_sub_hunter ? _ff_tier_boss_heavy :
+			_ff_tier_infantry,
+			out_tier);
+
+		if (custom != NONE)
+			return custom;
+	}
 
 	/* 1. Exact subtype match among enabled faction units */
 	for (i = 0; i < g_roster_count; i++)
@@ -3280,6 +3410,9 @@ void firefight_spawn_ordnance_drop(boolean heavy_anti_armor)
 
 		spawn_protected_resupply_item(shotgun_weap, &drop_center, 0.0f, row_y - 0.35f);
 		spawn_protected_resupply_item(shotgun_ammo, &drop_center, 0.0f, row_y + 0.35f);
+
+		/* (and one of the variant's weapons for each player) */
+		spawn_protected_resupply_item(pick_custom_weapon(round_num >= 4 || heavy_anti_armor), &drop_center, 2.4f, row_y);
 
 		if (round_num >= 3)
 		{

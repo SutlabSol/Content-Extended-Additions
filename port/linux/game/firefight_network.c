@@ -31,6 +31,7 @@ struct firefight_net_packet
 	short shared_lives_remaining;
 	short enemies_alive;
 	unsigned long active_skulls;
+	unsigned long temporary_skulls;
 	long team_score;
 	real active_multiplier;
 	real set_vitality_scale;
@@ -75,6 +76,7 @@ long firefight_write_network_state(
 	pkt.shared_lives_remaining = ff_state.shared_lives_remaining;
 	pkt.enemies_alive = ff_state.enemies_alive;
 	pkt.active_skulls = ff_state.active_skulls;
+	pkt.temporary_skulls = ff_state.temporary_skulls;
 	pkt.team_score = ff_state.team_score;
 	pkt.active_multiplier = ff_state.active_multiplier;
 	pkt.set_vitality_scale = ff_state.set_vitality_scale;
@@ -132,6 +134,7 @@ boolean firefight_read_network_state(
 	ff_state.shared_lives_remaining = pkt.shared_lives_remaining;
 	ff_state.enemies_alive = pkt.enemies_alive;
 	ff_state.active_skulls = pkt.active_skulls;
+	ff_state.temporary_skulls = pkt.temporary_skulls;
 	ff_state.team_score = pkt.team_score;
 	ff_state.active_multiplier = pkt.active_multiplier;
 	ff_state.set_vitality_scale = pkt.set_vitality_scale;

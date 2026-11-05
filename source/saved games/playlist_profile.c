@@ -1029,9 +1029,12 @@ static boolean playlist_profile_options_from_block(
 	options->firefight_custom_skulls &= (1UL << NUMBER_OF_FIREFIGHT_SKULLS) - 1UL;
 	options->firefight_generator_health = (short)PIN(options->firefight_generator_health, 500, 10000);
 	options->firefight_score_life_threshold = (short)PIN(options->firefight_score_life_threshold, 0, 30000);
-	options->firefight_round_1_skull = (byte)PIN(options->firefight_round_1_skull, 0, NUMBER_OF_FIREFIGHT_SKULLS);
-	options->firefight_round_2_skull = (byte)PIN(options->firefight_round_2_skull, 0, NUMBER_OF_FIREFIGHT_SKULLS);
-	options->firefight_round_3_skull = (byte)PIN(options->firefight_round_3_skull, 0, NUMBER_OF_FIREFIGHT_SKULLS);
+	options->firefight_enemy_health_scale = (byte)PIN(options->firefight_enemy_health_scale, 0, 4);
+	options->firefight_enemy_shield_scale = (byte)PIN(options->firefight_enemy_shield_scale, 0, 4);
+	options->firefight_bonus_seconds = (byte)PIN(options->firefight_bonus_seconds, 0, 120);
+	/* (that field was a skull mask: not a hash) */
+	if (!(options->firefight_tag_profile & FIREFIGHT_TAG_PROFILE_MARK))
+		options->firefight_tag_profile = 0UL;
 	if (options->firefight_unit_toggles == 0)
 		options->firefight_unit_toggles = FIREFIGHT_UNIT_MASK_ALL;
 	options->firefight_faction_diplomacy = (byte)PIN(options->firefight_faction_diplomacy, 0, NUMBER_OF_FIREFIGHT_DIPLOMACY_MODES - 1);

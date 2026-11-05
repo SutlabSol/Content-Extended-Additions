@@ -389,6 +389,7 @@ static char const *const port_function_names[] =
 	"mp profile init floodfection options", "mp profile set floodfection options",
 	/* (Firefight & Forge gamemode and rules handlers) */
 	"mp profile init firefight rules", "mp profile set firefight rules",
+	"mp edit game options", "firefight skulls open", "ss firefight skulls", "firefight tag profile open",
 	"gamemode menu init", "gamemode select standard", "gamemode select ranked", "gamemode select firefight",
 	"gamemode select forge", "gamemode select theater", "gamemode select creation hub", "gamemode select dedi server",
 	"service record init", "service record select tab", "service record check leaderboards",
