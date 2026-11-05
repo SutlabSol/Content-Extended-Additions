@@ -15357,6 +15357,9 @@ static void social_screen_update(struct widget_instance *list)
 	boolean card;
 
 	social_menu_poll();
+	/* (its first setup done: the main menu again) */
+	if (social_menu_setup_closing())
+		ui_widget_port_post_button(0, BUTTON_B);
 	first = social_menu_first();
 	chosen = social_menu_chosen();
 	count = social_menu_count();
@@ -15586,6 +15589,9 @@ BLOCKED & MUTED), "port social profile" (Social's MY PROFILE), or
 one asking, at its first list */
 static boolean social_screen_open(struct widget_instance *widget, short where, boolean *widget_deleted)
 {
+	/* (the player's first setup comes before all of it) */
+	if (where == _social_menu_open_home && social_menu_setup_wanted())
+		where = _social_menu_open_setup;
 	social_menu_open_at(where);
 	ui_play_audio_feedback_sound(SOUND_FORWARD);
 	return ui_widget_port_open(widget, SOCIAL_SCREEN_NAME, widget_deleted);
@@ -17025,6 +17031,9 @@ static void social_home_drawn(struct widget_instance *widget, rectangle2d const 
 	else
 		social_home.focused = FALSE;
 	social_home.screen = screen_of(widget);
+	/* (the account's first setup and rank, once the tag packs are done) */
+	if (!chat && !tag_pack_checklist_shown() && social_menu_setup_tick())
+		ui_widget_port_post_button(0, BUTTON_Y);
 	if (!chat)
 	{
 		/* (the chat's box is SOCIAL_HOME_CHAT_TOP_UNITS below, and as tall as it) */

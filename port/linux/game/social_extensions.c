@@ -75,6 +75,7 @@ static char const *const s_mcc_nameplate_names[FIREFIGHT_NAMEPLATE_COUNT] =
 struct social_ext_person_entry
 {
 	boolean valid;
+	boolean has_rank;
 	boolean has_custom_emblem;
 	char code[16];
 	char name[48];
@@ -105,45 +106,6 @@ static void wchar_to_ascii(wchar_t const *src, char *dst, size_t dst_size)
 		i++;
 	}
 	dst[i] = '\0';
-}
-
-static unsigned long hash_person_seed(char const *str)
-{
-	unsigned long h = 2166136261UL;
-
-	if (!str)
-		return h;
-	while (*str)
-	{
-		unsigned char c = (unsigned char)*str++;
-		if (c >= 'a' && c <= 'z')
-			c = (unsigned char)(c - 'a' + 'A');
-		h ^= (unsigned long)c;
-		h *= 16777619UL;
-	}
-	return h;
-}
-
-static void derive_deterministic_emblem(
-	char const *seed_str,
-	short color_hint,
-	struct firefight_emblem_info *out_emblem)
-{
-	unsigned long h = hash_person_seed(seed_str && seed_str[0] ? seed_str : "SPARTAN");
-
-	if (!out_emblem)
-		return;
-
-	out_emblem->foreground = (short)(h % FIREFIGHT_EMBLEM_FOREGROUND_COUNT);
-	out_emblem->background = (short)(1 + ((h >> 4) % (FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1)));
-	out_emblem->secondary_layer = ((h >> 8) & 1) ? TRUE : FALSE;
-	if (color_hint >= 0 && color_hint < FIREFIGHT_EMBLEM_COLOR_COUNT)
-		out_emblem->primary_color = color_hint;
-	else
-		out_emblem->primary_color = (short)((h >> 9) % FIREFIGHT_EMBLEM_COLOR_COUNT);
-	out_emblem->secondary_color = (short)((out_emblem->primary_color + 3 + ((h >> 14) % 11)) % FIREFIGHT_EMBLEM_COLOR_COUNT);
-	out_emblem->background_color = (short)((out_emblem->primary_color + 7 + ((h >> 18) % 9)) % FIREFIGHT_EMBLEM_COLOR_COUNT);
-	out_emblem->nameplate = (short)((h >> 22) % FIREFIGHT_NAMEPLATE_COUNT);
 }
 
 static int str_case_eq(char const *a, char const *b)
@@ -202,7 +164,10 @@ void social_extensions_cache_person_stats(
 	if (name && name[0])
 		snprintf(s_person_cache[slot].name, sizeof(s_person_cache[slot].name), "%s", name);
 	if (total_xp >= 0)
+	{
 		s_person_cache[slot].total_xp = total_xp;
+		s_person_cache[slot].has_rank = TRUE;
+	}
 	if (emblem_opt)
 	{
 		s_person_cache[slot].emblem = *emblem_opt;
@@ -233,8 +198,8 @@ void social_extensions_get_person_rank_and_emblem(
 {
 	short i;
 	struct social_ext_person_entry const *found = NULL;
-	char const *seed = (code && code[0]) ? code : ((name && name[0]) ? name : "SPARTAN");
 
+	(void)color_hint;
 	for (i = 0; i < SOCIAL_EXT_PERSON_CACHE_MAX; i++)
 	{
 		if (!s_person_cache[i].valid)
@@ -250,17 +215,16 @@ void social_extensions_get_person_rank_and_emblem(
 		}
 	}
 
+	/* (only what the server said: a player off the fork, a bot or an account
+	before ranks has none, tour 0, which the icon's drawing leaves out) */
 	if (out_rank)
 	{
-		long xp = found ? found->total_xp : 0L;
-#if OPENCE_ENABLE_SERVICE_RANK
-		service_rank_compute_from_xp(xp, out_rank);
-#else
 		csmemset(out_rank, 0, sizeof(*out_rank));
-		out_rank->tour_number = 1;
-		out_rank->rank_in_tour = 1;
-		out_rank->tour_name = "Tour 1";
-		out_rank->rank_name = "Recruit";
+		out_rank->tour_name = "";
+		out_rank->rank_name = "";
+#if OPENCE_ENABLE_SERVICE_RANK
+		if (found && found->has_rank)
+			service_rank_compute_from_xp(found->total_xp, out_rank);
 #endif
 	}
 
@@ -269,7 +233,10 @@ void social_extensions_get_person_rank_and_emblem(
 		if (found && found->has_custom_emblem)
 			*out_emblem = found->emblem;
 		else
-			derive_deterministic_emblem(seed, color_hint, out_emblem);
+		{
+			csmemset(out_emblem, 0, sizeof(*out_emblem));
+			out_emblem->foreground = NONE;
+		}
 	}
 }
 
@@ -280,35 +247,9 @@ void social_extensions_get_wide_name_rank_and_emblem(
 	struct firefight_emblem_info *out_emblem)
 {
 	char ascii_name[48];
-	short i;
-	boolean in_cache = FALSE;
 
 	wchar_to_ascii(wide_name, ascii_name, sizeof(ascii_name));
-	for (i = 0; i < SOCIAL_EXT_PERSON_CACHE_MAX; i++)
-	{
-		if (s_person_cache[i].valid && s_person_cache[i].name[0] && str_case_eq(s_person_cache[i].name, ascii_name))
-		{
-			in_cache = TRUE;
-			break;
-		}
-	}
-
-	social_extensions_get_person_rank_and_emblem(
-		NULL,
-		ascii_name,
-		color_hint >= 0 ? firefight_emblem_color_from_armor(color_hint) : NONE,
-		out_rank,
-		out_emblem);
-
-	/* For uncached bots / offline players in-game, give a deterministic non-zero rank from their name */
-	if (!in_cache && out_rank && ascii_name[0])
-	{
-#if OPENCE_ENABLE_SERVICE_RANK
-		unsigned long h = hash_person_seed(ascii_name);
-		long bot_xp = (long)((h % 45UL) * 6500UL);
-		service_rank_compute_from_xp(bot_xp, out_rank);
-#endif
-	}
+	social_extensions_get_person_rank_and_emblem(NULL, ascii_name, color_hint, out_rank, out_emblem);
 }
 
 static long count_unlocked_skulls_ext(void)
@@ -1280,6 +1221,9 @@ real social_extensions_card_draw_section(
 		firefight_stats_get_mcc_rank(NONE, &rk);
 	else
 		social_extensions_get_person_rank_and_emblem(person_code, person_name, NONE, &rk, NULL);
+	/* (none to show: the card goes on without the row) */
+	if (rk.tour_number <= 0)
+		return y;
 
 	/* the rank's icon, then the rank and its XP over the bar */
 	if (draw)

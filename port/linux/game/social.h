@@ -10,6 +10,9 @@ it, and the fork's chat (social_chat.h).
 #define __SOCIAL_H
 
 struct community_run;
+struct firefight_emblem_info;
+struct server_json;
+struct server_json_document;
 
 /* (main.c's main loop) each frame, after community_update: the account asked
 for, a match over recorded, the records not sent yet sent again */
@@ -33,9 +36,35 @@ boolean social_account_totals(long *matches, long *kills, long *deaths, long *as
 and the friend requests waiting */
 void social_presence_counts(long *friends_online, long *requests_waiting);
 
-/* (firefight_stats.c) a Firefight match's totals added: sent with the
-account (POST /account), which other players' cards read */
+/* (firefight_stats.c) a game's totals and XP added: sent with the account
+(POST /account), which other players' cards read */
 void social_firefight_changed(void);
+
+/* the server's word on the account's rank and emblem, from POST /account:
+whether it has answered, and whether it knows of them (one that does not
+needs updating: nothing is asked of the player then) */
+boolean social_account_known(void);
+boolean social_account_ranks_served(void);
+/* the emblem it has for the account: FALSE for none chosen yet (out may be
+NULL) */
+boolean social_account_emblem(struct firefight_emblem_info *out_emblem);
+/* the account's rank and emblem as an answer of the server's says them, kept
+and brought to the profile ({data: {account}}: POST /account/setup's...) */
+void social_account_answer(char const *answer);
+/* the server's rank and emblem brought to the profile (a new one, on a device
+of an account set up elsewhere) */
+void social_account_apply(void);
+/* (the main menu) an account set up whose past records were not counted yet:
+counted into its rank, the XP card showing it */
+void social_rank_catch_up(void);
+/* (firefight_stats.c) the emblem chosen: sent as the choosing stops, once the
+account has one on the server (the first goes with POST /account/setup) */
+void social_emblem_changed(void);
+/* an emblem in a request, under key */
+void social_emblem_json(struct server_json *json, char const *key, struct firefight_emblem_info const *emblem);
+/* a player the server said (a friend, a card, a player of the room): its rank
+and emblem, at token, kept to show by its code and name */
+void social_person_note(struct server_json_document const *document, int token, char const *code, char const *name);
 
 /* the name the account goes by: player 1's profile's (ASCII, '?' for what it
 has not), "" for none */

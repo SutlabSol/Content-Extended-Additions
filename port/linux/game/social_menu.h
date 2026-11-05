@@ -75,6 +75,8 @@ enum
 	/* (the main menu's social column: a friend's card,
 	social_menu_home_friend_open) */
 	_social_menu_open_player,
+	/* the player's first setup (social_menu_setup_tick) */
+	_social_menu_open_setup,
 };
 
 /* ---------- prototypes/SOCIAL_MENU.C */
@@ -91,6 +93,17 @@ void social_menu_friends_key(char const *key);
 /* the list the screen opens at next (_social_menu_open_*), set before the
 screen is opened */
 void social_menu_open_at(short where);
+
+/* the player's first setup: name, chat colour and emblem, on the Social
+screen. Each frame of the main menu: an account's rank caught up, a profile
+made for a new device of an account set up elsewhere, and TRUE when the screen
+is to open now (the main menu's Y). wanted: the Y opens it. closing: once,
+as it is done and goes (B) */
+boolean social_menu_setup_tick(void);
+boolean social_menu_setup_wanted(void);
+boolean social_menu_setup_closing(void);
+/* whether a profile of the player's own exists (the stock ones aside) */
+boolean social_menu_has_profile(void);
 
 /* the screen opened (the server asked for its lists), or closed */
 void social_menu_open(void);

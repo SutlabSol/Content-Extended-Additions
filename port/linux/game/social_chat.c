@@ -1219,6 +1219,14 @@ static void social_chat_poll_answer(
 			social_chat_string(&document, member, "name", name, sizeof(name));
 			social_chat_wide_from_utf8(name, wide, NUMBEROF(wide));
 			social_chat_peer_note(code, wide, TRUE);
+			/* (its rank and emblem, by the name the game shows it by: who
+			has neither here is off the fork) */
+			{
+				char player[SOCIAL_CHAT_NAME_SIZE * 3];
+
+				social_chat_string(&document, member, "player", player, sizeof(player));
+				social_person_note(&document, member, code, player[0] ? player : name);
+			}
 		}
 		messages = server_json_member(&document, data, "messages");
 		for (index = 0; messages >= 0; index++)

@@ -34,10 +34,13 @@ community server's answers.
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
 #include "interface/interface.h"
+#include "interface/player_ui.h"
 #include "interface/ui_widget.h"
 #include "interface/virtual_keyboard.h"
 #include "networking/network_client_manager.h"
 #include "networking/network_game_globals.h"
+#include "saved games/player_profile.h"
+#include "saved games/saved_game_files.h"
 #include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
 #include "text/font_group.h"
@@ -122,6 +125,7 @@ enum
 	_list_report,
 	_list_sync,
 	_list_sync_code,
+	_list_setup,
 	NUMBER_OF_LISTS
 };
 
@@ -171,6 +175,10 @@ enum
 	_row_sync_input,
 	_row_sync_code,
 	_row_settings,
+	_row_setup_name,
+	_row_setup_color,
+	_row_setup_done,
+	_row_clear_rank,
 };
 
 /* a note row's words */
@@ -199,7 +207,14 @@ enum
 	_typing_friend_code,
 	_typing_sync_code,
 	_typing_name,
+	_typing_setup_name,
 };
+
+/* a new install waits this long for the server's word before asking the
+player (who has no profile to play with): offline, it is asked all the same */
+#define SOCIAL_SETUP_WAIT_MILLISECONDS 5000
+/* (the screen asked for again this long after, if it did not open) */
+#define SOCIAL_SETUP_ASK_MILLISECONDS 2000
 
 /* the colours a chat name may be: its label and RRGGBB (the first, none:
 the line's own colour) */
@@ -764,7 +779,10 @@ static short people_read(
 			json_text(document, element, "since", person->at, sizeof(person->at));
 		presence_read(document, element, &person->presence);
 		if (person->code[0])
+		{
+			social_person_note(document, element, person->code, person->name);
 			count++;
+		}
 	}
 	return count;
 }
@@ -999,25 +1017,6 @@ static void activity_take(
 	server_json_document_free(&document);
 }
 
-static long compute_career_xp_from_totals(
-	struct social_menu_totals const *mp,
-	struct social_menu_totals const *camp)
-{
-	long xp = 0;
-
-	if (mp)
-	{
-		xp += mp->kills * 75L + mp->assists * 50L + mp->matches * 1500L +
-			mp->wins * 500L + mp->medals * 100L + MAX(0L, mp->score / 10L);
-	}
-	if (camp)
-	{
-		xp += camp->kills * 75L + camp->assists * 50L + camp->matches * 1500L +
-			camp->wins * 500L + camp->medals * 100L + MAX(0L, camp->score / 10L);
-	}
-	return xp;
-}
-
 static void firefight_read(
 	struct server_json_document const *document,
 	int token,
@@ -1057,20 +1056,13 @@ static void prefetch_take(
 	{
 		char code[SOCIAL_MENU_CODE_SIZE];
 		char name[SOCIAL_MENU_NAME_SIZE];
-		struct social_menu_totals mp;
-		struct social_menu_totals camp;
-		int stats = server_json_member(&document, token, "stats");
 
-		csmemset(&mp, 0, sizeof(mp));
-		csmemset(&camp, 0, sizeof(camp));
 		json_text(&document, token, "code", code, sizeof(code));
 		json_text(&document, token, "name", name, sizeof(name));
 		if (!name[0])
 			snprintf(name, sizeof(name), "%s", social_menu.prefetch_name[0] ? social_menu.prefetch_name : code);
-		totals_read(&document, stats >= 0 ? server_json_member(&document, stats, "multiplayer") : -1, &mp);
-		totals_read(&document, stats >= 0 ? server_json_member(&document, stats, "campaign") : -1, &camp);
 		if (code[0])
-			social_extensions_cache_person_stats(code, name, compute_career_xp_from_totals(&mp, &camp), NULL);
+			social_person_note(&document, token, code, name);
 	}
 	server_json_document_free(&document);
 }
@@ -1141,8 +1133,7 @@ static void player_take(
 				match_read(&document, element, &player->matches[player->match_count++]);
 			}
 			player->had = TRUE;
-			social_extensions_cache_person_stats(player->code, player->name,
-				compute_career_xp_from_totals(&player->multiplayer, &player->campaign), NULL);
+			social_person_note(&document, token, player->code, player->name);
 		}
 	}
 	else
@@ -1296,6 +1287,261 @@ static void name_send(
 	message_set("Asking the server...");
 }
 
+/* ---------- the player's first setup
+
+its three cases, as the server says the account (social_menu_setup_tick):
+- no profile, no emblem on the account: a new install. The screen, and DONE
+  makes the profile.
+- a profile, no emblem on the account: the screen, with what the player has.
+- an emblem on the account: no screen (a device without a profile gets one
+  made by the account's name, which social_account_apply fills in). */
+static struct
+{
+	/* no more of it until the game starts again */
+	boolean finished;
+	boolean wanted;
+	boolean closing;
+	char name[SOCIAL_MENU_NAME_SIZE];
+	short color;
+	unsigned long first_at;
+	unsigned long asked_at;
+} social_setup;
+
+boolean social_menu_has_profile(
+	void)
+{
+	word count = 1;
+	long profile = NONE;
+
+	player_profiles_enumerate_available_to_local_player_index(NONE, &count, &profile, FALSE);
+	return (short)count > 0;
+}
+
+/* a profile made by a name, player 1's: NONE if it could not be */
+static long social_setup_profile_make(
+	char const *name)
+{
+	struct player_profile profile;
+	wchar_t wide[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH];
+	long index;
+
+	wide_from_utf8(name, wide, NUMBEROF(wide));
+	index = player_profile_new(0, wide);
+	if (index == NONE)
+	{
+		/* (a name the saved games do not take) */
+		saved_game_file_get_useable_untitled_profile_name(wide);
+		index = player_profile_new(0, wide);
+	}
+	if (index == NONE || !player_profile_get(index, &profile))
+	{
+		platform_log("social: a profile could not be made");
+		return NONE;
+	}
+	player_ui_set_active_player_profile(0, index, &profile);
+	player_ui_remember_player1_profile(TRUE);
+	return index;
+}
+
+/* the profile the player plays with: NONE for none */
+static long social_setup_profile_index(
+	void)
+{
+	long index = player_ui_get_active_player_profile_index(0);
+
+	return index != NONE ? index : player_ui_get_player1_last_used_profile_index();
+}
+
+/* the name as a profile takes it: as many characters as it holds */
+static void social_setup_name_set(
+	char const *name)
+{
+	wchar_t wide[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH];
+
+	wide_from_utf8(name, wide, NUMBEROF(wide));
+	utf8_from_wide(wide, social_setup.name, sizeof(social_setup.name));
+}
+
+/* (the screen opening) what the player has */
+static void social_setup_begin(
+	void)
+{
+	char name[SOCIAL_MENU_NAME_SIZE];
+
+	name[0] = 0;
+	social_account_name(name, sizeof(name));
+	social_setup_name_set(name);
+	social_setup.color = name_color_index();
+}
+
+static void social_setup_finish(
+	void)
+{
+	social_setup.finished = TRUE;
+	social_setup.wanted = FALSE;
+	social_setup.closing = TRUE;
+}
+
+/* DONE: the profile made, or named anew, then all of it told to the server */
+static void social_setup_done(
+	void)
+{
+	struct firefight_emblem_info emblem;
+	struct server_json json;
+
+	if (!social_setup.name[0])
+	{
+		message_set("Type your name first.");
+		return;
+	}
+	if (social_menu.action_ticket)
+	{
+		message_set("Still waiting for the server: try again.");
+		return;
+	}
+	/* (chosen before there was a profile to keep it) */
+	firefight_stats_get_emblem(NONE, &emblem);
+	if (!social_menu_has_profile())
+	{
+		long index = social_setup_profile_make(social_setup.name);
+
+		if (index == NONE)
+		{
+			message_set("Your profile could not be made: try again.");
+			return;
+		}
+		firefight_stats_set_emblem(index, &emblem);
+	}
+	else
+	{
+		struct player_profile profile;
+		long index = social_setup_profile_index();
+		wchar_t wide[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH];
+
+		wide_from_utf8(social_setup.name, wide, NUMBEROF(wide));
+		if (index != NONE && player_profile_get(index, &profile) && ustrcmp(profile.player_name, wide))
+		{
+			ustrncpy(profile.player_name, wide, MAXIMUM_PLAYER_PROFILE_NAME_LENGTH - 1);
+			profile.player_name[MAXIMUM_PLAYER_PROFILE_NAME_LENGTH - 1] = 0;
+			player_profile_save(index, &profile);
+			if (player_ui_get_active_player_profile_index(0) == index)
+				player_ui_set_active_player_profile(0, index, &profile);
+		}
+	}
+	if (!social_enabled())
+	{
+		social_setup_finish();
+		return;
+	}
+	server_json_begin(&json);
+	server_json_object_begin(&json, NULL);
+	server_json_string(&json, "name", social_setup.name);
+	server_json_string(&json, "color", social_menu_name_colors[social_setup.color].hex);
+	social_emblem_json(&json, "emblem", &emblem);
+	server_json_object_end(&json);
+	social_menu.action_ticket = social_send("/account/setup", server_json_text(&json));
+	server_json_free(&json);
+	social_menu.action_from_chat = FALSE;
+	if (!social_menu.action_ticket)
+	{
+		social_setup_finish();
+		return;
+	}
+	social_menu.action_kind = _row_setup_done;
+	social_menu.action_code[0] = 0;
+	message_set("Saving...");
+}
+
+boolean social_menu_setup_tick(
+	void)
+{
+	unsigned long now = system_milliseconds();
+	boolean profile = social_menu_has_profile();
+	boolean known = social_enabled() && social_account_known();
+
+	if (!social_setup.first_at)
+		social_setup.first_at = now | 1;
+	if (social_menu.open)
+		return FALSE;
+	if (known && social_account_ranks_served() && social_account_emblem(NULL))
+	{
+		social_setup.wanted = FALSE;
+		if (!profile)
+		{
+			char name[SOCIAL_MENU_NAME_SIZE];
+
+			social_account_name(name, sizeof(name));
+			if (social_setup_profile_make(name[0] ? name : "Spartan") != NONE)
+				social_account_apply();
+		}
+		social_rank_catch_up();
+		return FALSE;
+	}
+	if (social_setup.finished)
+		return FALSE;
+	if (!profile)
+	{
+		social_setup.wanted = known || !social_enabled() ||
+			(long)(now - social_setup.first_at) >= SOCIAL_SETUP_WAIT_MILLISECONDS;
+	}
+	else
+		social_setup.wanted = known && social_account_ranks_served();
+	if (!social_setup.wanted || (social_setup.asked_at && (long)(now - social_setup.asked_at) < SOCIAL_SETUP_ASK_MILLISECONDS))
+		return FALSE;
+	social_setup.asked_at = now | 1;
+	return TRUE;
+}
+
+boolean social_menu_setup_wanted(
+	void)
+{
+	return social_setup.wanted;
+}
+
+boolean social_menu_setup_closing(
+	void)
+{
+	boolean closing = social_setup.closing;
+
+	social_setup.closing = FALSE;
+	return closing;
+}
+
+/* CLEAR RANK: on the server first, whose answer says it was (without one,
+this device's alone) */
+static void rank_clear(
+	void)
+{
+	struct server_json json;
+
+	if (!social_enabled())
+	{
+		firefight_stats_set_career_xp(0L);
+		message_set("Your rank is cleared.");
+		return;
+	}
+	if (social_menu.action_ticket)
+	{
+		message_set("Still waiting for the server: try again.");
+		return;
+	}
+	server_json_begin(&json);
+	server_json_object_begin(&json, NULL);
+	server_json_boolean(&json, "reset", 1);
+	server_json_object_end(&json);
+	social_menu.action_ticket = social_send("/account/rank", server_json_text(&json));
+	server_json_free(&json);
+	social_menu.action_from_chat = FALSE;
+	if (!social_menu.action_ticket)
+	{
+		message_set("The server could not be asked: try again.");
+		return;
+	}
+	social_menu.action_kind = _row_clear_rank;
+	social_menu.action_code[0] = 0;
+	message_set("Asking the server...");
+}
+
 /* an action: POST path of {code, ...}, said as done once answered */
 static void act_as(
 	short kind,
@@ -1360,8 +1606,20 @@ static void action_take(
 	char const *name = social_menu.action_name;
 	char const *answer = social_menu.answer;
 
-	if (!answered)
+	/* (the setup is never held up by the server: unsaid, it is asked again
+	the next time the game starts) */
+	if (social_menu.action_kind == _row_setup_done)
+	{
+		if (answered && status == 200)
+			social_account_answer(answer);
+		else
+			platform_log("social: the setup was not taken (%d)", status);
+		social_setup_finish();
+	}
+	else if (!answered)
 		message_set("The server did not answer: try again.");
+	else if (social_menu.action_kind == _row_clear_rank && status != 200)
+		message_set("The server could not clear your rank (%d).", status);
 	else if (social_menu.action_kind == _row_sync_input && status != 200)
 	{
 		if (status == 404)
@@ -1451,6 +1709,11 @@ static void action_take(
 				else
 					message_set("Your name's colour is %s.", social_menu_name_colors[name_color_index()].label);
 			}
+			break;
+		case _row_clear_rank:
+			firefight_stats_set_career_xp(0L);
+			social_account_answer(answer);
+			message_set("Your rank is cleared. The main menu counts your records again.");
 			break;
 		case _row_code:
 			if (!social_account_code_take(answer))
@@ -1744,6 +2007,7 @@ static void rows_build(
 		social_extensions_add_home_rows(row_add);
 		if (social_enabled())
 			row_add(_row_sync, 0);
+		row_add(_row_clear_rank, 0);
 		break;
 	case _list_friendlist:
 		row_add(_row_code, 0);
@@ -1759,6 +2023,12 @@ static void rows_build(
 	case _list_identity:
 		row_add(_row_name, 0);
 		row_add(_row_name_color, 0);
+		break;
+	case _list_setup:
+		row_add(_row_setup_name, 0);
+		row_add(_row_setup_color, 0);
+		row_add(_social_ext_row_emblem, 0);
+		row_add(_row_setup_done, 0);
 		break;
 	case _list_friends:
 		for (index = 0; index < social_menu.friend_count; index++)
@@ -1933,6 +2203,12 @@ void social_menu_open(
 		list_open(_list_identity);
 		social_menu.depth = 0;
 	}
+	else if (social_menu.opening == _social_menu_open_setup)
+	{
+		social_setup_begin();
+		list_open(_list_setup);
+		social_menu.depth = 0;
+	}
 	else if (social_menu.opening == _social_menu_open_profile && social_account_code()[0])
 	{
 		char me[SOCIAL_MENU_NAME_SIZE];
@@ -1982,7 +2258,7 @@ void social_menu_poll(
 			char code[SOCIAL_MENU_TYPED_LENGTH * 3 + 1];
 
 			utf8_from_wide(social_menu.typed, code, sizeof(code));
-			if (wanted == _typing_name)
+			if (wanted == _typing_name || wanted == _typing_setup_name)
 			{
 				/* (a name, not a code: as typed, its ends trimmed) */
 				char *start = code;
@@ -1993,7 +2269,12 @@ void social_menu_poll(
 				length = strlen(start);
 				while (length && start[length - 1] == ' ')
 					start[--length] = 0;
-				if (start[0])
+				if (wanted == _typing_setup_name)
+				{
+					if (start[0])
+						social_setup_name_set(start);
+				}
+				else if (start[0])
 					name_send(start, NULL);
 				code[0] = 0;
 			}
@@ -3212,6 +3493,21 @@ void social_menu_row(
 		snprintf(name, (size_t)name_size, "CHAT COLOR");
 		snprintf(state, (size_t)state_size, "%s", social_menu_name_colors[name_color_index()].label);
 		break;
+	case _row_setup_name:
+		snprintf(name, (size_t)name_size, "NAME");
+		snprintf(state, (size_t)state_size, "%s", social_setup.name[0] ? social_setup.name : "A: TYPE IT");
+		break;
+	case _row_setup_color:
+		snprintf(name, (size_t)name_size, "CHAT COLOR");
+		snprintf(state, (size_t)state_size, "%s", social_menu_name_colors[social_setup.color].label);
+		break;
+	case _row_setup_done:
+		snprintf(name, (size_t)name_size, "DONE");
+		break;
+	case _row_clear_rank:
+		snprintf(name, (size_t)name_size, "CLEAR RANK");
+		snprintf(state, (size_t)state_size, "TESTING");
+		break;
 	case _row_code:
 		snprintf(name, (size_t)name_size, "YOUR CODE");
 		snprintf(state, (size_t)state_size, "%s", own_code());
@@ -3495,6 +3791,24 @@ void social_menu_details(
 		snprintf(title, (size_t)title_size, "CHAT COLOR");
 		text_add(text, text_size, "The colour of your name in the\nchat, for everyone who sees it.\nA picks the next one.");
 		break;
+	case _row_setup_name:
+		snprintf(title, (size_t)title_size, "WELCOME");
+		text_add(text, text_size, "Choose how other players see you.\n\nYour name, up to 11 characters,\nis your profile's and the chat's.\nA types it.");
+		break;
+	case _row_setup_color:
+		snprintf(title, (size_t)title_size, "CHAT COLOR");
+		text_add(text, text_size, "The colour of your name in the\nchat, for everyone who sees it.\nA or Left and Right change it.");
+		break;
+	case _row_setup_done:
+		snprintf(title, (size_t)title_size, "DONE");
+		text_add(text, text_size, social_menu_has_profile() ? "Saves these on your account." :
+			"Saves these on your account and\nmakes your profile, ready to\nplay.");
+		break;
+	case _row_clear_rank:
+		snprintf(title, (size_t)title_size, "CLEAR RANK");
+		text_add(text, text_size, "For testing: A twice takes your\nrank back to nothing, here and on\nthe server. "
+			"Your records are then\ncounted again at the main menu,\nas a new account's are.");
+		break;
 	case _row_code:
 		snprintf(title, (size_t)title_size, "YOUR CODE");
 		text_add(text, text_size, "%s\n\nGive it to friends: they add you\nby it. ", own_code());
@@ -3719,6 +4033,19 @@ short social_menu_choose(
 	case _row_name_color:
 		name_send(NULL, social_menu_name_colors[(name_color_index() + 1) % NUMBEROF(social_menu_name_colors)].hex);
 		break;
+	case _row_setup_name:
+		keyboard_open(_typing_setup_name);
+		break;
+	case _row_setup_color:
+		social_setup.color = (short)((social_setup.color + 1) % NUMBEROF(social_menu_name_colors));
+		break;
+	case _row_setup_done:
+		social_setup_done();
+		break;
+	case _row_clear_rank:
+		if (confirmed(_row_clear_rank, "clear your rank"))
+			rank_clear();
+		break;
 	case _row_code:
 		if (!config_boolean("social.friend_requests"))
 			social_menu.code_shown = TRUE;
@@ -3875,6 +4202,13 @@ boolean social_menu_step(
 {
 	struct social_menu_row const *entry = row_get(row);
 
+	if (entry && entry->kind == _row_setup_color)
+	{
+		short count = (short)NUMBEROF(social_menu_name_colors);
+
+		social_setup.color = (short)((social_setup.color + delta + count) % count);
+		return TRUE;
+	}
 	if (!entry || !social_extensions_is_ext_row(entry->kind))
 		return FALSE;
 	return social_extensions_step_row(social_menu.list, entry->kind, entry->value, delta);
@@ -3895,6 +4229,12 @@ boolean social_menu_back(
 	void)
 {
 	social_menu.confirming_kind = NONE;
+	/* (the setup is left by its DONE) */
+	if (!social_menu.depth && social_menu.list == _list_setup && !social_setup.finished)
+	{
+		message_set("Choose DONE to start playing.");
+		return TRUE;
+	}
 	if (!social_menu.depth)
 		return FALSE;
 	social_menu.depth--;

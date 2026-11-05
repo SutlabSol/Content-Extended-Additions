@@ -1338,17 +1338,6 @@ static void load_profile_records(long profile_index)
 		free(file_buf);
 	}
 
-	if (g_career_stats.career_xp <= 0 &&
-		(g_career_stats.total_kills > 0 || g_career_stats.total_matches > 0 || g_career_stats.total_sets_completed > 0))
-	{
-		g_career_stats.career_xp =
-			g_career_stats.total_kills * 50L +
-			g_career_stats.total_sets_completed * 5000L +
-			g_career_stats.total_matches * 1000L +
-			g_career_stats.mp_kills * 100L;
-		needs_identity_save = TRUE;
-	}
-
 	/* Enforce device-linked Player ID whenever hardware ID is available */
 	if (derive_device_linked_identity(dev_id, sizeof(dev_id), dev_key, sizeof(dev_key)))
 	{
@@ -2253,6 +2242,7 @@ void firefight_stats_set_emblem(long profile_index, struct firefight_emblem_info
 	save_profile_records(profile_index);
 	fill_sync_telemetry_session(profile_index, "auto_sync", &sync_session);
 	dispatch_telemetry_post_async(profile_index, &sync_session);
+	social_emblem_changed();
 }
 
 void firefight_stats_record_campaign_mission_end(
@@ -2735,9 +2725,12 @@ void firefight_stats_on_map_dispose(void)
 	boolean played = scen && scen->type != _scenario_type_main_menu;
 
 	firefight_stats_record_left_map();
-	/* (what the game gave, for the card over the menus) */
+	/* (what the game gave, for the card over the menus, and the server) */
 	if (played)
+	{
 		firefight_hud_xp_exit_note();
+		social_firefight_changed();
+	}
 }
 
 boolean firefight_stats_get_map_record(
@@ -3230,6 +3223,82 @@ void firefight_stats_add_xp_counted(long xp_amount, char const *reason, long cou
 	(void)xp_amount;
 	(void)reason;
 	(void)count;
+#endif
+}
+
+void firefight_stats_set_career_xp(long xp)
+{
+	load_profile_records(NONE);
+	/* (this game's XP still counted from where it started) */
+	if (s_session_start_xp >= 0)
+		s_session_start_xp = MAX(0L, s_session_start_xp + xp - g_career_stats.career_xp);
+	g_career_stats.career_xp = xp;
+	g_profile_records_dirty = TRUE;
+	if (!game_in_progress())
+		save_profile_records(NONE);
+}
+
+/* a line of the catch-up's card (none for no XP) */
+static void catch_up_line(
+	struct firefight_postgame_xp_summary *summary,
+	char const *label,
+	long count,
+	long each)
+{
+	struct firefight_postgame_xp_line *line;
+
+	if (count <= 0 || summary->line_count >= FIREFIGHT_POSTGAME_XP_LINES)
+		return;
+	line = &summary->lines[summary->line_count++];
+	snprintf(line->label, sizeof(line->label), "%s", label);
+	line->count = count;
+	line->xp = count * each;
+	summary->total_gained_xp += line->xp;
+}
+
+/* (as the matches give it: firefight_stats_record_*_end; a level's difficulty
+is not in the records, so each counts as Easy's) */
+boolean firefight_stats_rank_catch_up(struct firefight_rank_history const *history)
+{
+#if OPENCE_ENABLE_SERVICE_RANK
+	struct firefight_postgame_xp_summary summary;
+	long medals = 0;
+	long campaign_matches;
+	long campaign_kills;
+	short index;
+
+	load_profile_records(NONE);
+	campaign_matches = MAX(0L, g_career_stats.total_matches - g_career_stats.mp_matches - g_career_stats.ff_matches);
+	campaign_kills = MAX(0L, g_career_stats.total_kills - g_career_stats.mp_kills - g_career_stats.ff_kills);
+	for (index = 0; index < (short)NUMBEROF(g_career_stats.medal_counts); index++)
+		medals += g_career_stats.medal_counts[index] + g_career_stats.mp_medal_counts[index];
+
+	/* (the server's records or the career's, whichever saw more) */
+	csmemset(&summary, 0, sizeof(summary));
+	catch_up_line(&summary, "Multiplayer matches", MAX(history->multiplayer_matches, g_career_stats.mp_matches), 1500L);
+	catch_up_line(&summary, "Multiplayer kills", MAX(history->multiplayer_kills, g_career_stats.mp_kills), 100L);
+	catch_up_line(&summary, "Multiplayer assists", MAX(history->multiplayer_assists, g_career_stats.mp_assists), 50L);
+	catch_up_line(&summary, "Campaign levels", MAX(history->campaign_levels, campaign_matches), 2500L);
+	catch_up_line(&summary, "Campaign kills", MAX(history->campaign_kills, campaign_kills), 50L);
+	catch_up_line(&summary, "Firefight matches", MAX(history->firefight_matches, g_career_stats.ff_matches), 500L);
+	catch_up_line(&summary, "Firefight sets", MAX(history->firefight_sets, g_career_stats.total_sets_completed), 4000L);
+	catch_up_line(&summary, "Firefight waves", MAX(history->firefight_waves, g_career_stats.total_waves_cleared), 250L);
+	catch_up_line(&summary, "Firefight kills", MAX(history->firefight_kills, g_career_stats.ff_kills), 25L);
+	catch_up_line(&summary, "Medals", MAX(history->multiplayer_medals + history->campaign_medals, medals), 100L);
+	if (summary.total_gained_xp <= g_career_stats.career_xp)
+		return FALSE;
+	summary.current_xp = summary.total_gained_xp;
+	summary.match_bonus_xp = summary.total_gained_xp;
+	compute_mcc_rank_from_xp(0L, &summary.before_rank);
+	compute_mcc_rank_from_xp(summary.total_gained_xp, &summary.after_rank);
+	summary.promoted = summary.after_rank.tour_number > summary.before_rank.tour_number ||
+		summary.after_rank.rank_in_tour > summary.before_rank.rank_in_tour;
+	firefight_stats_set_career_xp(summary.total_gained_xp);
+	firefight_hud_xp_card_show(&summary);
+	return TRUE;
+#else
+	(void)history;
+	return FALSE;
 #endif
 }
 

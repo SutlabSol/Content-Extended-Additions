@@ -876,6 +876,9 @@ as a played map is left (with the XP it gave), drawn from social_chat_draw;
 while shown the menus' input is its own (menu_functions.c). A press finishes
 the count, then closes it; `close` closes it at once */
 void firefight_hud_xp_exit_note(void);
+/* the card shown for XP given outside a game (the catch-up on an account's
+past records: firefight_stats_rank_catch_up) */
+void firefight_hud_xp_card_show(struct firefight_postgame_xp_summary const *summary);
 boolean firefight_hud_xp_exit_shown(void);
 void firefight_hud_xp_exit_press(boolean close);
 void firefight_hud_xp_exit_draw(short screen_width, short screen_height);
@@ -977,6 +980,28 @@ boolean firefight_stats_poll_pending_link_popup(
 void firefight_stats_notify_terminal_command_used(void);
 void firefight_stats_reset_session_terminal_flag(void);
 boolean firefight_stats_achievements_disabled(void);
+/* an account's past records, as the server says them, which the catch-up
+counts into its rank with the career's own */
+struct firefight_rank_history
+{
+	long multiplayer_matches;
+	long multiplayer_kills;
+	long multiplayer_assists;
+	long multiplayer_medals;
+	long campaign_levels;
+	long campaign_kills;
+	long campaign_medals;
+	long firefight_matches;
+	long firefight_sets;
+	long firefight_waves;
+	long firefight_kills;
+};
+
+/* the rank the records are worth given, if it is more than the career's, the
+XP card showing it counted up from nothing: TRUE if so */
+boolean firefight_stats_rank_catch_up(struct firefight_rank_history const *history);
+/* the career's XP set as it is (the server's, or 0: CLEAR RANK) */
+void firefight_stats_set_career_xp(long xp);
 /* a replay or Forge session: it gives no XP and records nothing */
 boolean firefight_stats_session_withheld(void);
 void firefight_stats_add_xp(long xp_amount, char const *reason);

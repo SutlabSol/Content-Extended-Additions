@@ -1812,6 +1812,10 @@ void firefight_draw_mcc_rank_icon(
 	short t_idx = (short)PIN(tour_number - 1, 0, FIREFIGHT_SERVICE_TOURS - 1);
 	short r_idx = (short)PIN(rank_in_tour - 1, 0, FIREFIGHT_SERVICE_RANKS - 1);
 
+	/* (a player without one, as social_extensions_get_person_rank_and_emblem says) */
+	if (tour_number <= 0)
+		return;
+
 	ff_draw_rank_picture(((unsigned long)t_idx << 8) | (unsigned long)r_idx | 0x80000000UL, t_idx, r_idx,
 		x0, y0, size, alpha);
 }
@@ -1936,6 +1940,9 @@ void firefight_draw_player_emblem(
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
 
+	/* (a player without one, as social_extensions_get_person_rank_and_emblem says) */
+	if (e->foreground < 0)
+		return;
 	if (global_d3d_device)
 	{
 		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
@@ -2565,6 +2572,13 @@ void firefight_hud_xp_exit_note(void)
 	firefight_stats_get_postgame_xp_summary(&ff_xp_summary);
 	ff_xp_exit.pending = ff_xp_summary.total_gained_xp > 0;
 #endif
+}
+
+void firefight_hud_xp_card_show(struct firefight_postgame_xp_summary const *summary)
+{
+	ff_xp_summary = *summary;
+	ff_xp_exit.pending = TRUE;
+	ff_xp_exit.drawn_at = 0;
 }
 
 boolean firefight_hud_xp_exit_shown(void)
