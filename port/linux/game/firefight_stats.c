@@ -252,6 +252,9 @@ static long s_session_start_xp = -1;
 static long s_session_combat_xp = 0;
 static long s_session_medal_xp = 0;
 static long s_session_bonus_xp = 0;
+/* what this match's XP came from, for the postgame's XP screen */
+static struct firefight_postgame_xp_line s_session_xp_lines[FIREFIGHT_POSTGAME_XP_LINES];
+static short s_session_xp_line_count = 0;
 static boolean g_career_loaded = FALSE;
 static boolean g_profile_records_dirty = FALSE;
 static struct firefight_stored_map_entry g_map_records[MAX_TRACKED_MAPS];
@@ -2160,6 +2163,38 @@ void firefight_stats_on_map_initialize(void)
 	s_session_combat_xp = 0;
 	s_session_medal_xp = 0;
 	s_session_bonus_xp = 0;
+	s_session_xp_line_count = 0;
+}
+
+/* a source of this match's XP, added to its line (the last line takes the
+rest when they are all used) */
+static void session_xp_note(char const *label, long xp, long count)
+{
+	short index;
+
+	if (xp <= 0 || !label)
+		return;
+	for (index = 0; index < s_session_xp_line_count; index++)
+	{
+		if (!strcmp(s_session_xp_lines[index].label, label))
+			break;
+	}
+	if (index == s_session_xp_line_count)
+	{
+		if (index == FIREFIGHT_POSTGAME_XP_LINES)
+		{
+			index--;
+			snprintf(s_session_xp_lines[index].label, sizeof(s_session_xp_lines[index].label), "Other");
+		}
+		else
+		{
+			csmemset(&s_session_xp_lines[index], 0, sizeof(s_session_xp_lines[index]));
+			snprintf(s_session_xp_lines[index].label, sizeof(s_session_xp_lines[index].label), "%s", label);
+			s_session_xp_line_count++;
+		}
+	}
+	s_session_xp_lines[index].xp += xp;
+	s_session_xp_lines[index].count += count;
 }
 
 void firefight_stats_record_medal(long player_index, short medal_index)
@@ -2188,6 +2223,7 @@ void firefight_stats_record_medal(long player_index, short medal_index)
 		g_career_stats.medal_counts[medal_index]++;
 
 	s_session_medal_xp += 100L;
+	session_xp_note("Medals", 100L, 1L);
 	firefight_stats_add_xp(100, NULL);
 	advance_challenge_metric(_ff_challenge_cat_multiplayer, _chal_metric_medals, 1);
 	g_profile_records_dirty = TRUE;
@@ -2459,9 +2495,11 @@ void firefight_stats_record_match_end(char const *map_name)
 		g_career_stats.total_score += session_score;
 		g_career_stats.total_seconds += session_seconds;
 
-		firefight_stats_add_xp(
-			500L + sets_this_match * 4000L + waves_cleared * 250L + total_kills * 25L + MAX(0L, session_score / 15L),
-			"Firefight Match Complete");
+		firefight_stats_add_xp_counted(500L, "Match complete", 0L);
+		firefight_stats_add_xp_counted(sets_this_match * 4000L, "Sets cleared", sets_this_match);
+		firefight_stats_add_xp_counted(waves_cleared * 250L, "Waves cleared", waves_cleared);
+		firefight_stats_add_xp_counted(total_kills * 25L, "Kill bonus", 0L);
+		firefight_stats_add_xp_counted(MAX(0L, session_score / 15L), "Score bonus", 0L);
 		if (sets_this_match > 0)
 			advance_challenge_metric(_ff_challenge_cat_firefight, _chal_metric_completions, sets_this_match);
 		if (waves_cleared > 0)
@@ -2603,9 +2641,9 @@ void firefight_stats_record_multiplayer_match_end(char const *map_name)
 	g_career_stats.total_score += local_score;
 	g_career_stats.total_seconds += session_seconds;
 
-	firefight_stats_add_xp(
-		1500L + local_kills * 100L + local_assists * 50L,
-		"Multiplayer Match Complete");
+	firefight_stats_add_xp_counted(1500L, "Match complete", 0L);
+	firefight_stats_add_xp_counted(local_kills * 100L, "Kill bonus", 0L);
+	firefight_stats_add_xp_counted(local_assists * 50L, "Assists", local_assists);
 	advance_challenge_metric(_ff_challenge_cat_multiplayer, _chal_metric_completions, 1);
 	if (local_kills > 0)
 		advance_challenge_metric(_ff_challenge_cat_multiplayer, _chal_metric_kills, local_kills);
@@ -3188,6 +3226,13 @@ boolean firefight_stats_startup_check(void)
 
 void firefight_stats_add_xp(long xp_amount, char const *reason)
 {
+	firefight_stats_add_xp_counted(xp_amount, reason, 0L);
+}
+
+/* (count: how many of the reason this is, for the XP screen's line: 0 for no
+number) */
+void firefight_stats_add_xp_counted(long xp_amount, char const *reason, long count)
+{
 #if OPENCE_ENABLE_SERVICE_RANK
 	if (xp_amount <= 0)
 		return;
@@ -3195,7 +3240,10 @@ void firefight_stats_add_xp(long xp_amount, char const *reason)
 	if (s_session_start_xp < 0)
 		s_session_start_xp = g_career_stats.career_xp;
 	if (reason && reason[0])
+	{
 		s_session_bonus_xp += xp_amount;
+		session_xp_note(reason, xp_amount, count);
+	}
 	g_career_stats.career_xp = service_rank_apply_xp_gain(g_career_stats.career_xp, xp_amount, reason, TRUE);
 	g_profile_records_dirty = TRUE;
 	if (!game_in_progress())
@@ -3203,6 +3251,7 @@ void firefight_stats_add_xp(long xp_amount, char const *reason)
 #else
 	(void)xp_amount;
 	(void)reason;
+	(void)count;
 #endif
 }
 
@@ -3265,6 +3314,29 @@ void firefight_stats_get_postgame_xp_summary(
 	out_summary->promoted = (boolean)(
 		out_summary->after_rank.tour_number > out_summary->before_rank.tour_number ||
 		out_summary->after_rank.rank_in_tour > out_summary->before_rank.rank_in_tour);
+	/* (the lines, and any XP none of them says where it came from) */
+	{
+		long listed = 0;
+		short index;
+
+		out_summary->line_count = s_session_xp_line_count;
+		for (index = 0; index < s_session_xp_line_count; index++)
+		{
+			out_summary->lines[index] = s_session_xp_lines[index];
+			listed += s_session_xp_lines[index].xp;
+		}
+		if (out_summary->total_gained_xp > listed)
+		{
+			index = (short)MIN(out_summary->line_count, FIREFIGHT_POSTGAME_XP_LINES - 1);
+			if (index == out_summary->line_count)
+			{
+				csmemset(&out_summary->lines[index], 0, sizeof(out_summary->lines[index]));
+				out_summary->line_count++;
+			}
+			snprintf(out_summary->lines[index].label, sizeof(out_summary->lines[index].label), "Other");
+			out_summary->lines[index].xp += out_summary->total_gained_xp - listed;
+		}
+	}
 }
 
 void firefight_stats_notify_enemy_kill(
@@ -3285,6 +3357,7 @@ void firefight_stats_notify_enemy_kill(
 	if (boss_or_heavy)
 		kill_xp += 100L;
 	s_session_combat_xp += kill_xp;
+	session_xp_note("Kills", kill_xp, 1L);
 	firefight_stats_add_xp(kill_xp, NULL);
 
 	advance_challenge_metric(category, _chal_metric_kills, 1);

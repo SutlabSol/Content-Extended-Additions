@@ -677,6 +677,19 @@ struct firefight_emblem_info
 	short nameplate;
 };
 
+enum
+{
+	FIREFIGHT_POSTGAME_XP_LINES = 10
+};
+
+/* one source of a match's XP (count: how many, 0 for no number) */
+struct firefight_postgame_xp_line
+{
+	char label[40];
+	long xp;
+	long count;
+};
+
 struct firefight_postgame_xp_summary
 {
 	long start_xp;
@@ -688,6 +701,8 @@ struct firefight_postgame_xp_summary
 	struct firefight_mcc_rank_info before_rank;
 	struct firefight_mcc_rank_info after_rank;
 	boolean promoted;
+	struct firefight_postgame_xp_line lines[FIREFIGHT_POSTGAME_XP_LINES];
+	short line_count;
 };
 
 /* ---------- Public API: firefight.c */
@@ -832,14 +847,24 @@ void firefight_try_trigger_generator_lockdown(long player_index);
 void firefight_hud_draw(void);
 void firefight_hud_post_rasterize(void);
 boolean firefight_hud_format_scoreboard_title(wchar_t *title_string, long count);
-void firefight_hud_draw_postgame_summary(void (*drawline_fn)(wchar_t const *string, long row_index, short justification));
 void firefight_format_scoreboard_title(wchar_t *title_string, long count, boolean postgame);
-void firefight_format_postgame_summary(wchar_t *line1, wchar_t *line2, long count);
+/* the postgame's XP screen: whether the match has XP to show, the screen's
+animation started over, and the screen (in the 640 by 480 of the postgame) */
+boolean firefight_hud_xp_screen_wanted(void);
+void firefight_hud_xp_screen_begin(void);
+void firefight_hud_xp_screen_draw(void);
+/* the count shown at its end at once: TRUE if it was still counting */
+boolean firefight_hud_xp_screen_finish(void);
 void firefight_draw_mcc_rank_icon(short x0, short y0, short size, short tour_number, short rank_in_tour, real alpha);
 void firefight_draw_h3_ranked_icon(short x0, short y0, short size, short ranked_index, real alpha);
 void firefight_draw_player_emblem(short x0, short y0, short size, struct firefight_emblem_info const *emblem, real alpha);
 void firefight_draw_mcc_nameplate(short x0, short y0, short x1, short y1, short nameplate_id, pixel32 armor_accent, real alpha);
 void firefight_hud_draw_pgcr_extras(long mvp_player_index, short mvp_row);
+/* game_engine.c: a player's rank and emblem, on any machine */
+void game_engine_player_rank_and_emblem(
+	long player_index,
+	struct firefight_mcc_rank_info *out_rank,
+	struct firefight_emblem_info *out_emblem);
 void firefight_draw_ce_rounded_box(
 	short px0,
 	short py0,
@@ -929,6 +954,7 @@ void firefight_stats_notify_terminal_command_used(void);
 void firefight_stats_reset_session_terminal_flag(void);
 boolean firefight_stats_achievements_disabled(void);
 void firefight_stats_add_xp(long xp_amount, char const *reason);
+void firefight_stats_add_xp_counted(long xp_amount, char const *reason, long count);
 void firefight_stats_get_mcc_rank(long profile_index, struct firefight_mcc_rank_info *out_rank);
 void firefight_stats_get_h3_ranked(long profile_index, struct firefight_h3_ranked_info *out_ranked);
 void firefight_stats_get_emblem(long profile_index, struct firefight_emblem_info *out_emblem);

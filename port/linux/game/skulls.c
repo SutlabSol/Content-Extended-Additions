@@ -2500,6 +2500,24 @@ static real skull_pending_alpha(void)
 	return 0.6f + 0.4f * cosine((real)(game_time_get() % TICKS_PER_SECOND) * (2.0f * _pi / TICKS_PER_SECOND));
 }
 
+int skulls_draw_icon(int skull, short x0, short y0, short x1, short y1, float alpha)
+{
+	long bitmap_index = tag_loaded(BITMAP_GROUP_TAG, SKULL_ICONS_BITMAP);
+	struct bitmap_data *bitmap = bitmap_index != NONE && skull >= 0 && skull < NUMBER_OF_SKULLS ?
+		bitmap_group_try_and_get_bitmap(bitmap_index, (short)skull) : NULL;
+	rectangle2d rectangle;
+
+	if (!bitmap)
+		return 0;
+	rectangle.x0 = x0;
+	rectangle.y0 = y0;
+	rectangle.x1 = x1;
+	rectangle.y1 = y1;
+	draw_bitmap_in_rect(bitmap, &rectangle, NULL, NULL,
+		((pixel32)(PIN(alpha, 0.0f, 1.0f) * 255.0f + 0.5f) << 24) | 0x00FFFFFF, NULL, TRUE);
+	return 1;
+}
+
 void skulls_hud_draw(short local_player_index)
 {
 	long bitmap_index;

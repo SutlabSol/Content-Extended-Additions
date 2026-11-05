@@ -4280,8 +4280,11 @@ void prop_status_refresh(
 				}
 
 				prop->ineffability = _actor_perception_none;
+				/* port: firefight's enemies keep what they magically see. Only
+				firefight's: the campaign's scripted fights (a10's) lean on it
+				fading after the first look */
 				if (prop->unit_effect == _ai_unit_effect_bump ||
-					prop->unit_effect == _ai_unit_effect_magic_sight)
+					(prop->unit_effect == _ai_unit_effect_magic_sight && firefight_active()))
 				{
 					prop->ineffability = _actor_perception_unmistakable;
 				}

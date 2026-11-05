@@ -1858,6 +1858,15 @@ static void get_player_mcc_rank_and_emblem(
 		firefight_stats_get_emblem(NONE, out_emblem);
 }
 
+/* port: for Firefight's report (port/linux/game/campaign_score.c) */
+void game_engine_player_rank_and_emblem(
+	long player_index,
+	struct firefight_mcc_rank_info *out_rank,
+	struct firefight_emblem_info *out_emblem)
+{
+	get_player_mcc_rank_and_emblem(player_index, out_rank, out_emblem);
+}
+
 /* a row of the scoreboard: its text (tab separated) from the column's left
 (tabs: the column's stops), on the row below the title's (at top) */
 static void scoreboard_draw_row(
@@ -3142,6 +3151,29 @@ static void game_engine_rasterize_in_game_score(
 	return;
 }
 
+/* port: the postgame's screens, the report's and after it the XP's
+(firefight_hud.c): a match with no XP has only the report. NONE: not asked yet */
+enum
+{
+	_game_engine_postgame_page_report = 0,
+	_game_engine_postgame_page_xp
+};
+
+static short game_engine_postgame_page = _game_engine_postgame_page_report;
+static short game_engine_postgame_xp_wanted = NONE;
+static boolean game_engine_postgame_button_held = TRUE;
+
+/* whether A on the report's screen goes on to the XP's */
+static boolean game_engine_postgame_xp_next(
+	void)
+{
+	if (game_engine_postgame_page != _game_engine_postgame_page_report)
+		return FALSE;
+	if (game_engine_postgame_xp_wanted == NONE)
+		game_engine_postgame_xp_wanted = firefight_hud_xp_screen_wanted() ? TRUE : FALSE;
+	return game_engine_postgame_xp_wanted == TRUE;
+}
+
 static void drawline(
 	wchar_t const *string,
 	long row_index,
@@ -3203,6 +3235,24 @@ void game_engine_post_rasterize_post_game(
 	draw_string_set_color(&winner_color);
 	draw_string_set_format(NONE, 0, 0);
 
+	/* port: the screen after the report, and Firefight's own report: each a
+	card as the campaign's, the prompt beneath them the report's */
+	if (game_engine_postgame_page == _game_engine_postgame_page_xp)
+	{
+		firefight_hud_xp_screen_draw();
+		goto postgame_prompt;
+	}
+	if (firefight_active())
+	{
+		long players[12];
+
+		entry_count = select_players_to_display(_postgame_statistic_ranking, NONE, entries, NUMBEROF(players));
+		for (entry_index = 0; entry_index < entry_count; entry_index++)
+			players[entry_index] = entries[entry_index].player_index;
+		campaign_score_firefight_report_draw(players, (short)entry_count);
+		goto postgame_prompt;
+	}
+
 	{
 		struct hud_globals_definition *hud_definition =
 			hud_globals_definition_get(
@@ -3226,10 +3276,7 @@ void game_engine_post_rasterize_post_game(
 		}
 	}
 
-	/* port: firefight */
-	if (firefight_active())
-		firefight_hud_draw_postgame_summary(drawline);
-	else if (global_variant.universal_variant.teams)
+	if (global_variant.universal_variant.teams)
 	{
 		short team_tab_stops[6] = { 50, 200, 300, 350, 410, 500 };
 		long team_order[2] = { 0, 1 };
@@ -3431,6 +3478,10 @@ void game_engine_post_rasterize_post_game(
 		entry_count > 0 ? entries[0].player_index : NONE,
 		8);
 
+postgame_prompt:
+	/* (the cards draw in the HUD's font) */
+	draw_string_set_draw_mode(font_index, NONE, 2, 8, &winner_color);
+	draw_string_set_format(NONE, 0, 0);
 	{
 		real_argb_color prompt_color;
 		long string_list_index;
@@ -3453,8 +3504,21 @@ void game_engine_post_rasterize_post_game(
 		server = global_network_game_server_get();
 		/* port: on the touchscreen, buttons for the prompt's A and B
 		(port/linux/game/touch_postgame.c) */
-		if (touch_postgame_draw(font_index, server != NULL, &prompt_color))
+		if (touch_postgame_draw(font_index, server != NULL || game_engine_postgame_xp_next(), &prompt_color))
 			return;
+		/* port: A goes on to the XP screen, on a client too */
+		if (game_engine_postgame_xp_next())
+		{
+			bounds.x0 = 330;
+			draw_string_and_hack_in_icons(
+				&bounds,
+				NULL,
+				NULL,
+				0,
+				L"%b-button =quit   %a-button =rank progress",
+				FALSE);
+			return;
+		}
 		if (server)
 		{
 			bounds.x0 = 380;
@@ -5904,17 +5968,34 @@ void game_engine_update_non_deterministic(
 
 			/* port: or the touchscreen's buttons for A and B
 			(port/linux/game/touch_postgame.c) */
-			if (test_any_gamepad_button(0) || test_any_gamepad_button(12) ||
-				touch_postgame_pressed(_gamepad_analog_button_a))
+			/* port: each press anew: A goes through the screens (the XP
+			screen's first finishes its count), then to the lobby */
 			{
-				if (global_network_game_server_get())
-				network_game_server_reset_to_pregame(
-					global_network_game_server_get());
-			}
-			else if (test_any_gamepad_button(1) || test_any_gamepad_button(13) ||
-				touch_postgame_pressed(_gamepad_analog_button_b))
-			{
-				network_game_abort();
+				boolean a_down = test_any_gamepad_button(0) || test_any_gamepad_button(12) ||
+					touch_postgame_pressed(_gamepad_analog_button_a);
+				boolean b_down = test_any_gamepad_button(1) || test_any_gamepad_button(13) ||
+					touch_postgame_pressed(_gamepad_analog_button_b);
+
+				if (a_down && !game_engine_postgame_button_held)
+				{
+					if (game_engine_postgame_xp_next())
+					{
+						game_engine_postgame_page = _game_engine_postgame_page_xp;
+						firefight_hud_xp_screen_begin();
+					}
+					else if (game_engine_postgame_page != _game_engine_postgame_page_xp ||
+						!firefight_hud_xp_screen_finish())
+					{
+						if (global_network_game_server_get())
+						network_game_server_reset_to_pregame(
+							global_network_game_server_get());
+					}
+				}
+				else if (b_down && !game_engine_postgame_button_held)
+				{
+					network_game_abort();
+				}
+				game_engine_postgame_button_held = a_down || b_down;
 			}
 			break;
 		}
@@ -7746,10 +7827,8 @@ long game_engine_did_player_win_default(
 {
 	long result = 0;
 
-	/* port: firefight */
-	if (firefight_active())
-		firefight_hud_draw_postgame_summary(drawline);
-	else if (global_variant.universal_variant.teams)
+	/* port: firefight has no winning team */
+	if (!firefight_active() && global_variant.universal_variant.teams)
 	{
 		long team0_score = game_engine_get_team_score(0);
 		long team1_score = game_engine_get_team_score(1);
@@ -8161,6 +8240,10 @@ void game_engine_initialize(
 	struct game_variant *variant)
 {
 	csmemset(&game_engine_globals, 0, sizeof(game_engine_globals));
+	/* port: back to the report's screen, a press from before it not counted */
+	game_engine_postgame_page = _game_engine_postgame_page_report;
+	game_engine_postgame_xp_wanted = NONE;
+	game_engine_postgame_button_held = TRUE;
 	game_engine_globals.postgame_state = game_engine_mode_active;
 
 	if (variant && variant->game_engine_index)

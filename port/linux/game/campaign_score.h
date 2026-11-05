@@ -80,6 +80,9 @@ boolean campaign_score_postgame_wait(void);
 
 /* (interface.c's interface_draw_fullscreen_overlays) the last level's summary */
 void campaign_score_draw(void);
+/* Firefight's report at the end of a match, in the postgame's 640 by 480: its
+players by absolute datum index, best first */
+void campaign_score_firefight_report_draw(long const *players, short player_count);
 
 /* (hud.c's hud_draw_screen) the score and the level's time, a panel at the
 bottom right of the view being drawn, before the skulls' icons; in a

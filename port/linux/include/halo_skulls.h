@@ -126,6 +126,9 @@ player's screen (hud.c) */
 void skulls_hud_draw(short local_player_index);
 /* whether a skull is turned on for the level (Firefight's own are apart) */
 int skull_on_for_level(int skull);
+/* a skull's own icon in a rectangle of the view: FALSE with the icons not
+loaded (the Firefight banners', which name the skulls of the round) */
+int skulls_draw_icon(int skull, short x0, short y0, short x1, short y1, float alpha);
 
 /* a level loaded: the skulls it is played with, taken now (the host's for
 a client), and Grunt Birthday Party's sound added to its tags; the level

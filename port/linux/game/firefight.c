@@ -1647,7 +1647,7 @@ static void firefight_update(
 		return;
 
 	/* Feature 4: Total Session Game Time Counter (advances every tick while match is active) */
-	if (!ff_state.match_won && !ff_state.match_lost)
+	if (!ff_state.match_won && !ff_state.match_lost && game_engine_can_score())
 		ff_state.session_elapsed_ticks++;
 
 	if (ff_state.banner_timer_ticks > 0)

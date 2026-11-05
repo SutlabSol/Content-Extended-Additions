@@ -2,14 +2,14 @@
 FIREFIGHT_HUD.C
 
 Halo 1 CE-styled Firefight HUD module:
-- Firefight Status Panel (Total Session Game Time Counter MM:SS / H:MM:SS,
-  Shared Lives Pool, Set / Round / Wave, Enemies Remaining, Next Wave Timer,
-  Enemy Health/Shield Escalation %)
+- (the set, round, wave, lives, hostiles and time are the score panel's:
+  campaign_score.c)
 - Pre-Round Preparation Countdown Banner ("ROUND X STARTS IN XXs — RESUPPLY & BOARD VEHICLES")
 - Animated Wave / Boss / Skull / Ordnance Announcement Banners
 - Generator Defense Alpha / Beta / Gamma Shield & Health Bars + Lockdown status
 - 3D->2D World-to-Screen Navpoints for Stragglers (<= 3 enemies) & Ordnance Drops
-- Scoreboard & Post-Game Carnage Report header formatters
+- Scoreboard header formatter, a multiplayer report's extras, and the
+  postgame's XP screen
 */
 
 #include <math.h>
@@ -42,6 +42,7 @@ Halo 1 CE-styled Firefight HUD module:
 #include "halo_skulls.h"
 #include "campaign_score.h"
 #include "campaign_medals.h"
+#include "service_rank.h"
 #include "bitmaps/bitmaps.h"
 #include "bitmaps/bitmap_group.h"
 #include "interface/ui_widget.h"
@@ -450,7 +451,144 @@ void firefight_draw_ce_rounded_box(
 	}
 }
 
-static void draw_ce_hud_box(
+/* ---------- the HUD's boxes
+
+drawn here, not from the pause menu's art, whose body has no side border where
+it meets the header: a gap in the frame at the size of a banner. Nothing is
+drawn twice, the fills being translucent */
+
+static void ff_box_quad(
+	short x0,
+	short y0,
+	short x1,
+	short y1,
+	pixel32 color)
+{
+	rectangle2d r;
+
+	if (x1 <= x0 || y1 <= y0)
+		return;
+	r.x0 = x0;
+	r.y0 = y0;
+	r.x1 = x1;
+	r.y1 = y1;
+	draw_quad(&r, color);
+}
+
+/* how far in a rounded corner's edge is, `row` rows from its flat side */
+static short ff_box_corner_inset(
+	short row,
+	short radius)
+{
+	real t = (real)radius - (real)row - 0.5f;
+
+	if (row >= radius)
+		return 0;
+	return (short)((real)radius - (real)sqrt((double)((real)(radius * radius) - t * t)) + 0.5f);
+}
+
+/* a row of the box's inside: `side` of it at each end (the wells') in the
+one colour, the middle in the other */
+static void ff_box_row(
+	short x0,
+	short x1,
+	short y0,
+	short y1,
+	short side_x0,
+	short side_x1,
+	pixel32 middle,
+	pixel32 sides)
+{
+	short middle_x0 = MAX(x0, side_x0);
+	short middle_x1 = MIN(x1, side_x1);
+
+	ff_box_quad(x0, y0, middle_x0, y1, sides);
+	ff_box_quad(middle_x0, y0, middle_x1, y1, middle);
+	ff_box_quad(middle_x1, y0, x1, y1, sides);
+}
+
+/* side_px: wells at each end, for the skulls' icons, which the header and its
+divider stop short of */
+static void ff_draw_panel_box(
+	short px0,
+	short py0,
+	short px1,
+	short py1,
+	short header_px,
+	short side_px,
+	real scale,
+	pixel32 fill,
+	pixel32 edge)
+{
+	short border = (short)MAX(2, (int)(1.5f * scale + 0.5f));
+	short radius = (short)MAX(border + 2, (int)(6.0f * scale + 0.5f));
+	pixel32 bottom = fill == FF_HUD_WARN_FILL ? FF_HUD_WARN_BOT : FF_HUD_PANEL_BOT;
+	pixel32 top_middle = header_px > 0 ? FF_HUD_HEADER_FILL : fill;
+	short well_x0 = (short)(px0 + side_px);
+	short well_x1 = (short)(px1 - side_px);
+	short body_y0 = (short)(py0 + radius);
+	short body_y1 = (short)(py1 - radius);
+	short row;
+	short band;
+
+	if (px1 - px0 <= radius * 2 || py1 - py0 <= radius * 2)
+		return;
+
+	/* the corners, a row at a time, top and bottom */
+	for (row = 0; row < radius; row++)
+	{
+		short outer = ff_box_corner_inset(row, radius);
+		short top = (short)(py0 + row);
+		short low = (short)(py1 - row - 1);
+
+		if (row < border)
+		{
+			ff_box_quad((short)(px0 + outer), top, (short)(px1 - outer), (short)(top + 1), edge);
+			ff_box_quad((short)(px0 + outer), low, (short)(px1 - outer), (short)(low + 1), edge);
+		}
+		else
+		{
+			short inner = (short)(border + ff_box_corner_inset((short)(row - border), (short)(radius - border)));
+
+			ff_box_quad((short)(px0 + outer), top, (short)(px0 + inner), (short)(top + 1), edge);
+			ff_box_quad((short)(px1 - inner), top, (short)(px1 - outer), (short)(top + 1), edge);
+			ff_box_quad((short)(px0 + outer), low, (short)(px0 + inner), (short)(low + 1), edge);
+			ff_box_quad((short)(px1 - inner), low, (short)(px1 - outer), (short)(low + 1), edge);
+			ff_box_row((short)(px0 + inner), (short)(px1 - inner), top, (short)(top + 1),
+				well_x0, well_x1, top_middle, fill);
+			ff_box_quad((short)(px0 + inner), low, (short)(px1 - inner), (short)(low + 1), bottom);
+		}
+	}
+
+	/* the sides, unbroken */
+	ff_box_quad(px0, body_y0, (short)(px0 + border), body_y1, edge);
+	ff_box_quad((short)(px1 - border), body_y0, px1, body_y1, edge);
+
+	/* the header and its divider */
+	if (header_px > 0)
+	{
+		short header_y1 = (short)MIN(py0 + header_px, body_y1);
+		short divider_y1 = (short)MIN(header_y1 + border, body_y1);
+
+		ff_box_row((short)(px0 + border), (short)(px1 - border), body_y0, header_y1,
+			well_x0, well_x1, FF_HUD_HEADER_FILL, fill);
+		ff_box_row((short)(px0 + border), (short)(px1 - border), header_y1, divider_y1,
+			well_x0, well_x1, edge, fill);
+		body_y0 = divider_y1;
+	}
+
+	/* the body, shaded to the bottom's fill */
+	for (band = 0; band < 3; band++)
+	{
+		short height = (short)(body_y1 - body_y0);
+
+		ff_box_quad((short)(px0 + border), (short)(body_y0 + (height * band) / 3),
+			(short)(px1 - border), band == 2 ? body_y1 : (short)(body_y0 + (height * (band + 1)) / 3),
+			ff_lerp_argb(fill, bottom, (real)band * 0.5f));
+	}
+}
+
+static void ff_draw_box_with_wells(
 	real vx0,
 	real vy0,
 	real scale,
@@ -459,18 +597,17 @@ static void draw_ce_hud_box(
 	real x1,
 	real y1,
 	real header_h,
-	pixel32 top_fill,
+	real well_w,
+	pixel32 fill,
 	pixel32 edge)
 {
 	short px0 = (short)(vx0 + x0 * scale + 0.5f);
 	short py0 = (short)(vy0 + y0 * scale + 0.5f);
 	short px1 = (short)MAX(vx0 + x1 * scale + 0.5f, px0 + 6);
 	short py1 = (short)MAX(vy0 + y1 * scale + 0.5f, py0 + 6);
-	short header_px = (header_h > 0.0f && y0 + header_h < y1)
-		? (short)(header_h * scale + 0.5f)
-		: 0;
+	short header_px = (header_h > 0.0f && y0 + header_h < y1) ? (short)(header_h * scale + 0.5f) : 0;
 
-	firefight_draw_ce_rounded_box(px0, py0, px1, py1, header_px, scale, 0xFFFFFFFFUL, top_fill, edge);
+	ff_draw_panel_box(px0, py0, px1, py1, header_px, (short)(well_w * scale + 0.5f), scale, fill, edge);
 }
 
 static void ff_draw_box(
@@ -485,7 +622,7 @@ static void ff_draw_box(
 	pixel32 fill,
 	pixel32 edge)
 {
-	draw_ce_hud_box(vx0, vy0, scale, x0, y0, x1, y1, header_h, fill, edge);
+	ff_draw_box_with_wells(vx0, vy0, scale, x0, y0, x1, y1, header_h, 0.0f, fill, edge);
 }
 
 static void ff_draw_quad(
@@ -864,129 +1001,67 @@ static struct ff_skull_hud_def const s_ff_skull_hud_defs[NUMBER_OF_FIREFIGHT_SKU
 	{ "GRUNT BIRTHDAY", "GBP", "HEADSHOTS DETONATE IN CONFETTI",         0xFFF570C0 }
 };
 
-static void draw_hud_mini_skull_icon(
-	real vx0,
-	real vy0,
-	real scale,
-	real cx,
-	real cy,
-	real radius,
-	pixel32 bone_col,
-	pixel32 eye_col)
+/* the skulls of a mask of enum firefight_skull_bit, by their bits */
+static short ff_skull_bits_of(
+	unsigned long skulls,
+	short *bits,
+	short maximum)
 {
-	/* Cranium */
-	ff_draw_quad(vx0, vy0, scale, cx - radius * 0.85f, cy - radius * 0.90f, cx + radius * 0.85f, cy + radius * 0.25f, bone_col);
-	ff_draw_quad(vx0, vy0, scale, cx - radius * 0.65f, cy - radius * 1.05f, cx + radius * 0.65f, cy - radius * 0.85f, bone_col);
-	/* Jaw & teeth */
-	ff_draw_quad(vx0, vy0, scale, cx - radius * 0.52f, cy + radius * 0.25f, cx + radius * 0.52f, cy + radius * 0.85f, bone_col);
-	/* Eye sockets */
-	ff_draw_quad(vx0, vy0, scale, cx - radius * 0.58f, cy - radius * 0.42f, cx - radius * 0.16f, cy + radius * 0.02f, eye_col);
-	ff_draw_quad(vx0, vy0, scale, cx + radius * 0.16f, cy - radius * 0.42f, cx + radius * 0.58f, cy + radius * 0.02f, eye_col);
-	/* Nasal cavity */
-	ff_draw_quad(vx0, vy0, scale, cx - radius * 0.10f, cy + radius * 0.02f, cx + radius * 0.10f, cy + radius * 0.28f, eye_col);
+	short count = 0;
+	short bit;
+
+	for (bit = 0; bit < NUMBER_OF_FIREFIGHT_SKULLS && count < maximum; bit++)
+	{
+		if ((skulls & (1UL << bit)) != 0)
+			bits[count++] = bit;
+	}
+	return count;
 }
 
-static void draw_wave_progress_pips_and_skulls(
-	long font_index,
-	short line_height,
+enum
+{
+	FF_BANNER_SKULL_INSET = 8,
+	FF_BANNER_SKULL_GAP = 3
+};
+
+/* how wide the wells for `count` skulls of `size` are */
+static real ff_banner_well_width(
+	short count,
+	real size)
+{
+	return FF_BANNER_SKULL_INSET + ((count + 1) / 2) * (size + FF_BANNER_SKULL_GAP) + 3.0f;
+}
+
+/* the skulls' own icons in the banner's wells: one on each side for one
+skull, or shared out between them */
+static void ff_draw_banner_skulls(
 	real vx0,
 	real vy0,
 	real scale,
-	real panel_x,
-	real panel_y,
-	real panel_w)
+	real x0,
+	real x1,
+	real y,
+	real size,
+	short const *bits,
+	short count)
 {
-	real strip_y = panel_y - 16.0f;
-	real cur_x = panel_x;
-	short r, w, bit;
-	short cur_round = PIN(ff_state.current_round, (short)1, (short)FIREFIGHT_ROUNDS_PER_SET);
-	short cur_wave = PIN(ff_state.current_wave, (short)1, (short)FIREFIGHT_WAVES_PER_ROUND);
-	short shown_skulls = 0;
-	real_argb_color skull_txt_col = { 1.0f, 0.85f, 0.94f, 1.0f };
+	short left_count = (short)((count + 1) / 2);
+	short right_count = (short)(count == 1 ? 1 : count - left_count);
+	real gap = FF_BANNER_SKULL_GAP;
+	real inset = FF_BANNER_SKULL_INSET;
+	short index;
 
-	/* 1. MCC / Halo: Reach 5 Round Boxes + 3 Wave Pips inside active round (Halo CE rounded pill style) */
-	for (r = 1; r <= FIREFIGHT_ROUNDS_PER_SET; r++)
+	for (index = 0; index < left_count + right_count; index++)
 	{
-		boolean is_past = (!ff_state.in_bonus_round && r < cur_round) || ff_state.in_bonus_round;
-		boolean is_current = (!ff_state.in_bonus_round && r == cur_round);
-		real box_w = is_current ? 32.0f : 14.0f;
-		real box_h = 13.0f;
-		short rx0 = (short)(vx0 + cur_x * scale + 0.5f);
-		short ry0 = (short)(vy0 + strip_y * scale + 0.5f);
-		short rx1 = (short)(vx0 + (cur_x + box_w) * scale + 0.5f);
-		short ry1 = (short)(vy0 + (strip_y + box_h) * scale + 0.5f);
-		pixel32 border_c = is_current ? 0xFF68B8FF : (is_past ? 0xFF2896FF : 0xB01C4878);
-		pixel32 fill_c = is_current ? 0xD8142848 : (is_past ? 0xC0124278 : 0x98061020);
+		short bit = bits[count == 1 ? 0 : index];
+		short slot = (short)(index < left_count ? index : index - left_count);
+		real ix = index < left_count ?
+			x0 + inset + slot * (size + gap) :
+			x1 - inset - size - (right_count - 1 - slot) * (size + gap);
 
-		if (!firefight_draw_ce_rounded_pill(
-				rx0, ry0, rx1, ry1,
-				is_current ? 1 : 0,
-				scale,
-				is_current ? 0xFFFFFFFFUL : (is_past ? 0xF088D0FFUL : 0xC090B8E0UL)))
-		{
-			ff_draw_quad(vx0, vy0, scale, cur_x, strip_y, cur_x + box_w, strip_y + box_h, border_c);
-			ff_draw_quad(vx0, vy0, scale, cur_x + 1.0f, strip_y + 1.0f, cur_x + box_w - 1.0f, strip_y + box_h - 1.0f, fill_c);
-		}
-
-		if (is_past)
-		{
-			/* Solid completed round bar in Halo CE blue */
-			ff_draw_quad(vx0, vy0, scale, cur_x + 3.0f, strip_y + 3.0f, cur_x + box_w - 3.0f, strip_y + box_h - 3.0f, 0xFF2896FF);
-		}
-		else if (is_current)
-		{
-			/* 3 Wave Pips inside current round */
-			for (w = 1; w <= FIREFIGHT_WAVES_PER_ROUND; w++)
-			{
-				real pip_x = cur_x + 3.5f + (real)(w - 1) * 8.8f;
-				real pip_w = 7.2f;
-				pixel32 pip_c;
-
-				if (w < cur_wave)
-					pip_c = 0xFF2896FF; /* Cleared wave (Halo CE blue) */
-				else if (w == cur_wave)
-					pip_c = (w == FIREFIGHT_WAVES_PER_ROUND) ? 0xFFFF6040 : 0xFFFFFFFF; /* Active wave (crisp white, red-orange on Boss wave) */
-				else
-					pip_c = 0x90102848; /* Upcoming wave */
-
-				ff_draw_quad(vx0, vy0, scale, pip_x, strip_y + 3.0f, pip_x + pip_w, strip_y + box_h - 3.0f, pip_c);
-			}
-		}
-
-		cur_x += box_w + 2.5f;
-	}
-
-	/* 2. Active Hazard Skull Badges on the right side of the pip strip (Halo CE rounded pill capsules) */
-	{
-		real badge_right = panel_x + panel_w;
-		for (bit = NUMBER_OF_FIREFIGHT_SKULLS - 1; bit >= 0 && shown_skulls < 4; bit--)
-		{
-			if ((ff_state.active_skulls & (1UL << bit)) == 0)
-				continue;
-			{
-				real bw = 25.0f;
-				real bx0 = badge_right - bw;
-				short sx0 = (short)(vx0 + bx0 * scale + 0.5f);
-				short sy0 = (short)(vy0 + strip_y * scale + 0.5f);
-				short sx1 = (short)(vx0 + (bx0 + bw) * scale + 0.5f);
-				short sy1 = (short)(vy0 + (strip_y + 13.0f) * scale + 0.5f);
-				pixel32 sc = s_ff_skull_hud_defs[bit].badge_color;
-
-				if (bx0 < cur_x + 2.0f)
-					break;
-				if (!firefight_draw_ce_rounded_pill(sx0, sy0, sx1, sy1, 0, scale, 0xFFFFFFFFUL))
-				{
-					ff_draw_quad(vx0, vy0, scale, bx0, strip_y, bx0 + bw, strip_y + 13.0f, 0xFF2896FF);
-					ff_draw_quad(vx0, vy0, scale, bx0 + 1.0f, strip_y + 1.0f, bx0 + bw - 1.0f, strip_y + 12.0f, 0xD80A1424);
-				}
-				draw_hud_mini_skull_icon(vx0, vy0, scale, bx0 + 5.5f, strip_y + 6.5f, 3.2f, sc, 0xFF0A1424);
-				ff_draw_text(font_index, line_height, vx0, vy0, scale,
-					s_ff_skull_hud_defs[bit].code, bx0 + 9.0f, bx0 + bw - 1.5f, strip_y + 1.0f,
-					0.42f, _ff_text_center, &skull_txt_col);
-				badge_right = bx0 - 2.0f;
-				shown_skulls++;
-			}
-		}
+		skulls_draw_icon(firefight_map_reach_skull_to_40_skull((enum firefight_skull_bit)bit),
+			(short)(vx0 + ix * scale + 0.5f), (short)(vy0 + y * scale + 0.5f),
+			(short)(vx0 + (ix + size) * scale + 0.5f), (short)(vy0 + (y + size) * scale + 0.5f), 1.0f);
 	}
 }
 
@@ -1100,19 +1175,11 @@ void firefight_hud_draw(void)
 	struct font_header *font;
 	short line_height;
 	real vx0, vy0, vw, vh, scale;
-	real panel_x = 14.0f;
-	real panel_w = 196.0f;
-	real panel_h = 56.0f;
-	real panel_y;
 	real_argb_color white = { 1.0f, 0.96f, 0.98f, 1.0f };
 	real_argb_color cyan = { 1.0f, 0.42f, 0.78f, 1.0f };
 	real_argb_color gold = { 1.0f, 0.96f, 0.98f, 1.0f };
 	real_argb_color red = { 1.0f, 1.0f, 0.35f, 0.35f };
 	real_argb_color green = { 1.0f, 0.35f, 1.0f, 0.45f };
-	char line1_left[48], line1_right[32];
-	char line2_left[48], line2_right[32];
-	char line3_left[48], line3_right[32];
-	char time_str[24];
 	boolean prep_phase;
 
 	if (!firefight_active())
@@ -1138,76 +1205,8 @@ void firefight_hud_draw(void)
 
 	prep_phase = (ff_state.phase_state == _ff_phase_pre_set || ff_state.phase_state == _ff_phase_pre_round);
 
-	/* 1. Bottom-Left Firefight Status Panel (placed above the motion sensor, Halo CE objective box style) */
-	panel_y = 480.0f - 140.0f - panel_h;
-	draw_wave_progress_pips_and_skulls(font_index, line_height, vx0, vy0, scale, panel_x, panel_y, panel_w);
-	ff_draw_box(
-		vx0, vy0, scale,
-		panel_x, panel_y, panel_x + panel_w, panel_y + panel_h,
-		18.0f,
-		(ff_state.shared_lives_remaining >= 0 && ff_state.shared_lives_remaining <= 1) ? FF_HUD_WARN_FILL : FF_HUD_PANEL_FILL,
-		(ff_state.shared_lives_remaining >= 0 && ff_state.shared_lives_remaining <= 1) ? FF_HUD_WARN_EDGE : FF_HUD_PANEL_EDGE);
-
-	/* Row 1 (Header Strip): SET X RND Y WAVE Z  |  TIME MM:SS */
-	if (ff_state.in_bonus_round)
-	{
-		snprintf(line1_left, sizeof(line1_left), "SET %d | BONUS ROUND", (int)ff_state.current_set);
-	}
-	else
-	{
-		snprintf(line1_left, sizeof(line1_left), "SET %d | RND %d | WAVE %d",
-			(int)ff_state.current_set, (int)ff_state.current_round, (int)ff_state.current_wave);
-	}
-	format_elapsed_time(ff_state.session_elapsed_ticks, time_str, sizeof(time_str));
-	snprintf(line1_right, sizeof(line1_right), "TIME %s", time_str);
-
-	ff_draw_text(font_index, line_height, vx0, vy0, scale,
-		line1_left, panel_x + 7.0f, panel_x + 128.0f, panel_y + 4.0f,
-		0.54f, _ff_text_left, &white);
-	ff_draw_text(font_index, line_height, vx0, vy0, scale,
-		line1_right, panel_x + 130.0f, panel_x + panel_w - 7.0f, panel_y + 4.0f,
-		0.54f, _ff_text_right, &cyan);
-
-	/* Row 2: LIVES: XX  |  HOSTILES: XX */
-	if (ff_state.shared_lives_remaining < 0)
-		snprintf(line2_left, sizeof(line2_left), "LIVES: INFINITE");
-	else
-		snprintf(line2_left, sizeof(line2_left), "LIVES: %d", (int)ff_state.shared_lives_remaining);
-
-	snprintf(line2_right, sizeof(line2_right), "HOSTILES: %d", (int)ff_state.enemies_alive);
-
-	ff_draw_text(font_index, line_height, vx0, vy0, scale,
-		line2_left, panel_x + 7.0f, panel_x + 104.0f, panel_y + 23.0f,
-		0.58f, _ff_text_left, (ff_state.shared_lives_remaining >= 0 && ff_state.shared_lives_remaining <= 1) ? &red : &gold);
-	ff_draw_text(font_index, line_height, vx0, vy0, scale,
-		line2_right, panel_x + 106.0f, panel_x + panel_w - 7.0f, panel_y + 23.0f,
-		0.58f, _ff_text_right, &white);
-
-	/* Row 3: NEXT WAVE timer / Prep Countdown  |  Enemy Vitality Scale */
-	if (prep_phase)
-	{
-		long prep_sec = (ff_state.phase_timer_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
-		snprintf(line3_left, sizeof(line3_left), "PREP TIME: 0:%02ld", MAX(0L, prep_sec));
-	}
-	else if (ff_state.next_wave_timer_ticks > 0)
-	{
-		long wave_sec = MAX(0L, ff_state.next_wave_timer_ticks / TICKS_PER_SECOND);
-		snprintf(line3_left, sizeof(line3_left), "NEXT WAVE: %ld:%02ld", wave_sec / 60L, wave_sec % 60L);
-	}
-	else
-	{
-		snprintf(line3_left, sizeof(line3_left), "NEXT WAVE: ON CLEAR");
-	}
-
-	snprintf(line3_right, sizeof(line3_right), "HP %d%%",
-		(int)(firefight_set_vitality_scale_get() * 100.0f + 0.5f));
-
-	ff_draw_text(font_index, line_height, vx0, vy0, scale,
-		line3_left, panel_x + 7.0f, panel_x + 132.0f, panel_y + 39.0f,
-		0.51f, _ff_text_left, &cyan);
-	ff_draw_text(font_index, line_height, vx0, vy0, scale,
-		line3_right, panel_x + 134.0f, panel_x + panel_w - 7.0f, panel_y + 39.0f,
-		0.51f, _ff_text_right, &cyan);
+	/* (the set, the round, the wave, the lives, the hostiles and the time are
+	the score panel's: campaign_score.c) */
 
 	/* 2. Pre-Round Preparation Countdown Banner */
 	if (prep_phase && ff_state.phase_timer_ticks > 0)
@@ -1218,17 +1217,8 @@ void firefight_hud_draw(void)
 		real by = 52.0f;
 		long secs = (ff_state.phase_timer_ticks + TICKS_PER_SECOND - 1) / TICKS_PER_SECOND;
 		char prep_title[64];
-		short active_round_skull = NONE;
-		short bit;
-
-		for (bit = 0; bit < NUMBER_OF_FIREFIGHT_SKULLS; bit++)
-		{
-			if ((ff_state.round_skulls & (1UL << bit)) != 0)
-			{
-				active_round_skull = bit;
-				break;
-			}
-		}
+		short round_bits[NUMBER_OF_FIREFIGHT_SKULLS];
+		short round_count = ff_skull_bits_of(ff_state.round_skulls, round_bits, NUMBER_OF_FIREFIGHT_SKULLS);
 
 		ff_draw_box(vx0, vy0, scale, bx, by, bx + bw, by + bh, 19.0f, FF_HUD_PANEL_FILL, FF_HUD_LOCK_BAR);
 		snprintf(prep_title, sizeof(prep_title), "ROUND %d STARTS IN %lds",
@@ -1240,21 +1230,29 @@ void firefight_hud_draw(void)
 			"RESUPPLY & BOARD VEHICLES", bx + 8.0f, bx + bw - 8.0f, by + 23.0f,
 			0.51f, _ff_text_center, &cyan);
 
-		if (active_round_skull != NONE)
+		if (round_count > 0)
 		{
-			char sk_title[64];
+			char sk_title[96];
+			char const *sk_desc = round_count == 1 ? s_ff_skull_hud_defs[round_bits[0]].desc : "ENEMY MODIFIERS ENGAGED";
 			real sby = by + bh + 4.0f;
-			pixel32 sk_col = s_ff_skull_hud_defs[active_round_skull].badge_color;
+			real inset = ff_banner_well_width(round_count, 18.0f);
+			short name;
 
-			ff_draw_box(vx0, vy0, scale, bx, sby, bx + bw, sby + 34.0f, 17.0f, FF_HUD_WARN_FILL, sk_col);
-			draw_hud_mini_skull_icon(vx0, vy0, scale, bx + 16.0f, sby + 9.0f, 5.2f, 0xFFF2ECE0, sk_col);
-			draw_hud_mini_skull_icon(vx0, vy0, scale, bx + bw - 16.0f, sby + 9.0f, 5.2f, 0xFFF2ECE0, sk_col);
-			snprintf(sk_title, sizeof(sk_title), "SKULL ACTIVE: %s", s_ff_skull_hud_defs[active_round_skull].name);
+			ff_draw_box_with_wells(vx0, vy0, scale, bx, sby, bx + bw, sby + 34.0f, 17.0f, inset, FF_HUD_WARN_FILL,
+				s_ff_skull_hud_defs[round_bits[0]].badge_color);
+			ff_draw_banner_skulls(vx0, vy0, scale, bx, bx + bw, sby + 8.0f, 18.0f, round_bits, round_count);
+			snprintf(sk_title, sizeof(sk_title), "%s: ", round_count == 1 ? "SKULL ACTIVE" : "SKULLS ACTIVE");
+			for (name = 0; name < round_count; name++)
+			{
+				if (name > 0)
+					strncat(sk_title, " + ", sizeof(sk_title) - strlen(sk_title) - 1);
+				strncat(sk_title, s_ff_skull_hud_defs[round_bits[name]].name, sizeof(sk_title) - strlen(sk_title) - 1);
+			}
 			ff_draw_text(font_index, line_height, vx0, vy0, scale,
-				sk_title, bx + 26.0f, bx + bw - 26.0f, sby + 2.5f,
+				sk_title, bx + inset, bx + bw - inset, sby + 2.5f,
 				0.58f, _ff_text_center, &gold);
 			ff_draw_text(font_index, line_height, vx0, vy0, scale,
-				s_ff_skull_hud_defs[active_round_skull].desc, bx + 10.0f, bx + bw - 10.0f, sby + 20.0f,
+				sk_desc, bx + inset, bx + bw - inset, sby + 20.0f,
 				0.48f, _ff_text_center, &white);
 		}
 	}
@@ -1281,11 +1279,14 @@ void firefight_hud_draw(void)
 				? s_ff_skull_hud_defs[ff_state.banner_data].badge_color
 				: FF_HUD_PANEL_EDGE;
 
-			ff_draw_box(vx0, vy0, scale, bx, by, bx + bw, by + bh, 19.0f, is_skull_b ? FF_HUD_WARN_FILL : FF_HUD_PANEL_FILL, edge_c);
-			if (is_skull_b)
+			ff_draw_box_with_wells(vx0, vy0, scale, bx, by, bx + bw, by + bh, 19.0f,
+				is_skull_b ? ff_banner_well_width(1, 18.0f) : 0.0f,
+				is_skull_b ? FF_HUD_WARN_FILL : FF_HUD_PANEL_FILL, edge_c);
+			if (is_skull_b && ff_state.banner_data >= 0 && ff_state.banner_data < NUMBER_OF_FIREFIGHT_SKULLS)
 			{
-				draw_hud_mini_skull_icon(vx0, vy0, scale, bx + 16.0f, by + 10.0f, 5.5f, 0xFFF2ECE0, edge_c);
-				draw_hud_mini_skull_icon(vx0, vy0, scale, bx + bw - 16.0f, by + 10.0f, 5.5f, 0xFFF2ECE0, edge_c);
+				short banner_bit = ff_state.banner_data;
+
+				ff_draw_banner_skulls(vx0, vy0, scale, bx, bx + bw, by + 10.0f, 18.0f, &banner_bit, 1);
 			}
 			ff_draw_text(font_index, line_height, vx0, vy0, scale,
 				banner_title, bx + 8.0f, bx + bw - 8.0f, by + 4.0f,
@@ -1407,78 +1408,6 @@ boolean firefight_hud_format_scoreboard_title(
 
 	firefight_format_scoreboard_title(title_string, count, FALSE);
 	return TRUE;
-}
-
-void firefight_format_postgame_summary(
-	wchar_t *line1,
-	wchar_t *line2,
-	long count)
-{
-	struct firefight_map_record best;
-	char const *map_name = (global_scenario_index != NONE) ? tag_get_name(global_scenario_index) : "map";
-	char narrow1[160];
-	char narrow2[160];
-	char time_str[24];
-	long i;
-
-	format_elapsed_time(ff_state.session_elapsed_ticks, time_str, sizeof(time_str));
-	snprintf(
-		narrow1,
-		sizeof(narrow1),
-		"REACHED SET %d RND %d WAVE %d | TIME: %s | TEAM SCORE: %ld",
-		(int)ff_state.current_set,
-		(int)ff_state.current_round,
-		(int)ff_state.current_wave,
-		time_str,
-		campaign_score_team_points());
-
-	if (firefight_stats_get_map_record(map_name, 0, &best) && best.best_score > 0)
-	{
-		snprintf(
-			narrow2,
-			sizeof(narrow2),
-			"PERSONAL BEST: %ld PTS (SET %d RND %d WAVE %d)",
-			best.best_score,
-			(int)best.best_set,
-			(int)best.best_round,
-			(int)best.best_wave);
-	}
-	else
-	{
-		snprintf(
-			narrow2,
-			sizeof(narrow2),
-			"SKULL MULTIPLIER: %.2fx | VITALITY SCALE: %d%%",
-			(double)firefight_score_multiplier_get(),
-			(int)(firefight_set_vitality_scale_get() * 100.0f + 0.5f));
-	}
-
-	if (line1 && count > 0)
-	{
-		for (i = 0; i < count - 1 && narrow1[i]; i++)
-			line1[i] = (wchar_t)(unsigned char)narrow1[i];
-		line1[i] = 0;
-	}
-	if (line2 && count > 0)
-	{
-		for (i = 0; i < count - 1 && narrow2[i]; i++)
-			line2[i] = (wchar_t)(unsigned char)narrow2[i];
-		line2[i] = 0;
-	}
-}
-
-void firefight_hud_draw_postgame_summary(
-	void (*drawline_fn)(wchar_t const *string, long row_index, short justification))
-{
-	wchar_t line1[160];
-	wchar_t line2[160];
-
-	if (!drawline_fn)
-		return;
-
-	firefight_format_postgame_summary(line1, line2, 160);
-	drawline_fn(line1, 4, 0);
-	drawline_fn(line2, 5, 0);
 }
 
 /* ---------- MCC Rank Icons & Customizable Emblem Renderer ---------- */
@@ -2771,14 +2700,14 @@ void firefight_draw_mcc_nameplate(
 	draw_screen_quad((short)(x1 - 1), y0, x1, y1, border_c);
 }
 
+
+/* the match's report's extras, a multiplayer game's (Firefight's has its own
+card: campaign_score.c): the best player's row marked, and the local player's
+best medals. Rank and XP are the screen after it */
 void firefight_hud_draw_pgcr_extras(
 	long mvp_player_index,
 	short mvp_row)
 {
-	static unsigned long s_pgcr_anim_start_ms = 0;
-	static long s_last_pgcr_mvp = -999;
-	unsigned long now_ms = system_milliseconds();
-	real anim_t;
 	long font_index = hud_get_font_index();
 	struct font_header *font;
 	short line_height;
@@ -2794,7 +2723,6 @@ void firefight_hud_draw_pgcr_extras(
 	real_argb_color gold = { 1.0f, 1.0f, 0.85f, 0.28f };
 	real_argb_color cyan = { 1.0f, 0.62f, 0.85f, 1.0f };
 	real_argb_color white = { 1.0f, 0.95f, 0.95f, 0.95f };
-	real_argb_color green = { 1.0f, 0.38f, 1.0f, 0.52f };
 
 	if (font_index == NONE)
 		return;
@@ -2805,12 +2733,8 @@ void firefight_hud_draw_pgcr_extras(
 	if (line_height <= 0)
 		return;
 
-	if (s_last_pgcr_mvp != mvp_player_index || (now_ms - s_pgcr_anim_start_ms) > 60000UL)
-	{
-		s_last_pgcr_mvp = mvp_player_index;
-		s_pgcr_anim_start_ms = now_ms;
-	}
-	anim_t = PIN((real)(now_ms - s_pgcr_anim_start_ms) / 1800.0f, 0.0f, 1.0f);
+	/* (the match's XP is recorded as its report is first shown) */
+	firefight_stats_get_postgame_xp_summary(&xp_sum);
 
 	/* 1. Highlight Top Performer Row with Golden [MVP] Badge */
 	if (mvp_player_index != NONE && mvp_row >= 8)
@@ -2823,9 +2747,9 @@ void firefight_hud_draw_pgcr_extras(
 			"MVP", 7.0f, 39.0f, ry + 1.5f, 0.50f, _ff_text_center, &gold);
 	}
 
-	/* 2. Left PGCR Showcase Box: Local Player Nameplate + Top 3 Medals Earned */
+	/* 2. Local Player Nameplate + Top 3 Medals Earned */
 	{
-		real lx0 = 45.0f, ly0 = 324.0f, lx1 = 308.0f, ly1 = 404.0f;
+		real lx0 = 45.0f, ly0 = 324.0f, lx1 = 595.0f, ly1 = 404.0f;
 		long target_p = (local_p != NONE) ? local_p : mvp_player_index;
 		long medals_bmp = campaign_medals_bitmap();
 		short m;
@@ -2895,99 +2819,277 @@ void firefight_hud_draw_pgcr_extras(
 			}
 		}
 	}
-
-	/* 3. Right PGCR Showcase Box: MCC Career XP Breakdown & Animated Rank Progression Bar */
-	{
-		real rx0 = 316.0f, ry0 = 324.0f, rx1 = 595.0f, ry1 = 404.0f;
-		char hdr_right[48];
-		char rk_line[64];
-		char xp_line[80];
-		char bar_label[48];
-		long disp_xp_in_rank;
-		long span_xp;
-		real fill_frac;
-
-		firefight_stats_get_postgame_xp_summary(&xp_sum);
-		ff_draw_box(
-			vx0, vy0, scale, rx0, ry0, rx1, ry1, 18.0f,
-			FF_HUD_PANEL_FILL,
-			xp_sum.promoted ? 0xFFFFD038 : FF_HUD_PANEL_EDGE);
-
-		ff_draw_text(font_index, line_height, vx0, vy0, scale,
-			xp_sum.promoted ? "RANK PROMOTED!" : "CAREER XP PROGRESSION",
-			rx0 + 8.0f, rx0 + 175.0f, ry0 + 3.0f,
-			0.52f, _ff_text_left, xp_sum.promoted ? &gold : &white);
-
-		snprintf(hdr_right, sizeof(hdr_right), "+%ld XP EARNED", (long)(xp_sum.total_gained_xp * anim_t + 0.5f));
-		ff_draw_text(font_index, line_height, vx0, vy0, scale,
-			hdr_right, rx0 + 176.0f, rx1 - 8.0f, ry0 + 3.0f,
-			0.52f, _ff_text_right, &green);
-
-		/* Rank Icon + Custom Emblem + Rank Title & Tour */
-		{
-			struct firefight_emblem_info my_emb;
-			firefight_stats_get_emblem(NONE, &my_emb);
-			firefight_draw_mcc_rank_icon(
-				(short)(vx0 + rx0 + 8.0f),
-				(short)(vy0 + ry0 + 24.0f),
-				32,
-				xp_sum.after_rank.tour_number,
-				xp_sum.after_rank.rank_in_tour,
-				1.0f);
-			firefight_draw_player_emblem(
-				(short)(vx0 + rx0 + 44.0f),
-				(short)(vy0 + ry0 + 24.0f),
-				32,
-				&my_emb,
-				1.0f);
-		}
-
-		snprintf(
-			rk_line,
-			sizeof(rk_line),
-			"%s (%s - Rk %d)",
-			xp_sum.after_rank.rank_name,
-			xp_sum.after_rank.tour_name,
-			(int)xp_sum.after_rank.rank_in_tour);
-		ff_draw_text(font_index, line_height, vx0, vy0, scale,
-			rk_line, rx0 + 82.0f, rx1 - 8.0f, ry0 + 23.0f,
-			0.50f, _ff_text_left, &gold);
-
-		snprintf(
-			xp_line,
-			sizeof(xp_line),
-			"KILLS +%ld  |  MEDALS +%ld  |  BONUS +%ld",
-			xp_sum.combat_xp,
-			xp_sum.medal_xp,
-			xp_sum.match_bonus_xp);
-		ff_draw_text(font_index, line_height, vx0, vy0, scale,
-			xp_line, rx0 + 82.0f, rx1 - 8.0f, ry0 + 39.0f,
-			0.44f, _ff_text_left, &cyan);
-
-		/* Animated XP Progress Bar */
-		span_xp = MAX(1L, xp_sum.after_rank.xp_for_next_rank);
-		disp_xp_in_rank = (long)((real)xp_sum.after_rank.xp_in_rank * anim_t + 0.5f);
-		fill_frac = PIN((real)disp_xp_in_rank / (real)span_xp, 0.0f, 1.0f);
-
-		{
-			real bx0 = rx0 + 8.0f, by0 = ry0 + 60.0f, bx1 = rx1 - 8.0f, by1 = ry0 + 76.0f;
-			real fill_w = (bx1 - bx0 - 2.0f) * fill_frac;
-
-			ff_draw_quad(vx0, vy0, scale, bx0, by0, bx1, by1, 0xFF2896FF);
-			ff_draw_quad(vx0, vy0, scale, bx0 + 1.0f, by0 + 1.0f, bx1 - 1.0f, by1 - 1.0f, 0xD8061020);
-			if (fill_w > 1.0f)
-			{
-				ff_draw_quad(
-					vx0, vy0, scale,
-					bx0 + 1.0f, by0 + 1.0f, bx0 + 1.0f + fill_w, by1 - 1.0f,
-					xp_sum.promoted ? 0xFFE8B828 : 0xFF2896FF);
-			}
-			snprintf(bar_label, sizeof(bar_label), "%ld / %ld XP", disp_xp_in_rank, span_xp);
-			ff_draw_text(font_index, line_height, vx0, vy0, scale,
-				bar_label, bx0 + 4.0f, bx1 - 4.0f, by0 + 1.5f,
-				0.48f, _ff_text_center, &white);
-		}
-	}
 }
 
+/* ---------- the postgame's XP screen
 
+after the report, a card as the campaign's level summary is: the player's rank
+as the match began, a bar that fills through what the match gave, a line at a
+time, each saying what gave it, the rank changing as the bar passes one */
+
+enum
+{
+	FF_XP_CARD_WIDTH = 440,
+	FF_XP_CARD_PADDING = 14,
+	FF_XP_CARD_GAP = 8,
+	FF_XP_ICON_SIZE = 40,
+	FF_XP_BAR_HEIGHT = 14,
+	/* (the card's room above the prompt, at 410 of the 480) */
+	FF_XP_CARD_BOTTOM = 402,
+	/* (before the first line, each line, and in milliseconds) */
+	FF_XP_START_HOLD_MS = 900,
+	FF_XP_LINE_MS = 650
+};
+
+static struct firefight_postgame_xp_summary ff_xp_summary;
+static unsigned long ff_xp_start_ms;
+
+boolean firefight_hud_xp_screen_wanted(void)
+{
+#if OPENCE_ENABLE_SERVICE_RANK
+	struct firefight_postgame_xp_summary summary;
+
+	firefight_stats_get_postgame_xp_summary(&summary);
+	return summary.total_gained_xp > 0;
+#else
+	return FALSE;
+#endif
+}
+
+void firefight_hud_xp_screen_begin(void)
+{
+	firefight_stats_get_postgame_xp_summary(&ff_xp_summary);
+	ff_xp_start_ms = system_milliseconds();
+}
+
+/* how long the lines take to count up */
+static unsigned long ff_xp_animation_ms(void)
+{
+	return FF_XP_START_HOLD_MS + (unsigned long)ff_xp_summary.line_count * FF_XP_LINE_MS;
+}
+
+boolean firefight_hud_xp_screen_finish(void)
+{
+	unsigned long now = system_milliseconds();
+
+	if (now - ff_xp_start_ms >= ff_xp_animation_ms())
+		return FALSE;
+	ff_xp_start_ms = now - ff_xp_animation_ms();
+	return TRUE;
+}
+
+/* the XP counted up after `elapsed` milliseconds: the lines before the one
+being counted, and that one's share, easing in and out; the line's index */
+static long ff_xp_counted(
+	unsigned long elapsed,
+	short *line_counting,
+	real *line_fraction)
+{
+	long counted = 0;
+	short index;
+
+	*line_counting = -1;
+	*line_fraction = 0.0f;
+	if (elapsed < FF_XP_START_HOLD_MS)
+		return 0;
+	elapsed -= FF_XP_START_HOLD_MS;
+	for (index = 0; index < ff_xp_summary.line_count; index++)
+	{
+		if (elapsed < FF_XP_LINE_MS)
+		{
+			real t = (real)elapsed / (real)FF_XP_LINE_MS;
+
+			*line_counting = index;
+			*line_fraction = t * t * (3.0f - 2.0f * t);
+			return counted + (long)(ff_xp_summary.lines[index].xp * *line_fraction);
+		}
+		elapsed -= FF_XP_LINE_MS;
+		counted += ff_xp_summary.lines[index].xp;
+	}
+	*line_counting = ff_xp_summary.line_count;
+	return counted;
+}
+
+static void ff_xp_color(
+	real_argb_color *color,
+	real red,
+	real green,
+	real blue)
+{
+	color->alpha = 1.0f;
+	color->red = red;
+	color->green = green;
+	color->blue = blue;
+}
+
+/* the card's text and bars, from its top: its height, drawn or not */
+static real ff_xp_card_layout(
+	struct campaign_score_panel const *panel,
+	unsigned long elapsed,
+	boolean draw)
+{
+	real const left = FF_XP_CARD_PADDING;
+	real const right = FF_XP_CARD_WIDTH - FF_XP_CARD_PADDING;
+	real const line = panel->line_height;
+	real const small = panel->line_height * CAMPAIGN_SCORE_SUBLINE_SIZE;
+	struct firefight_mcc_rank_info rank;
+	real_argb_color color;
+	short line_counting;
+	real line_fraction;
+	long counted = ff_xp_counted(elapsed, &line_counting, &line_fraction);
+	boolean ranked_up;
+	boolean finished = line_counting >= ff_xp_summary.line_count;
+	char text[64];
+	real y = FF_XP_CARD_PADDING;
+	short index;
+
+	service_rank_compute_from_xp(ff_xp_summary.start_xp + counted, &rank);
+	ranked_up = rank.tour_number > ff_xp_summary.before_rank.tour_number ||
+		rank.rank_in_tour > ff_xp_summary.before_rank.rank_in_tour;
+
+	if (draw)
+	{
+		ff_xp_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(panel, "RANK PROGRESS", NULL, left, right, y, 1.0f, _campaign_score_text_center,
+			&color);
+	}
+	y += line + 4.0f;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += FF_XP_CARD_GAP;
+
+	/* the rank, its icon and the player's emblem, what is held in all */
+	if (draw)
+	{
+		struct firefight_emblem_info emblem;
+		rectangle2d icons;
+
+		firefight_stats_get_emblem(NONE, &emblem);
+		icons.x0 = (short)(panel->left + left * panel->scale);
+		icons.y0 = (short)(panel->top + y * panel->scale);
+		firefight_draw_mcc_rank_icon(icons.x0, icons.y0, (short)(FF_XP_ICON_SIZE * panel->scale), rank.tour_number,
+			rank.rank_in_tour, 1.0f);
+		firefight_draw_player_emblem((short)(icons.x0 + (FF_XP_ICON_SIZE + 4.0f) * panel->scale), icons.y0,
+			(short)(FF_XP_ICON_SIZE * panel->scale), &emblem, 1.0f);
+		if (ranked_up)
+			ff_xp_color(&color, 1.0f, 0.84f, 0.35f);
+		else
+			ff_xp_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(panel, rank.rank_name, NULL, left + FF_XP_ICON_SIZE * 2.0f + 12.0f, right, y, 1.0f,
+			_campaign_score_text_left, &color);
+		snprintf(text, sizeof(text), "%s - RANK %d", rank.tour_name, (int)rank.rank_in_tour);
+		ff_xp_color(&color, 0.55f, 0.72f, 1.0f);
+		campaign_score_panel_text(panel, text, NULL, left + FF_XP_ICON_SIZE * 2.0f + 12.0f, right, y + line,
+			CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+		if (ranked_up)
+		{
+			ff_xp_color(&color, 1.0f, 0.84f, 0.35f);
+			campaign_score_panel_text(panel, "RANK UP!", NULL, left, right, y, 1.0f, _campaign_score_text_right,
+				&color);
+		}
+	}
+	y += MAX((real)FF_XP_ICON_SIZE, line + small) + FF_XP_CARD_GAP;
+
+	/* the bar through this rank */
+	if (draw)
+	{
+		long span = MAX(1L, rank.xp_for_next_rank);
+		real fraction = PIN((real)rank.xp_in_rank / (real)span, 0.0f, 1.0f);
+		real fill = (right - left - 2.0f) * fraction;
+
+		campaign_score_panel_quad(panel, left, y, right, y + FF_XP_BAR_HEIGHT, 0xFF0C2A4C);
+		if (fill >= 1.0f)
+		{
+			campaign_score_panel_quad(panel, left + 1.0f, y + 1.0f, left + 1.0f + fill, y + FF_XP_BAR_HEIGHT - 1.0f,
+				ranked_up ? 0xFFE8B828 : 0xFF2896FF);
+		}
+		campaign_score_panel_frame(panel, left, y, right, y + FF_XP_BAR_HEIGHT, CAMPAIGN_SCORE_PANEL_EDGE);
+	}
+	y += FF_XP_BAR_HEIGHT + 3.0f;
+	if (draw)
+	{
+		snprintf(text, sizeof(text), "%ld / %ld XP", rank.xp_in_rank, MAX(1L, rank.xp_for_next_rank));
+		ff_xp_color(&color, 0.6f, 0.66f, 0.75f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+			_campaign_score_text_right, &color);
+		snprintf(text, sizeof(text), "STARTED AT %ld XP", ff_xp_summary.start_xp);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+			_campaign_score_text_left, &color);
+	}
+	y += small + FF_XP_CARD_GAP;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += FF_XP_CARD_GAP;
+
+	/* what gave it, a line at a time */
+	for (index = 0; index < ff_xp_summary.line_count; index++)
+	{
+		struct firefight_postgame_xp_line const *entry = &ff_xp_summary.lines[index];
+
+		if (draw && index <= line_counting)
+		{
+			long shown = index == line_counting ? (long)(entry->xp * line_fraction) : entry->xp;
+
+			if (entry->count > 1)
+				snprintf(text, sizeof(text), "%s x%ld", entry->label, entry->count);
+			else
+				snprintf(text, sizeof(text), "%s", entry->label);
+			ff_xp_color(&color, 0.55f, 0.72f, 1.0f);
+			campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+				_campaign_score_text_left, &color);
+			snprintf(text, sizeof(text), "+%ld", shown);
+			ff_xp_color(&color, 0.95f, 0.95f, 0.95f);
+			campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+				_campaign_score_text_right, &color);
+		}
+		y += small + 4.0f;
+	}
+	y += FF_XP_CARD_GAP - 4.0f;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += FF_XP_CARD_GAP;
+
+	/* the total */
+	if (draw)
+	{
+		snprintf(text, sizeof(text), "+%ld", finished ? ff_xp_summary.total_gained_xp : counted);
+		ff_xp_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(panel, "XP EARNED", NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+		ff_xp_color(&color, 1.0f, 0.84f, 0.35f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_right, &color);
+	}
+	y += line;
+
+	return y + FF_XP_CARD_PADDING - 4.0f;
+}
+
+void firefight_hud_xp_screen_draw(void)
+{
+	struct campaign_score_panel panel;
+	struct font_header *font;
+	real vx0 = (real)(-render.camera.viewport_bounds.x0);
+	real vy0 = (real)(-render.camera.viewport_bounds.y0);
+	unsigned long elapsed = system_milliseconds() - ff_xp_start_ms;
+	real height;
+
+	panel.font_index = hud_get_font_index();
+	if (panel.font_index == NONE)
+		return;
+	font = font_definition_get(panel.font_index);
+	if (!font)
+		return;
+	panel.line_height = (short)(font->ascending_height + font->descending_height);
+	if (panel.line_height <= 0)
+		return;
+	panel.scale = 1.0f;
+	panel.width = FF_XP_CARD_WIDTH;
+	panel.left = vx0;
+	panel.top = vy0;
+	campaign_score_panel_quad(&panel, 0.0f, 0.0f, 640.0f, 480.0f, 0xFF000000);
+	height = ff_xp_card_layout(&panel, elapsed, FALSE);
+	panel.left = vx0 + (640.0f - FF_XP_CARD_WIDTH) / 2.0f;
+	panel.top = vy0 + MAX(6.0f, (FF_XP_CARD_BOTTOM - height) / 2.0f);
+	campaign_score_panel_quad(&panel, 0.0f, 0.0f, FF_XP_CARD_WIDTH, height, CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(&panel, 0.0f, 0.0f, FF_XP_CARD_WIDTH, height, CAMPAIGN_SCORE_PANEL_EDGE);
+	ff_xp_card_layout(&panel, elapsed, TRUE);
+}

@@ -1519,10 +1519,15 @@ static void patch_actor_for_firefight_pursuit(
 		SET_FLAG(actor_def->flags, _actor_definition_charge_in_attacking_mode_bit, TRUE);
 		SET_FLAG(actor_def->flags, _actor_definition_crouch_try_not_to_move_bit, FALSE);
 		SET_FLAG(actor_def->flags, _actor_definition_crouch_when_guarding_bit, FALSE);
-		SET_FLAG(actor_def->flags, _actor_definition_defensive_crouch_while_charging_bit, FALSE);
+		/* (not the combat forms: their crouch is the shamble, and they must
+		crouch to fire, so charging without it they never shot) */
+		if (actor_def->type != _actor_combat_form)
+			SET_FLAG(actor_def->flags, _actor_definition_defensive_crouch_while_charging_bit, FALSE);
 
+		/* (not the combat forms: berserk they fire only within their berserk
+		range, under 3 units, where they melee instead, so an armed one never
+		shot. Without it they still charge, and those with no gun still melee) */
 		if (actor_def->type == _actor_hunter ||
-			actor_def->type == _actor_combat_form ||
 			actor_def->type == _actor_carrier_form ||
 			actor_def->type == _actor_infection_form)
 		{

@@ -1172,6 +1172,17 @@ static void profile_name_show(struct widget_instance *description)
 	text_set(named(description, "current_profile_name", 0), profile.player_name);
 }
 
+static boolean gamemode_select_standard(void);
+
+static void campaign_menu_forget_game_mode(void)
+{
+	extern void player_ui_clear_multiplayer_variant(void);
+
+	gamemode_select_standard();
+	player_ui_clear_multiplayer_variant();
+	global_variant.game_engine_index = game_engine_none;
+}
+
 /* (Campaign's menu) "campaign menu init": player 1's profile and saved
 game, for its items */
 static boolean campaign_menu_initialize(struct widget_instance *list, short controller)
@@ -1179,12 +1190,14 @@ static boolean campaign_menu_initialize(struct widget_instance *list, short cont
 	struct player_profile profile;
 
 	(void)list;
+	/* (no game mode or variant of an earlier game left set: Firefight's would
+	load its roster into the campaign's levels, the randomizer off) */
+	campaign_menu_forget_game_mode();
 	if (campaign_profile(controller, &profile))
 		campaign_levels_read(&profile);
 	return TRUE;
 }
 
-static boolean gamemode_select_standard(void);
 boolean multiplayer_firefight_mode(void);
 
 /* (PLAY's menu) "port play init": DAILY CHALLENGE only with

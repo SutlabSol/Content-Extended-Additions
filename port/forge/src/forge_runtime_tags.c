@@ -2077,8 +2077,11 @@ static void patch_forge_device_and_light_tag_runtime(long tag_idx, uint32_t grp,
 		}
 	}
 
-	/* Configure 'mach' doors to open/close automatically when players or vehicles approach */
-	if (grp == 'mach')
+	/* Configure 'mach' doors to open/close automatically when players or vehicles approach.
+	   Only in a Forge session: this runs on every map, and a campaign's "door" machines are
+	   not all doors (a10's airlock_1_door_3 starts open and changes only once, so as an
+	   automatic door it shut for good after 3 seconds, and the level could not be finished) */
+	if (grp == 'mach' && g_forge_session_enabled)
 	{
 		int16_t mtype = *(int16_t const *)(obuf + 0x290u);
 		if (mtype == 0 /* _machine_type_door */ ||
