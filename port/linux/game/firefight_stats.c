@@ -2451,7 +2451,9 @@ void firefight_stats_record_match_end(char const *map_name)
 		if (best_spree > g_career_stats.ff_best_spree)
 			g_career_stats.ff_best_spree = best_spree;
 
-		firefight_stats_add_xp_counted(500L, "Match complete", 0L);
+		/* (not for a match left before it was won or lost) */
+		if (ff_state.match_won || ff_state.match_lost)
+			firefight_stats_add_xp_counted(500L, "Match complete", 0L);
 		firefight_stats_add_xp_counted(sets_this_match * 4000L, "Sets cleared", sets_this_match);
 		firefight_stats_add_xp_counted(waves_cleared * 250L, "Waves cleared", waves_cleared);
 		firefight_stats_add_xp_counted(total_kills * 25L, "Kill bonus", 0L);
@@ -2598,7 +2600,9 @@ void firefight_stats_record_multiplayer_match_end(char const *map_name)
 	g_career_stats.total_score += local_score;
 	g_career_stats.total_seconds += session_seconds;
 
-	firefight_stats_add_xp_counted(1500L, "Match complete", 0L);
+	/* (a match left before its end was not completed: only its kills count) */
+	if (!game_engine_in_play())
+		firefight_stats_add_xp_counted(1500L, "Match complete", 0L);
 	firefight_stats_add_xp_counted(local_kills * 100L, "Kill bonus", 0L);
 	firefight_stats_add_xp_counted(local_assists * 50L, "Assists", local_assists);
 	advance_challenge_metric(_ff_challenge_cat_multiplayer, _chal_metric_completions, 1);
