@@ -92,15 +92,19 @@ one type a custom type of the Tag Injector profile a co-op host shares for
 its pools: tag_multiplayer.c), the pool (0 any, 1 covenant, 2 flood, 3
 human, 4 one type; 5 the shared profile's, with such a share) and
 that type (0 grunt, 1 elite, 2 jackal, 3 hunter, 4 flood combat, 5 flood
-carrier, 6 marine, 8 engineer, 9 sentinel). The next four bytes are the placement roll, a
+carrier, 6 marine, 8 engineer, 9 sentinel). The allies' own pool shares those
+bytes: the pool's byte's high four bits are their one type, and the type's
+bits 4 to 6 their pool plus one (0, as a replay recorded before they had one
+has it: the enemies') and bit 7 that their one type is a custom type. The next
+four bytes are the placement roll, a
 little-endian unsigned long, so a client lays out the level the host did.
 A build that cannot run it leaves its join's capability clear and is refused
 only for this game */
 #define HALO_PORT_ADVERTISED_RANDOMIZER_FLAG 0x20
 #define HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET 3
 #define HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET 6
-/* ... then five bytes: the one type's rank (randomizer.c's RANK_), the
-weapon pickups' pool (0 any, 1 covenant, 2 human, 3 precision, 4 automatic,
+/* ... then five bytes: the one type's rank (randomizer.c's RANK_; bits 3 to
+5 the allies' one type's), the weapon pickups' pool (0 any, 1 covenant, 2 human, 3 precision, 4 automatic,
 5 power, 6 one type) and that type (randomizer.c's WEAPON_), and the same
 two for the weapons the actors are given. A client copies the same tags as
 the host only with all of them */
@@ -156,8 +160,9 @@ campaign level); 6 copies Floodfection's burst into a level before a
 multiplayer profile's tags, which moves theirs (randomizer.c); 7 its
 zombies' cries too, which move them again, and tells its first zombies
 (_distributed_message_floodfection_originals); 8 its leap and melee cries
-and its music, which move them again */
-#define HALO_PORT_MOD_NETWORK_VERSION 8
+and its music, which move them again; 9 advertises the randomizer allies'
+own pool, whose tags a client copies too */
+#define HALO_PORT_MOD_NETWORK_VERSION 9
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

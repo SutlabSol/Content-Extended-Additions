@@ -40,6 +40,16 @@ level loading had it: the randomizer on, a campaign level played alone or
 hosted, no campaign profile in its place, and no daily challenge */
 int randomizer_extra_enemies(void);
 
+/* PLAYER LOADOUT (game.randomizer_loadout), for player_add_equipment: whether
+it stands in for the starting profile's weapons, a level with some to give.
+Gives them to a player's unit whose weapons were reset or that has none */
+int randomizer_player_loadout(long unit_index, int reset_equipment);
+/* what game.randomizer_loadout_primary and _secondary hold for a Tag
+Injector profile's weapon: short, so that a saved setup keeps it (a tag's
+path would not fit a field of one) */
+#define RANDOMIZER_LOADOUT_VALUE_LENGTH TAG_INJECTOR_CUSTOM_TYPE_LENGTH
+void randomizer_loadout_tag_value(char const *path, char *value, unsigned int size);
+
 /* the roll the level was laid out with (its own, its host's, or a daily
 challenge's seed: community.c sends it with a challenge's run) */
 unsigned long randomizer_roll(void);

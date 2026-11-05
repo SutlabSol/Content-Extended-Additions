@@ -116,6 +116,8 @@ enum
 	/* the most bytes of bundles' tags a level holds (their pixels, samples
 	and vertices are read from their files), and bundles */
 	MAXIMUM_INJECTED_BYTES = 0x4000000,
+	/* the weapons tag_injector_tag_objective remembers */
+	OBJECTIVE_KNOWN_TAGS = 256,
 	MAXIMUM_INJECTED_BUNDLES = 64,
 	/* the tags of a level, as datum indices count them */
 	MAXIMUM_TAG_COUNT = 0xFFFF,
@@ -436,6 +438,8 @@ int port_tag_profiles_tag_set_enabled(long profile, long tag, int enabled);
 int port_tag_profiles_tag_set_option(long profile, long tag, char const *key, char const *value);
 char const *port_tag_profiles_tag_option(long profile, long tag, char const *key);
 unsigned long port_tag_profiles_tag_size(long profile, long tag);
+unsigned long port_tag_profiles_tag_signature(long profile, long tag);
+extern boolean tag_index_is_group(long tag_index, long group_tag);
 unsigned long port_tag_profiles_size(long profile);
 int port_tag_profiles_tag_stored(long profile, long tag);
 char const *port_tag_profiles_folder(long profile);
@@ -780,6 +784,13 @@ static boolean weapon_holdable(
 {
 	return weapon && weapon->weapon.interface_definition.first_person_model.index != NONE &&
 		weapon->weapon.interface_definition.first_person_animations.index != NONE;
+}
+
+boolean tag_injector_weapon_objective(
+	long definition_index)
+{
+	return definition_index != NONE && tag_index_is_group(definition_index, WEAPON_DEFINITION_TAG) &&
+		TEST_FLAG(weapon_definition_get(definition_index)->weapon.flags, _weapon_must_be_readied_bit);
 }
 
 /* whether a bundle's tag is a weapon it would add that a player could not
@@ -2764,6 +2775,60 @@ boolean tag_injector_profile_tag_preview(
 		port_tag_profiles_bundle_close(bundle.handle);
 
 	return read;
+}
+
+boolean tag_injector_tag_objective(
+	long profile,
+	long tag)
+{
+	/* (the menus ask for each weapon each frame, of a file each: what a
+	file said is kept, by its size and signature) */
+	static struct
+	{
+		unsigned long size;
+		unsigned long signature;
+		boolean objective;
+	} known[OBJECTIVE_KNOWN_TAGS];
+	static short known_count;
+	static short known_next;
+	struct injected_bundle bundle;
+	unsigned long total = 0;
+	unsigned long size;
+	unsigned long signature;
+	boolean objective = FALSE;
+	short index;
+
+	if (profile < 0 || profile >= port_tag_profiles_count() || tag < 0 || tag >= port_tag_profiles_tag_count(profile) ||
+		port_tag_profiles_tag_group(profile, tag) != WEAPON_DEFINITION_TAG)
+		return FALSE;
+	size = port_tag_profiles_tag_size(profile, tag);
+	signature = port_tag_profiles_tag_signature(profile, tag);
+	for (index = 0; index < known_count; index++)
+	{
+		if (known[index].size == size && known[index].signature == signature)
+			return known[index].objective;
+	}
+	if (level_bundle_read(profile, tag, &bundle, &total) && bundle.loaded.tag_count > 0 &&
+		bundle_tag_group(&bundle.loaded, 0) == WEAPON_DEFINITION_TAG)
+	{
+		struct weapon_definition const *weapon = bundle_tag_root(&bundle.loaded, 0);
+
+		objective = weapon && TEST_FLAG(weapon->weapon.flags, _weapon_must_be_readied_bit);
+	}
+	if (bundle.bytes)
+		free(bundle.bytes);
+	if (bundle.datums)
+		free(bundle.datums);
+	if (bundle.handle != NONE)
+		port_tag_profiles_bundle_close(bundle.handle);
+	known[known_next].size = size;
+	known[known_next].signature = signature;
+	known[known_next].objective = objective;
+	known_next = (short)((known_next + 1) % OBJECTIVE_KNOWN_TAGS);
+	if (known_count < OBJECTIVE_KNOWN_TAGS)
+		known_count++;
+
+	return objective;
 }
 
 void tag_injector_mesh_free(

@@ -47,3 +47,4 @@ reference/
 
 # Release files collected by tools/release.py
 /release/
+/site

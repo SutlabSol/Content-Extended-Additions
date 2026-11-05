@@ -35,13 +35,16 @@ calls them from PC_MENU_FUNCTION_BASE on):
   pattern of the row chosen, at the peak and paper white its rows show,
   which the display takes while the screen is drawn;
 - the campaign randomizer's screen (tools/port_settings.py), after a
-  campaign level's difficulty when game.randomizer is on: "randomizer
+  campaign level's difficulty when game.randomizer is on, whose rows open
+  its pages ("randomizer hub update" says what each is set to; "randomizer
+  screen update" shows a page's rows, and "randomizer page ok" writes them and
+  goes back): "randomizer
   profile save" asks for a name and writes that setup beside config.toml,
-  "randomizer profile load" copies a saved one into the setup shown (with
+  "randomizer profile load" copies a saved one into the setup (with
   "randomizer profiles delete mode", DELETE, on: marks it, then deletes it,
   as "randomizer profile delete", X, does; "randomizer profiles init" turns
   it off as Load's screen opens),
-  "randomizer start" writes the setup and starts the level, and
+  "randomizer start" starts the level, and
   "randomizer profiles update" shows the names saved; "randomizer custom
   left" and "right" choose the Tag Injector profile's custom type of a
   TAG INJECTOR row; before it, with the Tag Injector on and a profile,
@@ -2232,7 +2235,9 @@ oldest first; a new name past eight drops the oldest. A setting added at
 the end is its default in a setup saved before it */
 #define RANDOMIZER_PROFILE_MAX 8
 #define RANDOMIZER_PROFILE_NAME 24
-#define RANDOMIZER_KEY_COUNT 20
+#define RANDOMIZER_KEY_COUNT 31
+/* the rows of the randomizer's pages (tools/port_settings.py's RANDOMIZER_ROWS) */
+#define RANDOMIZER_ROW_COUNT 27
 /* the longest value of a setup's setting (a custom type's name) */
 #define RANDOMIZER_VALUE_LENGTH TAG_INJECTOR_CUSTOM_TYPE_LENGTH
 /* a setup, as config.toml has it: its name, and each value after a ; */
@@ -2265,6 +2270,19 @@ static char const *const randomizer_keys[RANDOMIZER_KEY_COUNT] =
 	"game.randomizer_weapon_custom",
 	/* (EXTRA ENEMIES; a setup saved before it has none) */
 	"game.randomizer_extra_enemies",
+	/* (PLAYER LOADOUT; a setup saved before it has none) */
+	"game.randomizer_loadout",
+	"game.randomizer_loadout_primary",
+	"game.randomizer_loadout_secondary",
+	/* (the allies' own pool; a setup saved before it has them as the enemies) */
+	"game.randomizer_ally_pool",
+	"game.randomizer_ally_type",
+	"game.randomizer_ally_custom_type",
+	"game.randomizer_ally_grunt_rank",
+	"game.randomizer_ally_elite_rank",
+	"game.randomizer_ally_jackal_rank",
+	"game.randomizer_ally_hunter_rank",
+	"game.randomizer_ally_flood_combat_rank",
 };
 
 static struct
@@ -2277,13 +2295,11 @@ static struct
 	short count;
 	boolean naming;
 	wchar_t name[RANDOMIZER_PROFILE_NAME + 1];
-	/* each setup loaded: the randomizer screen shows it when it next draws */
-	long applied;
 	/* the row X was pressed on once, which a second X deletes (NONE) */
 	short deleting;
 	/* Load's DELETE on: A on a row is X (a touch screen has no X) */
 	boolean delete_mode;
-} randomizer_menu = { { { { 0 } } }, 0, FALSE, { 0 }, 0, NONE, FALSE };
+} randomizer_menu = { { { { 0 } } }, 0, FALSE, { 0 }, NONE, FALSE };
 
 /* the level the randomizer's and the skulls' screens are before: its map,
 difficulty, and the controller that chose it (difficulty_start) */
@@ -2532,17 +2548,15 @@ static boolean randomizer_profile_apply(short index)
 			return campaign_fail();
 		}
 	}
-	randomizer_menu.applied++;
 	return TRUE;
 }
 
-/* "randomizer profile save": the setup shown, under the name typed on the
-on-screen keyboard (a controller has no text field) */
+/* "randomizer profile save": the setup, every page's, under the name typed on
+the on-screen keyboard (a controller has no text field) */
 static boolean randomizer_profile_save_event(struct widget_instance *widget)
 {
 	if (randomizer_menu.naming)
 		return TRUE;
-	settings_each(screen_of(widget), setting_changed_save);
 	csmemset(randomizer_menu.name, 0, sizeof(randomizer_menu.name));
 	virtual_keyboard_allow_any_name();
 	if (!virtual_keyboard_launch(randomizer_menu.name, (word)sizeof(randomizer_menu.name), 8))
@@ -2584,7 +2598,7 @@ static boolean randomizer_profile_delete_event(struct widget_instance *widget)
 }
 
 /* "randomizer profile load" (a row of Load's screen): that setup, which
-the randomizer screen shows on going back to it; with DELETE on, the row
+the randomizer screen and its pages show from then on; with DELETE on, the row
 marked or deleted instead, and no going back */
 static boolean randomizer_profile_load_event(struct widget_instance *widget, boolean *widget_deleted)
 {
@@ -2625,12 +2639,22 @@ static boolean randomizer_profiles_delete_mode(void)
 	return TRUE;
 }
 
-/* "randomizer start": the setup shown, then the skulls' screen (with
-game.skulls on) or the level */
-static boolean randomizer_ok(struct widget_instance *widget, boolean *widget_deleted)
+/* "randomizer page ok": what a page of the randomizer's shows, written, then
+back to its screen */
+static boolean randomizer_page_ok(struct widget_instance *widget, boolean *widget_deleted)
 {
 	settings_each(screen_of(widget), setting_changed_save);
-	/* (from Server Setup: back there, which has the skulls' row) */
+	ui_play_audio_feedback_sound(SOUND_FORWARD);
+	ui_widget_port_go_back(widget);
+	*widget_deleted = TRUE;
+	return TRUE;
+}
+
+/* "randomizer start": the setup its pages wrote, then the skulls' screen (with
+game.skulls on) or the level; from Server Setup, back there, which has the
+skulls' row */
+static boolean randomizer_ok(struct widget_instance *widget, boolean *widget_deleted)
+{
 	if (campaign_screens_for_server)
 	{
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
@@ -2864,19 +2888,26 @@ static void randomizer_spinner_pass_over(struct widget_instance *list, char cons
 
 static void randomizer_custom_rows_show(struct widget_instance *list);
 
-/* "randomizer screen update": the rows that mean something with what the
-spinners above them show (tools/port_settings.py's RANDOMIZER_ROWS), one
-under the other (closer when there are more than twelve), EXTRA ENEMIES on
-top with a small space under it; a hidden row takes
-no focus. The flamethrower, with Go Crazy's FLAMETHROWER off, not a type to
-be chosen, nor TAG INJECTOR without a profile of tags of its kind played
-(randomizer_tags), whose custom types the rows of TAG INJECTOR's show. And a
-setup loaded on Load's screen, shown */
+/* the rows of a page of the randomizer's (tools/port_settings.py's
+RANDOMIZER_PAGE_TOP and _PITCH), and the space above a row that starts a
+group of them */
+#define RANDOMIZER_PAGE_TOP 104
+#define RANDOMIZER_PAGE_PITCH 26
+#define RANDOMIZER_PAGE_GAP 8
+
+/* "randomizer screen update", which each of the randomizer's pages of rows
+runs (a row or a spinner of another page is not found, and passed over): the
+rows that mean something with what the spinners above them show
+(tools/port_settings.py's RANDOMIZER_PAGES), one under the other; a hidden row
+takes no focus. The flamethrower, with Go Crazy's FLAMETHROWER off, not a type
+to be chosen, nor TAG INJECTOR without a profile of tags of its kind played
+(randomizer_tags), whose custom types the rows of TAG INJECTOR's show */
 static void randomizer_screen_update(struct widget_instance *list)
 {
-	static long shown_applied;
 	static short pool_last = NONE;
 	static short type_last = NONE;
+	static short ally_pool_last = NONE;
+	static short ally_type_last = NONE;
 	static short pickup_pool_last = NONE;
 	static short pickup_type_last = NONE;
 	static short weapon_pool_last = NONE;
@@ -2888,25 +2919,15 @@ static void randomizer_screen_update(struct widget_instance *list)
 	char const *weapons_off[2];
 	boolean enemies;
 	boolean one_type;
-	boolean custom_type;
+	boolean allies;
+	boolean ally_one;
 	boolean pickups;
 	boolean pickup_one;
 	boolean weapons;
 	boolean weapon_one;
-	struct
-	{
-		char const *row;
-		boolean shown;
-	} rows[RANDOMIZER_KEY_COUNT - 1];
 	short index;
-	short shown = 0;
-	short pitch;
+	short top = RANDOMIZER_PAGE_TOP;
 
-	if (shown_applied != randomizer_menu.applied)
-	{
-		shown_applied = randomizer_menu.applied;
-		settings_each(screen_of(list), setting_show_saved);
-	}
 	randomizer_tags_refresh();
 	actors_off[0] = randomizer_tags.actor_type_count ? NULL : "tag_injector";
 	weapon_pools_off[0] = randomizer_tags.weapon_type_count ? NULL : "tag_injector";
@@ -2914,60 +2935,89 @@ static void randomizer_screen_update(struct widget_instance *list)
 	weapons_off[1] = flamethrower ? NULL : "flamethrower";
 	randomizer_spinner_pass_over(list, "pool_spinner", actors_off, 1, &pool_last);
 	randomizer_spinner_pass_over(list, "type_spinner", actors_off, 1, &type_last);
+	randomizer_spinner_pass_over(list, "ally_pool_spinner", actors_off, 1, &ally_pool_last);
+	randomizer_spinner_pass_over(list, "ally_type_spinner", actors_off, 1, &ally_type_last);
 	randomizer_spinner_pass_over(list, "pickup_pool_spinner", weapon_pools_off, 1, &pickup_pool_last);
 	randomizer_spinner_pass_over(list, "pickup_type_spinner", weapons_off, 2, &pickup_type_last);
 	randomizer_spinner_pass_over(list, "weapon_pool_spinner", weapon_pools_off, 1, &weapon_pool_last);
 	randomizer_spinner_pass_over(list, "weapon_type_spinner", weapons_off, 2, &weapon_type_last);
 	enemies = randomizer_spinner_is(list, "enemies_spinner", "true");
 	one_type = enemies && randomizer_spinner_is(list, "pool_spinner", "one");
-	custom_type = one_type && randomizer_spinner_is(list, "type_spinner", "tag_injector");
+	allies = randomizer_spinner_is(list, "allies_spinner", "true");
+	ally_one = allies && randomizer_spinner_is(list, "ally_pool_spinner", "one");
 	pickups = randomizer_spinner_is(list, "pickups_spinner", "true");
 	pickup_one = pickups && randomizer_spinner_is(list, "pickup_pool_spinner", "one");
 	weapons = randomizer_spinner_is(list, "enemy_weapons_spinner", "true");
 	weapon_one = weapons && randomizer_spinner_is(list, "weapon_pool_spinner", "one");
-	rows[0].row = "op_extra_enemies", rows[0].shown = TRUE;
-	rows[1].row = "op_enemies", rows[1].shown = TRUE;
-	rows[2].row = "op_allies", rows[2].shown = enemies;
-	rows[3].row = "op_pool", rows[3].shown = enemies;
-	rows[4].row = "op_type", rows[4].shown = one_type;
-	rows[5].row = "op_custom_type", rows[5].shown = custom_type;
-	rows[6].row = "op_grunt_rank", rows[6].shown = one_type && randomizer_spinner_is(list, "type_spinner", "grunt");
-	rows[7].row = "op_elite_rank", rows[7].shown = one_type && randomizer_spinner_is(list, "type_spinner", "elite");
-	rows[8].row = "op_jackal_rank", rows[8].shown = one_type && randomizer_spinner_is(list, "type_spinner", "jackal");
-	rows[9].row = "op_hunter_rank", rows[9].shown = one_type && randomizer_spinner_is(list, "type_spinner", "hunter");
-	rows[10].row = "op_flood_combat_rank";
-	rows[10].shown = one_type && randomizer_spinner_is(list, "type_spinner", "flood_combat");
-	rows[11].row = "op_pickups", rows[11].shown = TRUE;
-	rows[12].row = "op_pickup_pool", rows[12].shown = pickups;
-	rows[13].row = "op_pickup_type", rows[13].shown = pickup_one;
-	rows[14].row = "op_pickup_custom";
-	rows[14].shown = pickup_one && randomizer_spinner_is(list, "pickup_type_spinner", "tag_injector");
-	rows[15].row = "op_enemy_weapons", rows[15].shown = TRUE;
-	rows[16].row = "op_weapon_pool", rows[16].shown = weapons;
-	rows[17].row = "op_weapon_type", rows[17].shown = weapon_one;
-	rows[18].row = "op_weapon_custom";
-	rows[18].shown = weapon_one && randomizer_spinner_is(list, "weapon_type_spinner", "tag_injector");
-	for (index = 0; index < (short)NUMBEROF(rows); index++)
-		shown = (short)(shown + rows[index].shown);
-	/* (more than eleven rows: closer, above the help; more than thirteen,
-	closer still, above the buttons, a row sooner each for the space under
-	the first) */
-	pitch = shown > 13 ? 22 : shown > 11 ? 24 : 26;
-	shown = 0;
-	for (index = 0; index < (short)NUMBEROF(rows); index++)
 	{
-		struct widget_instance *row = named(list, rows[index].row, 0);
+		struct
+		{
+			char const *row;
+			boolean shown;
+			boolean group;
+		} const rows[RANDOMIZER_ROW_COUNT] =
+		{
+			{ "op_extra_enemies", TRUE, FALSE },
+			{ "op_enemies", TRUE, TRUE },
+			{ "op_pool", enemies, FALSE },
+			{ "op_type", one_type, FALSE },
+			{ "op_custom_type", one_type && randomizer_spinner_is(list, "type_spinner", "tag_injector"), FALSE },
+			{ "op_grunt_rank", one_type && randomizer_spinner_is(list, "type_spinner", "grunt"), FALSE },
+			{ "op_elite_rank", one_type && randomizer_spinner_is(list, "type_spinner", "elite"), FALSE },
+			{ "op_jackal_rank", one_type && randomizer_spinner_is(list, "type_spinner", "jackal"), FALSE },
+			{ "op_hunter_rank", one_type && randomizer_spinner_is(list, "type_spinner", "hunter"), FALSE },
+			{ "op_flood_combat_rank", one_type && randomizer_spinner_is(list, "type_spinner", "flood_combat"), FALSE },
+			{ "op_allies", TRUE, TRUE },
+			{ "op_ally_pool", allies, FALSE },
+			{ "op_ally_type", ally_one, FALSE },
+			{ "op_ally_custom_type", ally_one && randomizer_spinner_is(list, "ally_type_spinner", "tag_injector"), FALSE },
+			{ "op_ally_grunt_rank", ally_one && randomizer_spinner_is(list, "ally_type_spinner", "grunt"), FALSE },
+			{ "op_ally_elite_rank", ally_one && randomizer_spinner_is(list, "ally_type_spinner", "elite"), FALSE },
+			{ "op_ally_jackal_rank", ally_one && randomizer_spinner_is(list, "ally_type_spinner", "jackal"), FALSE },
+			{ "op_ally_hunter_rank", ally_one && randomizer_spinner_is(list, "ally_type_spinner", "hunter"), FALSE },
+			{ "op_ally_flood_combat_rank",
+				ally_one && randomizer_spinner_is(list, "ally_type_spinner", "flood_combat"), FALSE },
+			{ "op_enemy_weapons", TRUE, FALSE },
+			{ "op_weapon_pool", weapons, FALSE },
+			{ "op_weapon_type", weapon_one, FALSE },
+			{ "op_weapon_custom", weapon_one && randomizer_spinner_is(list, "weapon_type_spinner", "tag_injector"), FALSE },
+			{ "op_pickups", TRUE, FALSE },
+			{ "op_pickup_pool", pickups, FALSE },
+			{ "op_pickup_type", pickup_one, FALSE },
+			{ "op_pickup_custom", pickup_one && randomizer_spinner_is(list, "pickup_type_spinner", "tag_injector"), FALSE },
+		};
 
-		if (!row)
-			continue;
-		row->visible = rows[index].shown;
-		if (!rows[index].shown)
-			continue;
-		/* (the first, EXTRA ENEMIES, a third of a row above the rest) */
-		row->vertical_offset = (short)(70 + shown * pitch + (shown ? pitch / 3 : 0));
-		shown++;
+		for (index = 0; index < (short)NUMBEROF(rows); index++)
+		{
+			struct widget_instance *row = named(list, rows[index].row, 0);
+
+			if (!row)
+				continue;
+			row->visible = rows[index].shown;
+			if (!rows[index].shown)
+				continue;
+			if (rows[index].group)
+				top = (short)(top + RANDOMIZER_PAGE_GAP);
+			row->vertical_offset = top;
+			top = (short)(top + RANDOMIZER_PAGE_PITCH);
+		}
 	}
 	randomizer_custom_rows_show(list);
+}
+
+/* "randomizer hub update": what each page of the randomizer's screen is set
+to, as its row says */
+static void randomizer_hub_update(struct widget_instance *list)
+{
+	boolean enemies = config_boolean("game.randomizer_enemies");
+	boolean allies = config_boolean("game.randomizer_allies");
+	char const *loadout = config_string("game.randomizer_loadout");
+
+	text_set(named(list, "hub_ai_value", 0), enemies && allies ? L"ALL" : enemies ? L"ENEMIES" : allies ? L"ALLIES" : L"OFF");
+	text_set(named(list, "hub_weapons_value", 0), config_boolean("game.randomizer_enemy_weapons") ? L"ON" : L"OFF");
+	text_set(named(list, "hub_pickups_value", 0), config_boolean("game.randomizer_pickups") ? L"ON" : L"OFF");
+	text_set(named(list, "hub_loadout_value", 0), loadout && !_stricmp(loadout, "random") ? L"RANDOM" :
+		loadout && !_stricmp(loadout, "set") ? L"SET" : L"DEFAULT");
 }
 
 /* the rows of TAG INJECTOR's custom types (tools/port_settings.py's
@@ -2982,6 +3032,7 @@ static struct
 } const randomizer_custom_rows[] =
 {
 	{ "op_custom_type", "custom_type_value", "game.randomizer_custom_type", FALSE },
+	{ "op_ally_custom_type", "ally_custom_type_value", "game.randomizer_ally_custom_type", FALSE },
 	{ "op_pickup_custom", "pickup_custom_value", "game.randomizer_pickup_custom", TRUE },
 	{ "op_weapon_custom", "weapon_custom_value", "game.randomizer_weapon_custom", TRUE },
 };
@@ -3074,6 +3125,180 @@ static boolean randomizer_custom_step(struct widget_instance *widget, short step
 	}
 	ui_play_audio_feedback_sound(SOUND_ERROR);
 	return TRUE;
+}
+
+static boolean tags_weapon_offered(long base, long tag, unsigned long group);
+static void upper_copy(char *destination, size_t size, char const *source);
+
+/* PLAYER LOADOUT's page (tools/port_settings.py's _randomizer_loadout_screen):
+PRIMARY's and SECONDARY's choices, shown with SET. NONE (SECONDARY's alone),
+the campaign's hand weapons, then the weapons of the Tag Injector's profile
+played that can be given */
+static struct
+{
+	char const *value;
+	char const *shown;
+} const randomizer_loadout_stock[] =
+{
+	{ "none", "NONE" },
+	{ "pistol", "PISTOL" },
+	{ "assault_rifle", "ASSAULT RIFLE" },
+	{ "shotgun", "SHOTGUN" },
+	{ "sniper_rifle", "SNIPER RIFLE" },
+	{ "rocket_launcher", "ROCKET LAUNCHER" },
+	{ "plasma_pistol", "PLASMA PISTOL" },
+	{ "plasma_rifle", "PLASMA RIFLE" },
+	{ "needler", "NEEDLER" },
+	{ "flamethrower", "FLAMETHROWER" },
+};
+
+/* the stock's choices: the flamethrower, the last, with Go Crazy's alone */
+static long randomizer_loadout_stock_count(void)
+{
+	long count = (long)NUMBEROF(randomizer_loadout_stock);
+
+	return config_boolean("game.randomizer_crazy") && config_boolean("game.randomizer_crazy_flamethrower") ?
+		count : count - 1;
+}
+
+/* the profile's tag of a choice past the stock's, NONE past the last */
+static long randomizer_loadout_tag(long weapon)
+{
+	long profile = randomizer_tags.profile;
+	long count = profile == NONE ? 0 : port_tag_profiles_tag_count(profile);
+	long tag;
+
+	for (tag = 0; tag < count; tag++)
+	{
+		if (tags_weapon_offered(profile, tag, 'weap') && !weapon--)
+			return tag;
+	}
+	return NONE;
+}
+
+/* a choice's value and the name it is shown by; FALSE past the last */
+static boolean randomizer_loadout_choice(long place, char *value, unsigned int value_size, char *shown,
+	unsigned int shown_size)
+{
+	long stock = randomizer_loadout_stock_count();
+	long tag;
+	char name[256];
+
+	if (place < stock)
+	{
+		snprintf(value, value_size, "%s", randomizer_loadout_stock[place].value);
+		snprintf(shown, shown_size, "%s", randomizer_loadout_stock[place].shown);
+		return TRUE;
+	}
+	tag = randomizer_loadout_tag(place - stock);
+	if (tag == NONE)
+		return FALSE;
+	randomizer_loadout_tag_value(port_tag_profiles_tag_name(randomizer_tags.profile, tag), value, value_size);
+	tag_injector_tag_display_name(randomizer_tags.profile, tag, name, sizeof(name));
+	upper_copy(shown, shown_size, name);
+	return TRUE;
+}
+
+/* how many choices a row has, from the first it may show (PRIMARY's is past
+NONE), and the place of the one its setting names (NONE: not one of them) */
+static long randomizer_loadout_places(char const *setting, long *chosen)
+{
+	char const *current = config_string(setting);
+	char value[RANDOMIZER_LOADOUT_VALUE_LENGTH];
+	char shown[ROW_TEXT_LENGTH];
+	long place;
+
+	*chosen = NONE;
+	for (place = 0; randomizer_loadout_choice(place, value, sizeof(value), shown, sizeof(shown)); place++)
+	{
+		if (current && !_stricmp(value, current))
+			*chosen = place;
+	}
+	return place;
+}
+
+static char const *randomizer_loadout_setting(struct widget_instance *widget)
+{
+	for (; widget; widget = widget->parent)
+	{
+		if (!strcmp(widget->name, "op_loadout_primary"))
+			return "game.randomizer_loadout_primary";
+		if (!strcmp(widget->name, "op_loadout_secondary"))
+			return "game.randomizer_loadout_secondary";
+	}
+	return NULL;
+}
+
+/* "randomizer loadout left" and "right" (and A): a row's weapon before or
+after */
+static boolean randomizer_loadout_step(struct widget_instance *widget, short step)
+{
+	char const *setting = randomizer_loadout_setting(widget);
+	long first = setting && !strcmp(setting, "game.randomizer_loadout_primary") ? 1 : 0;
+	long chosen;
+	long count = setting ? randomizer_loadout_places(setting, &chosen) : 0;
+
+	if (count - first > 1)
+	{
+		char value[RANDOMIZER_LOADOUT_VALUE_LENGTH];
+		char shown[ROW_TEXT_LENGTH];
+		long place = chosen < first ? first :
+			first + (chosen - first + step + count - first) % (count - first);
+
+		if (randomizer_loadout_choice(place, value, sizeof(value), shown, sizeof(shown)) &&
+			config_write(setting, value))
+		{
+			ui_play_audio_feedback_sound(SOUND_CURSOR);
+			return TRUE;
+		}
+	}
+	ui_play_audio_feedback_sound(SOUND_ERROR);
+	return TRUE;
+}
+
+/* "randomizer loadout update": PRIMARY and SECONDARY shown with SET alone,
+each its weapon, the first of them while its setting names none of them */
+static void randomizer_loadout_update(struct widget_instance *list)
+{
+	static char const *const rows[][3] =
+	{
+		{ "op_loadout_primary", "loadout_primary_value", "game.randomizer_loadout_primary" },
+		{ "op_loadout_secondary", "loadout_secondary_value", "game.randomizer_loadout_secondary" },
+	};
+	boolean set = randomizer_spinner_is(list, "loadout_spinner", "set");
+	short index;
+
+	randomizer_tags_refresh();
+	for (index = 0; index < (short)NUMBEROF(rows); index++)
+	{
+		struct widget_instance *row = named(list, rows[index][0], 0);
+		struct widget_instance *text = row ? named(row, rows[index][1], 0) : NULL;
+		char value[RANDOMIZER_LOADOUT_VALUE_LENGTH];
+		char shown[ROW_TEXT_LENGTH];
+		wchar_t wide[ROW_TEXT_LENGTH];
+		long chosen;
+		short character;
+
+		if (!row || !text)
+			continue;
+		row->visible = set;
+		if (!set)
+			continue;
+		randomizer_loadout_places(rows[index][2], &chosen);
+		if (chosen == NONE)
+		{
+			chosen = index == 0 ? 1 : 0;
+			if (randomizer_loadout_choice(chosen, value, sizeof(value), shown, sizeof(shown)) &&
+				!config_write(rows[index][2], value))
+				error(_error_silent, "randomizer: could not write %s", rows[index][2]);
+		}
+		if (!randomizer_loadout_choice(chosen, value, sizeof(value), shown, sizeof(shown)))
+			continue;
+		for (character = 0; shown[character] && character < (short)NUMBEROF(wide) - 1; character++)
+			wide[character] = (wchar_t)(unsigned char)shown[character];
+		wide[character] = 0;
+		text_set(text, wide);
+	}
 }
 
 /* the screen before the randomizer's (tools/port_settings.py's
@@ -6941,6 +7166,14 @@ static long tags_mp_base(void)
 	return port_tag_profiles_find(port_tag_mp_profiles_option(tags_screen.mp_profile, "profile"));
 }
 
+/* whether the menus offer a profile's tag of a group as a choice: one on, and
+no flag or ball (never swapped in or given: tag_injector_weapon_objective) */
+static boolean tags_weapon_offered(long base, long tag, unsigned long group)
+{
+	return port_tag_profiles_tag_group(base, tag) == group && port_tag_profiles_tag_enabled(base, tag) &&
+		!(group == 'weap' && tag_injector_tag_objective(base, tag));
+}
+
 /* the weapons on of the profile it plays (those it shares): how many, and
 the profile's tag of one */
 static long tags_mp_weapon_count(void)
@@ -6951,7 +7184,7 @@ static long tags_mp_weapon_count(void)
 	long tag;
 
 	for (tag = 0; tag < count; tag++)
-		found += port_tag_profiles_tag_group(base, tag) == 'weap' && port_tag_profiles_tag_enabled(base, tag);
+		found += tags_weapon_offered(base, tag, 'weap');
 	return found;
 }
 
@@ -6963,7 +7196,7 @@ static long tags_mp_weapon_tag(long weapon)
 
 	for (tag = 0; tag < count; tag++)
 	{
-		if (port_tag_profiles_tag_group(base, tag) == 'weap' && port_tag_profiles_tag_enabled(base, tag) && !weapon--)
+		if (tags_weapon_offered(base, tag, 'weap') && !weapon--)
 			return tag;
 	}
 	return NONE;
@@ -7201,7 +7434,7 @@ static long tags_campaign_tag_count(unsigned long group)
 	long tag;
 
 	for (tag = 0; tag < count; tag++)
-		found += port_tag_profiles_tag_group(base, tag) == group && port_tag_profiles_tag_enabled(base, tag);
+		found += tags_weapon_offered(base, tag, group);
 	return found;
 }
 
@@ -7213,7 +7446,7 @@ static long tags_campaign_tag(unsigned long group, long index)
 
 	for (tag = 0; tag < count; tag++)
 	{
-		if (port_tag_profiles_tag_group(base, tag) == group && port_tag_profiles_tag_enabled(base, tag) && !index--)
+		if (tags_weapon_offered(base, tag, group) && !index--)
 			return tag;
 	}
 	return NONE;
@@ -19197,6 +19430,14 @@ boolean pc_menu_event_function_invoke(
 		{
 			return randomizer_ok(widget, widget_deleted);
 		}
+		else if (!strcmp(name, "randomizer page ok"))
+		{
+			return randomizer_page_ok(widget, widget_deleted);
+		}
+		else if (!strcmp(name, "randomizer loadout left") || !strcmp(name, "randomizer loadout right"))
+		{
+			return randomizer_loadout_step(widget, (short)(!strcmp(name, "randomizer loadout left") ? -1 : 1));
+		}
 		else if (!strcmp(name, "randomizer custom left") || !strcmp(name, "randomizer custom right"))
 		{
 			return randomizer_custom_step(widget, (short)(!strcmp(name, "randomizer custom left") ? -1 : 1));
@@ -19388,6 +19629,10 @@ void pc_menu_game_data_function_invoke(
 		randomizer_profiles_update(widget);
 	else if (!strcmp(name, "randomizer screen update"))
 		randomizer_screen_update(widget);
+	else if (!strcmp(name, "randomizer hub update"))
+		randomizer_hub_update(widget);
+	else if (!strcmp(name, "randomizer loadout update"))
+		randomizer_loadout_update(widget);
 	else if (!strcmp(name, "randomizer tag profiles update"))
 		randomizer_tag_profiles_update(widget);
 	else if (!strcmp(name, "mp tag profiles update"))
