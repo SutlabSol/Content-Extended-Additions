@@ -66,29 +66,20 @@ void platform_log(char const *format, ...);
 
 /* ---------- the rank icons' pictures, read from a file
 
-Each tour's 30 ranks (MCC's progression, 11 tours) and Halo 3's 42 ranked
-ranks, 32x32 indexed pictures with their palettes: rank_icons.bin
-(port/assets/firefight/rank_icons.bin), beside config.toml, where every build
-puts it. Read the first time an icon is drawn, kept on the heap and not in the
-game's image (Android's room for it is full). Its layout, little-endian:
-"FFRI", then 32-bit version (1), tours (11), ranks per tour (30), Halo 3's
-ranks (42) and pixels per picture (1024); each tour's 256 ARGB colors; each
-tour's pictures, a byte per pixel; Halo 3's 256 colors; Halo 3's pictures.
+A rank's icon is its tour's shield with its rank's insignia over it: 11 shields
+and 42 insignia, 128x128 pictures in rank_icons.bin
+(port/assets/firefight/rank_icons.bin, packed by tools/rank_icon_assets.py),
+beside config.toml, where every build puts it. Read the first time an icon is
+drawn, kept on the heap and not in the game's image (Android's room for it is
+full). Its layout, little-endian: "FFRI", then 32-bit version (2), shields,
+insignia and a picture's width and height; then the pictures, shields first,
+each pixel a 32-bit ARGB colour.
 Without the file (logged once) no rank icon is drawn. */
 #define FF_RANK_ICONS_FILE "rank_icons.bin"
-#define FF_RANK_ICONS_VERSION 1
-#define FF_TOURS 11
-#define FF_TOUR_RANKS 30
-#define FF_H3_RANKS 42
-#define FF_ICON_PIXELS 1024
-
-struct ff_rank_icons
-{
-	unsigned long tour_palettes[FF_TOURS][256];
-	unsigned char tour_indices[FF_TOURS][FF_TOUR_RANKS][FF_ICON_PIXELS];
-	unsigned long h3_palette[256];
-	unsigned char h3_indices[FF_H3_RANKS][FF_ICON_PIXELS];
-};
+#define FF_RANK_ICONS_VERSION 2
+#define FF_RANK_ICONS_HEADER 20
+#define FF_RANK_ICON_DIM 128
+#define FF_RANK_ICON_BYTES (FF_RANK_ICON_DIM * FF_RANK_ICON_DIM * 4)
 
 static unsigned long ff_read_u32(unsigned char const *bytes)
 {
@@ -96,51 +87,33 @@ static unsigned long ff_read_u32(unsigned char const *bytes)
 		((unsigned long)bytes[2] << 16) | ((unsigned long)bytes[3] << 24);
 }
 
-static void ff_read_palette(unsigned long *palette, unsigned char const **cursor)
+/* the file's pictures, or NULL without them */
+static unsigned char const *ff_rank_icons(void)
 {
-	int index;
-
-	for (index = 0; index < 256; index++, *cursor += 4)
-		palette[index] = ff_read_u32(*cursor);
-}
-
-static struct ff_rank_icons const *ff_rank_icons(void)
-{
-	static struct ff_rank_icons *icons;
+	static unsigned char *file;
 	static boolean tried;
 	char path[1024];
-	size_t size = 0, expected;
-	unsigned char *file;
-	unsigned char const *cursor;
-	int tour;
+	size_t size = 0;
 
-	if (icons || tried)
-		return icons;
+	if (tried)
+		return file ? file + FF_RANK_ICONS_HEADER : NULL;
 	tried = TRUE;
 	config_folder(path, sizeof(path));
 	snprintf(path + strlen(path), sizeof(path) - strlen(path), "%s", FF_RANK_ICONS_FILE);
 	file = (unsigned char *)config_file_read(path, &size);
-	expected = 24 + (FF_TOURS * 256 * 4) + (FF_TOURS * FF_TOUR_RANKS * FF_ICON_PIXELS) + (256 * 4) +
-		(FF_H3_RANKS * FF_ICON_PIXELS);
-	if (!file || size != expected || memcmp(file, "FFRI", 4) ||
-		ff_read_u32(file + 4) != FF_RANK_ICONS_VERSION || ff_read_u32(file + 8) != FF_TOURS ||
-		ff_read_u32(file + 12) != FF_TOUR_RANKS || ff_read_u32(file + 16) != FF_H3_RANKS ||
-		ff_read_u32(file + 20) != FF_ICON_PIXELS || !(icons = malloc(sizeof(*icons))))
+	if (!file || size != FF_RANK_ICONS_HEADER +
+			(size_t)(FIREFIGHT_SERVICE_TOURS + FIREFIGHT_SERVICE_RANKS) * FF_RANK_ICON_BYTES ||
+		memcmp(file, "FFRI", 4) || ff_read_u32(file + 4) != FF_RANK_ICONS_VERSION ||
+		ff_read_u32(file + 8) != FIREFIGHT_SERVICE_TOURS || ff_read_u32(file + 12) != FIREFIGHT_SERVICE_RANKS ||
+		ff_read_u32(file + 16) != FF_RANK_ICON_DIM)
 	{
 		platform_log("Firefight: the rank icons' file %s %s, so no rank icon is drawn", path,
 			!file ? "cannot be read" : "is not one this game reads");
 		free(file);
+		file = NULL;
 		return NULL;
 	}
-	cursor = file + 24;
-	for (tour = 0; tour < FF_TOURS; tour++)
-		ff_read_palette(icons->tour_palettes[tour], &cursor);
-	memcpy(icons->tour_indices, cursor, sizeof(icons->tour_indices));
-	cursor += sizeof(icons->tour_indices);
-	ff_read_palette(icons->h3_palette, &cursor);
-	memcpy(icons->h3_indices, cursor, sizeof(icons->h3_indices));
-	free(file);
-	return icons;
+	return file + FF_RANK_ICONS_HEADER;
 }
 void draw_quad(rectangle2d const *bounds, pixel32 color);
 struct bitmap_data *bitmap_group_try_and_get_bitmap(long bitmap_group_index, short bitmap_index);
@@ -1419,20 +1392,16 @@ static pixel32 ff_apply_alpha(pixel32 argb, real alpha)
 	return (pixel32)((argb & 0x00FFFFFFUL) | (a << 24));
 }
 
-#define FF_ICON_TEX_DIM 32
 #define FF_ICON_HI_DIM 128
 #define FF_ICON_HI_MIPS 4
 #define FF_ICON_GRID_DIM 16
 #define FF_ICON_MAX_RECTS 128
 
-/* the icons' working pictures (a 32x32 source scaled up to 128x128, and its
-smaller mips): one icon is made at a time, so one set, on the heap when first
-needed rather than in the game's image */
+/* the icons' working pictures (a 128x128 icon and its smaller mips): one icon
+is made at a time, so one set, on the heap when first needed rather than in the
+game's image */
 struct ff_icon_scratch
 {
-	pixel32 src32[FF_ICON_TEX_DIM * FF_ICON_TEX_DIM];
-	pixel32 buf64[64 * 64];
-	pixel32 raw128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
 	pixel32 pixels128[FF_ICON_HI_DIM * FF_ICON_HI_DIM];
 	pixel32 mip64[64 * 64];
 	pixel32 mip32[32 * 32];
@@ -1499,430 +1468,6 @@ static void ff_downsample_2x(pixel32 const *src, int src_dim, pixel32 *dst)
 			}
 		}
 	}
-}
-
-static long ff_color_dist_argb(pixel32 c1, pixel32 c2)
-{
-	long a1 = (long)((c1 >> 24) & 0xFF);
-	long a2 = (long)((c2 >> 24) & 0xFF);
-	long r1 = ((long)((c1 >> 16) & 0xFF) * a1) / 255;
-	long g1 = ((long)((c1 >> 8) & 0xFF) * a1) / 255;
-	long b1 = ((long)(c1 & 0xFF) * a1) / 255;
-	long r2 = ((long)((c2 >> 16) & 0xFF) * a2) / 255;
-	long g2 = ((long)((c2 >> 8) & 0xFF) * a2) / 255;
-	long b2 = ((long)(c2 & 0xFF) * a2) / 255;
-	long dr = r1 - r2, dg = g1 - g2, db = b1 - b2, da = a1 - a2;
-	return dr * dr * 2 + dg * dg * 4 + db * db + da * da * 2;
-}
-
-static pixel32 ff_lerp_premul_argb(pixel32 c1, pixel32 c2, real t)
-{
-	real a1 = (real)((c1 >> 24) & 0xFF);
-	real a2 = (real)((c2 >> 24) & 0xFF);
-	real a = a1 + (a2 - a1) * t;
-	long ai = (long)(a + 0.5f);
-	real r1, g1, b1, r2, g2, b2;
-	long r, g, b;
-
-	if (ai <= 0)
-		return 0;
-	r1 = (real)((c1 >> 16) & 0xFF) * a1;
-	g1 = (real)((c1 >> 8) & 0xFF) * a1;
-	b1 = (real)(c1 & 0xFF) * a1;
-	r2 = (real)((c2 >> 16) & 0xFF) * a2;
-	g2 = (real)((c2 >> 8) & 0xFF) * a2;
-	b2 = (real)(c2 & 0xFF) * a2;
-	r = PIN((long)((r1 + (r2 - r1) * t) / a + 0.5f), 0L, 255L);
-	g = PIN((long)((g1 + (g2 - g1) * t) / a + 0.5f), 0L, 255L);
-	b = PIN((long)((b1 + (b2 - b1) * t) / a + 0.5f), 0L, 255L);
-	ai = PIN(ai, 0L, 255L);
-	return (pixel32)(((unsigned long)ai << 24) | ((unsigned long)r << 16) | ((unsigned long)g << 8) | (unsigned long)b);
-}
-
-static pixel32 ff_grid_get_clamped(pixel32 const *grid, int w, int h, int x, int y)
-{
-	if (x < 0) x = 0;
-	else if (x >= w) x = w - 1;
-	if (y < 0) y = 0;
-	else if (y >= h) y = h - 1;
-	return grid[y * w + x];
-}
-
-static void ff_xbr_2x(pixel32 const *src, int w, int h, pixel32 *dst)
-{
-	int out_w = w * 2;
-	int y, x;
-
-	for (y = 0; y < h; y++)
-	{
-		for (x = 0; x < w; x++)
-		{
-			pixel32 E = ff_grid_get_clamped(src, w, h, x, y);
-			pixel32 B = ff_grid_get_clamped(src, w, h, x, y - 1);
-			pixel32 D = ff_grid_get_clamped(src, w, h, x - 1, y);
-			pixel32 F = ff_grid_get_clamped(src, w, h, x + 1, y);
-			pixel32 H = ff_grid_get_clamped(src, w, h, x, y + 1);
-			pixel32 A = ff_grid_get_clamped(src, w, h, x - 1, y - 1);
-			pixel32 C = ff_grid_get_clamped(src, w, h, x + 1, y - 1);
-			pixel32 G = ff_grid_get_clamped(src, w, h, x - 1, y + 1);
-			pixel32 I = ff_grid_get_clamped(src, w, h, x + 1, y + 1);
-			pixel32 e0 = E, e1 = E, e2 = E, e3 = E;
-
-			if (ff_color_dist_argb(B, H) > 400 && ff_color_dist_argb(D, F) > 400)
-			{
-				if (ff_color_dist_argb(D, B) < ff_color_dist_argb(E, A) &&
-					ff_color_dist_argb(E, D) > 100 && ff_color_dist_argb(E, B) > 100)
-					e0 = ff_lerp_premul_argb(E, ff_lerp_premul_argb(D, B, 0.5f), 0.75f);
-				if (ff_color_dist_argb(B, F) < ff_color_dist_argb(E, C) &&
-					ff_color_dist_argb(E, B) > 100 && ff_color_dist_argb(E, F) > 100)
-					e1 = ff_lerp_premul_argb(E, ff_lerp_premul_argb(B, F, 0.5f), 0.75f);
-				if (ff_color_dist_argb(D, H) < ff_color_dist_argb(E, G) &&
-					ff_color_dist_argb(E, D) > 100 && ff_color_dist_argb(E, H) > 100)
-					e2 = ff_lerp_premul_argb(E, ff_lerp_premul_argb(D, H, 0.5f), 0.75f);
-				if (ff_color_dist_argb(F, H) < ff_color_dist_argb(E, I) &&
-					ff_color_dist_argb(E, F) > 100 && ff_color_dist_argb(E, H) > 100)
-					e3 = ff_lerp_premul_argb(E, ff_lerp_premul_argb(F, H, 0.5f), 0.75f);
-			}
-			dst[(y * 2) * out_w + (x * 2)] = e0;
-			dst[(y * 2) * out_w + (x * 2 + 1)] = e1;
-			dst[(y * 2 + 1) * out_w + (x * 2)] = e2;
-			dst[(y * 2 + 1) * out_w + (x * 2 + 1)] = e3;
-		}
-	}
-}
-
-static void ff_smooth_icon_128(pixel32 const *src, pixel32 *dst)
-{
-	static int const k_dy[9] = { 0, -1, 1, 0, 0, -1, -1, 1, 1 };
-	static int const k_dx[9] = { 0, 0, 0, -1, 1, -1, 1, -1, 1 };
-	static real const k_w[9] = { 4.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.5f, 0.5f, 0.5f, 0.5f };
-	int y, x, k;
-
-	for (y = 0; y < FF_ICON_HI_DIM; y++)
-	{
-		for (x = 0; x < FF_ICON_HI_DIM; x++)
-		{
-			real r_sum = 0.0f, g_sum = 0.0f, b_sum = 0.0f, a_sum = 0.0f, w_sum = 0.0f;
-			real a_avg;
-
-			for (k = 0; k < 9; k++)
-			{
-				pixel32 nc = ff_grid_get_clamped(src, FF_ICON_HI_DIM, FF_ICON_HI_DIM, x + k_dx[k], y + k_dy[k]);
-				real na = (real)((nc >> 24) & 0xFF) / 255.0f;
-				real w = k_w[k];
-				r_sum += (real)((nc >> 16) & 0xFF) * na * w;
-				g_sum += (real)((nc >> 8) & 0xFF) * na * w;
-				b_sum += (real)(nc & 0xFF) * na * w;
-				a_sum += (real)((nc >> 24) & 0xFF) * w;
-				w_sum += w;
-			}
-			a_avg = a_sum / w_sum;
-			if (a_avg < 4.0f)
-			{
-				dst[y * FF_ICON_HI_DIM + x] = 0;
-			}
-			else
-			{
-				real a_norm = a_avg / 255.0f;
-				long r = PIN((long)((r_sum / w_sum) / a_norm + 0.5f), 0L, 255L);
-				long g = PIN((long)((g_sum / w_sum) / a_norm + 0.5f), 0L, 255L);
-				long b = PIN((long)((b_sum / w_sum) / a_norm + 0.5f), 0L, 255L);
-				long a = PIN((long)(a_avg + 0.5f), 0L, 255L);
-				dst[y * FF_ICON_HI_DIM + x] = (pixel32)(((unsigned long)a << 24) |
-					((unsigned long)r << 16) | ((unsigned long)g << 8) | (unsigned long)b);
-			}
-		}
-	}
-}
-
-struct ff_metal_palette
-{
-	unsigned char light[3];
-	unsigned char mid[3];
-	unsigned char dark[3];
-};
-
-static struct ff_metal_palette const s_ff_metal_bronze = { { 248, 188, 128 }, { 198, 122, 58 }, { 108, 56, 22 } };
-static struct ff_metal_palette const s_ff_metal_silver = { { 248, 252, 255 }, { 186, 198, 212 }, { 98, 110, 126 } };
-static struct ff_metal_palette const s_ff_metal_gold   = { { 255, 242, 146 }, { 228, 178, 52 },  { 132, 88, 16 } };
-static struct ff_metal_palette const s_ff_metal_cyan   = { { 195, 254, 255 }, { 68, 212, 238 },  { 22, 108, 138 } };
-
-struct ff_emblem_sdf_layer
-{
-	real sdf;
-	struct ff_metal_palette const *metal;
-};
-
-static real ff_sd_segment(real px, real py, real ax, real ay, real bx, real by)
-{
-	real vx = bx - ax, vy = by - ay;
-	real wx = px - ax, wy = py - ay;
-	real c1 = vx * wx + vy * wy;
-	real c2 = vx * vx + vy * vy;
-	real t = (c2 > 1e-8f) ? PIN(c1 / c2, 0.0f, 1.0f) : 0.0f;
-	real dx = px - (ax + t * vx);
-	real dy = py - (ay + t * vy);
-	return square_root(dx * dx + dy * dy);
-}
-
-static real ff_eval_chevron_sdf(real ex, real ey, real cy, real arm_x, real drop_y, real thick, boolean upward)
-{
-	real ax = (ex >= 0.0f) ? ex : -ex;
-	real d = upward
-		? ff_sd_segment(ax, ey, 0.0f, cy - drop_y, arm_x, cy)
-		: ff_sd_segment(ax, ey, 0.0f, cy + drop_y, arm_x, cy);
-	return thick - d;
-}
-
-static real ff_eval_diamond_sdf(real ex, real ey, real cy, real rad, real hole_rad)
-{
-	real ax = (ex >= 0.0f) ? ex : -ex;
-	real ay = (ey - cy >= 0.0f) ? (ey - cy) : -(ey - cy);
-	real d_outer = (rad - (ax + ay)) * 0.7071f;
-	if (hole_rad > 0.0f)
-	{
-		real d_inner = ((ax + ay) - hole_rad) * 0.7071f;
-		return MIN(d_outer, d_inner);
-	}
-	return d_outer;
-}
-
-static int ff_eval_mcc_rank_emblem(short r, real ex, real ey, struct ff_emblem_sdf_layer out_layers[4])
-{
-	int n = 0;
-
-	if (r == 0)
-	{
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.0f, 0.145f, 0.048f);
-		out_layers[n++].metal = &s_ff_metal_silver;
-	}
-	else if (r == 1)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.01f, 0.165f, 0.135f, 0.046f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_bronze;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.055f, 0.125f, 0.042f);
-		out_layers[n++].metal = &s_ff_metal_silver;
-	}
-	else if (r >= 2 && r <= 4)
-	{
-		if (r == 2)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.04f, 0.185f, 0.145f, 0.054f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_bronze;
-		}
-		else if (r == 3)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.10f, 0.185f, 0.145f, 0.048f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_bronze;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.03f, 0.185f, 0.145f, 0.048f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_bronze;
-		}
-		else
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.075f, 0.185f, 0.145f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_bronze;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.05f, 0.185f, 0.145f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_bronze;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.135f, 0.075f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_bronze;
-		}
-	}
-	else if (r >= 5 && r <= 7)
-	{
-		if (r == 5)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.04f, 0.185f, 0.145f, 0.054f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_silver;
-		}
-		else if (r == 6)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.10f, 0.185f, 0.145f, 0.048f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_silver;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.03f, 0.185f, 0.145f, 0.048f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_silver;
-		}
-		else
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.075f, 0.185f, 0.145f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_silver;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.05f, 0.185f, 0.145f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_silver;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.135f, 0.075f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_silver;
-		}
-	}
-	else if (r == 8)
-	{
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.0f, 0.21f, 0.068f);
-		out_layers[n++].metal = &s_ff_metal_silver;
-	}
-	else if (r == 9)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.05f, 0.175f, 0.14f, 0.046f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_silver;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.045f, 0.185f, 0.058f);
-		out_layers[n++].metal = &s_ff_metal_silver;
-	}
-	else if (r == 10)
-	{
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.065f, 0.125f, 0.0f);
-		out_layers[n++].metal = &s_ff_metal_bronze;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.07f, 0.185f, 0.145f, 0.050f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_silver;
-	}
-	else if (r == 11)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.01f, 0.175f, 0.135f, 0.043f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_silver;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.115f, 0.175f, 0.135f, 0.043f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_silver;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.075f, 0.175f, 0.055f);
-		out_layers[n++].metal = &s_ff_metal_silver;
-	}
-	else if (r >= 12 && r <= 14)
-	{
-		if (r == 12)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.04f, 0.185f, 0.145f, 0.054f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-		}
-		else if (r == 13)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.10f, 0.185f, 0.145f, 0.048f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.03f, 0.185f, 0.145f, 0.048f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-		}
-		else
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.075f, 0.185f, 0.145f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.05f, 0.185f, 0.145f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.135f, 0.075f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_gold;
-		}
-	}
-	else if (r == 15)
-	{
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.0f, 0.21f, 0.068f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r == 16)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.05f, 0.175f, 0.14f, 0.046f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.045f, 0.185f, 0.058f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r == 17)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.01f, 0.175f, 0.135f, 0.043f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.115f, 0.175f, 0.135f, 0.043f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.075f, 0.175f, 0.055f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r == 18)
-	{
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.07f, 0.125f, 0.0f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.06f, 0.185f, 0.14f, 0.048f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.125f, 0.068f, 0.0f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r == 19)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.06f, 0.175f, 0.135f, 0.042f, TRUE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.06f, 0.175f, 0.135f, 0.042f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.0f, 0.185f, 0.058f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r >= 20 && r <= 22)
-	{
-		real cy = (r == 21) ? -0.03f : 0.0f;
-		if (r == 21)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.06f, 0.18f, 0.14f, 0.045f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-		}
-		else if (r == 22)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.06f, 0.18f, 0.14f, 0.044f, TRUE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.06f, 0.18f, 0.14f, 0.044f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_gold;
-		}
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, cy, 0.21f, 0.0f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, cy, 0.11f, 0.0f);
-		out_layers[n++].metal = &s_ff_metal_cyan;
-	}
-	else if (r == 23)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.08f, 0.17f, 0.11f, 0.042f, TRUE);
-		out_layers[n++].metal = &s_ff_metal_cyan;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.06f, 0.18f, 0.135f, 0.048f, FALSE);
-		out_layers[n++].metal = &s_ff_metal_gold;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.125f, 0.068f, 0.0f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r == 24)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.12f, 0.17f, 0.11f, 0.042f, TRUE);
-		out_layers[n++].metal = &s_ff_metal_cyan;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.03f, 0.195f, 0.058f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else if (r == 25)
-	{
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, -0.06f, 0.20f, 0.14f, 0.044f, TRUE);
-		out_layers[n++].metal = &s_ff_metal_silver;
-		out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.12f, 0.17f, 0.11f, 0.042f, TRUE);
-		out_layers[n++].metal = &s_ff_metal_cyan;
-		out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.0f, 0.195f, 0.058f);
-		out_layers[n++].metal = &s_ff_metal_gold;
-	}
-	else
-	{
-		real dist = square_root(ex * ex + (ey - 0.01f) * (ey - 0.01f));
-		real ad = (dist - 0.195f >= 0.0f) ? (dist - 0.195f) : -(dist - 0.195f);
-		out_layers[n].sdf = (ey > -0.13f) ? (0.044f - ad) : -1.0f;
-		out_layers[n++].metal = &s_ff_metal_gold;
-		if (r == 26)
-		{
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.0f, 0.155f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-		}
-		else if (r == 27)
-		{
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, 0.03f, 0.135f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.15f, 0.095f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-		}
-		else if (r == 28)
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.02f, 0.145f, 0.105f, 0.044f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.14f, 0.11f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-		}
-		else
-		{
-			out_layers[n].sdf = ff_eval_chevron_sdf(ex, ey, 0.04f, 0.155f, 0.12f, 0.046f, FALSE);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.04f, 0.12f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_silver;
-			out_layers[n].sdf = ff_eval_diamond_sdf(ex, ey, -0.16f, 0.11f, 0.0f);
-			out_layers[n++].metal = &s_ff_metal_cyan;
-		}
-	}
-	return n;
 }
 
 static boolean ff_draw_hw_icon_pixels(
@@ -2153,132 +1698,79 @@ static void ff_draw_cached_icon_mesh(
 	}
 }
 
-void firefight_draw_mcc_rank_icon(
+/* over, its alpha not multiplied in, laid over under */
+static pixel32 ff_icon_over(pixel32 under, pixel32 over)
+{
+	unsigned long src_a = (over >> 24) & 0xFF;
+	unsigned long under_weight = ((under >> 24) & 0xFF) * (255 - src_a);
+	unsigned long total = src_a * 255 + under_weight;
+
+	if (!src_a)
+		return under;
+	return (pixel32)(
+		(((total + 127) / 255) << 24) |
+		(((((over >> 16) & 0xFF) * src_a * 255 + ((under >> 16) & 0xFF) * under_weight + total / 2) / total) << 16) |
+		(((((over >> 8) & 0xFF) * src_a * 255 + ((under >> 8) & 0xFF) * under_weight + total / 2) / total) << 8) |
+		(((over & 0xFF) * src_a * 255 + (under & 0xFF) * under_weight + total / 2) / total));
+}
+
+/* the scratch's pixels128 as a grid of solid and empty cells, for the icons'
+quads where no texture can be made */
+static void ff_icon_grid(struct ff_icon_scratch const *scratch, pixel32 grid[FF_ICON_GRID_DIM][FF_ICON_GRID_DIM])
+{
+	int step = FF_ICON_HI_DIM / FF_ICON_GRID_DIM;
+	short py, px;
+
+	for (py = 0; py < FF_ICON_GRID_DIM; py++)
+	{
+		for (px = 0; px < FF_ICON_GRID_DIM; px++)
+		{
+			pixel32 pixel = scratch->pixels128[(py * step + step / 2) * FF_ICON_HI_DIM + px * step + step / 2];
+			grid[py][px] = ((pixel >> 24) & 0xFF) >= 128 ? (pixel | 0xFF000000) : 0;
+		}
+	}
+}
+
+/* an insignia over a tour's shield (NONE: over nothing) in the scratch's pixels128 */
+static void ff_rank_compose(
+	struct ff_icon_scratch *scratch,
+	unsigned char const *pictures,
+	short shield,
+	short insignia)
+{
+	unsigned char const *over = pictures + (FIREFIGHT_SERVICE_TOURS + insignia) * (size_t)FF_RANK_ICON_BYTES;
+	unsigned char const *under = shield != NONE ? pictures + shield * (size_t)FF_RANK_ICON_BYTES : NULL;
+	int i;
+
+	for (i = 0; i < FF_ICON_HI_DIM * FF_ICON_HI_DIM; i++)
+		scratch->pixels128[i] = ff_icon_over(under ? (pixel32)ff_read_u32(under + i * 4) : 0,
+			(pixel32)ff_read_u32(over + i * 4));
+}
+
+static void ff_draw_rank_picture(
+	unsigned long key,
+	short shield,
+	short insignia,
 	short x0,
 	short y0,
 	short size,
-	short tour_number,
-	short rank_in_tour,
 	real alpha)
 {
-	short t_idx = (short)PIN(tour_number - 1, 0, 10);
-	short r_idx = (short)PIN(rank_in_tour - 1, 0, 29);
-	unsigned long key = ((unsigned long)t_idx << 8) | (unsigned long)r_idx | 0x80000000UL;
-	struct ff_rank_icons const *icons = ff_rank_icons();
+	unsigned char const *pictures = ff_rank_icons();
 	struct ff_icon_scratch *scratch = ff_icon_scratch();
-	unsigned long const *pal;
-	unsigned char const *idx_buf;
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
 
-	if (!icons)
+	if (!pictures)
 		return;
-	pal = icons->tour_palettes[t_idx];
-	idx_buf = icons->tour_indices[t_idx][r_idx];
 	if (global_d3d_device)
 	{
 		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
 			return;
 		if (scratch)
 		{
-			pixel32 *s_shield32 = scratch->src32;
-			pixel32 *s_buf64 = scratch->buf64;
-			pixel32 *s_raw128 = scratch->raw128;
-			pixel32 *s_pixels128 = scratch->pixels128;
-			unsigned char const *r0_buf = icons->tour_indices[t_idx][0];
-			pixel32 cav_top = (pixel32)pal[r0_buf[8 * 32 + 12]];
-			pixel32 cav_bot = (pixel32)pal[r0_buf[9 * 32 + 11]];
-			real inv = 2.0f / (real)FF_ICON_HI_DIM;
-			int py, px, li;
-
-			for (py = 0; py < 32; py++)
-			{
-				for (px = 0; px < 32; px++)
-				{
-					int sx = (px < 16) ? px : (31 - px);
-					if (py >= 8 && py <= 20 && sx >= 10 && (py + (15 - sx)) <= 22)
-					{
-						real gt = (real)(py - 8) / 12.0f;
-						s_shield32[py * 32 + px] = ff_lerp_premul_argb(cav_top, cav_bot, gt);
-					}
-					else
-					{
-						s_shield32[py * 32 + px] = (pixel32)pal[r0_buf[py * 32 + sx]];
-					}
-				}
-			}
-
-			ff_xbr_2x(s_shield32, 32, 32, s_buf64);
-			ff_xbr_2x(s_buf64, 64, 64, s_raw128);
-			ff_smooth_icon_128(s_raw128, s_pixels128);
-
-			for (py = 0; py < FF_ICON_HI_DIM; py++)
-			{
-				real ny = ((real)py + 0.5f) * inv - 1.0f;
-				real ey = (ny + 0.125f) / 1.22f;
-
-				for (px = 0; px < FF_ICON_HI_DIM; px++)
-				{
-					pixel32 base = s_pixels128[py * FF_ICON_HI_DIM + px];
-					unsigned long ba = (base >> 24) & 0xFF;
-					real nx, ex;
-					real cr, cg, cb;
-					struct ff_emblem_sdf_layer layers[4];
-					int n_layers;
-
-					if (ba == 0)
-						continue;
-
-					nx = ((real)px + 0.5f) * inv - 1.0f;
-					ex = nx / 1.22f;
-					cr = (real)((base >> 16) & 0xFF);
-					cg = (real)((base >> 8) & 0xFF);
-					cb = (real)(base & 0xFF);
-					n_layers = ff_eval_mcc_rank_emblem(r_idx, ex, ey, layers);
-
-					for (li = 0; li < n_layers; li++)
-					{
-						real esd = layers[li].sdf;
-						if (esd > -0.028f)
-						{
-							if (esd < 0.0f)
-							{
-								real t_sh = (esd + 0.028f) / 0.028f;
-								real mul = 1.0f - 0.72f * t_sh;
-								cr *= mul;
-								cg *= mul;
-								cb *= mul;
-							}
-							else
-							{
-								real t_cov = MIN(1.0f, esd / 0.018f);
-								struct ff_metal_palette const *mp = layers[li].metal;
-								unsigned char const *ecol;
-								real elight = -0.6f * ex - 0.8f * ey;
-
-								if (esd < 0.032f && elight > 0.02f)
-									ecol = mp->light;
-								else if (esd < 0.032f && elight < -0.02f)
-									ecol = mp->dark;
-								else
-									ecol = (elight < 0.12f) ? mp->mid : mp->light;
-
-								cr = cr * (1.0f - t_cov) + (real)ecol[0] * t_cov;
-								cg = cg * (1.0f - t_cov) + (real)ecol[1] * t_cov;
-								cb = cb * (1.0f - t_cov) + (real)ecol[2] * t_cov;
-							}
-						}
-					}
-
-					s_pixels128[py * FF_ICON_HI_DIM + px] = (pixel32)(
-						(ba << 24) |
-						((unsigned long)PIN((long)(cr + 0.5f), 0L, 255L) << 16) |
-						((unsigned long)PIN((long)(cg + 0.5f), 0L, 255L) << 8) |
-						(unsigned long)PIN((long)(cb + 0.5f), 0L, 255L));
-				}
-			}
-
-			if (ff_draw_hw_icon_pixels(key, s_pixels128, x0, y0, size, alpha))
+			ff_rank_compose(scratch, pictures, shield, insignia);
+			if (ff_draw_hw_icon_pixels(key, scratch->pixels128, x0, y0, size, alpha))
 				return;
 		}
 	}
@@ -2295,24 +1787,32 @@ void firefight_draw_mcc_rank_icon(
 	if (!mesh)
 	{
 		pixel32 grid[FF_ICON_GRID_DIM][FF_ICON_GRID_DIM];
-		short py, px;
 
-		for (py = 0; py < FF_ICON_GRID_DIM; py++)
-		{
-			for (px = 0; px < FF_ICON_GRID_DIM; px++)
-			{
-				int sy = py * 2 + (py >= (FF_ICON_GRID_DIM / 2) ? 1 : 0);
-				int sx = px * 2 + (px >= (FF_ICON_GRID_DIM / 2) ? 1 : 0);
-				grid[py][px] = (pixel32)pal[idx_buf[sy * FF_ICON_TEX_DIM + sx]];
-			}
-		}
-
+		if (!scratch)
+			return;
+		ff_rank_compose(scratch, pictures, shield, insignia);
+		ff_icon_grid(scratch, grid);
 		mesh = &s_rank_mesh_cache[s_rank_mesh_next];
 		s_rank_mesh_next = (s_rank_mesh_next + 1) & 7;
 		ff_build_merged_icon_mesh(grid, mesh, key);
 	}
 
 	ff_draw_cached_icon_mesh(mesh, x0, y0, size, alpha);
+}
+
+void firefight_draw_mcc_rank_icon(
+	short x0,
+	short y0,
+	short size,
+	short tour_number,
+	short rank_in_tour,
+	real alpha)
+{
+	short t_idx = (short)PIN(tour_number - 1, 0, FIREFIGHT_SERVICE_TOURS - 1);
+	short r_idx = (short)PIN(rank_in_tour - 1, 0, FIREFIGHT_SERVICE_RANKS - 1);
+
+	ff_draw_rank_picture(((unsigned long)t_idx << 8) | (unsigned long)r_idx | 0x80000000UL, t_idx, r_idx,
+		x0, y0, size, alpha);
 }
 
 void firefight_draw_h3_ranked_icon(
@@ -2322,70 +1822,9 @@ void firefight_draw_h3_ranked_icon(
 	short ranked_index,
 	real alpha)
 {
-	short idx = (short)PIN(ranked_index, 0, 41);
-	unsigned long key = 0x20000000UL | (unsigned long)idx;
-	struct ff_rank_icons const *icons = ff_rank_icons();
-	struct ff_icon_scratch *scratch = ff_icon_scratch();
-	unsigned long const *pal;
-	unsigned char const *idx_buf;
-	struct ff_cached_icon_mesh *mesh = NULL;
-	int i;
+	short idx = (short)PIN(ranked_index, 0, FIREFIGHT_SERVICE_RANKS - 1);
 
-	if (!icons)
-		return;
-	pal = icons->h3_palette;
-	idx_buf = icons->h3_indices[idx];
-	if (global_d3d_device)
-	{
-		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
-			return;
-		if (scratch)
-		{
-			pixel32 *s_src32 = scratch->src32;
-			pixel32 *s_buf64 = scratch->buf64;
-			pixel32 *s_raw128 = scratch->raw128;
-			pixel32 *s_pixels128 = scratch->pixels128;
-
-			for (i = 0; i < 32 * 32; i++)
-				s_src32[i] = (pixel32)pal[idx_buf[i]];
-			ff_xbr_2x(s_src32, 32, 32, s_buf64);
-			ff_xbr_2x(s_buf64, 64, 64, s_raw128);
-			ff_smooth_icon_128(s_raw128, s_pixels128);
-			if (ff_draw_hw_icon_pixels(key, s_pixels128, x0, y0, size, alpha))
-				return;
-		}
-	}
-
-	for (i = 0; i < 8; i++)
-	{
-		if (s_rank_mesh_cache[i].valid && s_rank_mesh_cache[i].key == key)
-		{
-			mesh = &s_rank_mesh_cache[i];
-			break;
-		}
-	}
-
-	if (!mesh)
-	{
-		pixel32 grid[FF_ICON_GRID_DIM][FF_ICON_GRID_DIM];
-		short py, px;
-
-		for (py = 0; py < FF_ICON_GRID_DIM; py++)
-		{
-			for (px = 0; px < FF_ICON_GRID_DIM; px++)
-			{
-				int sy = py * 2 + (py >= (FF_ICON_GRID_DIM / 2) ? 1 : 0);
-				int sx = px * 2 + (px >= (FF_ICON_GRID_DIM / 2) ? 1 : 0);
-				grid[py][px] = (pixel32)pal[idx_buf[sy * FF_ICON_TEX_DIM + sx]];
-			}
-		}
-
-		mesh = &s_rank_mesh_cache[s_rank_mesh_next];
-		s_rank_mesh_next = (s_rank_mesh_next + 1) & 7;
-		ff_build_merged_icon_mesh(grid, mesh, key);
-	}
-
-	ff_draw_cached_icon_mesh(mesh, x0, y0, size, alpha);
+	ff_draw_rank_picture(0x20000000UL | (unsigned long)idx, NONE, idx, x0, y0, size, alpha);
 }
 
 /* the emblems' masks and palette (port/assets/emblems, tools/emblem_assets.py):
@@ -2437,9 +1876,6 @@ static void ff_emblem_unpack_mask(unsigned int offset, unsigned char *out)
 static void ff_emblem_add_layer(struct ff_icon_scratch *scratch, unsigned int word, pixel32 color)
 {
 	unsigned int offset = word & ~EMBLEM_PRIMARY_ON_TOP;
-	unsigned long r = (color >> 16) & 0xFF;
-	unsigned long g = (color >> 8) & 0xFF;
-	unsigned long b = color & 0xFF;
 	int i;
 
 	if (!offset)
@@ -2447,19 +1883,9 @@ static void ff_emblem_add_layer(struct ff_icon_scratch *scratch, unsigned int wo
 	ff_emblem_unpack_mask(offset, scratch->emblem_mask);
 	for (i = 0; i < FF_ICON_HI_DIM * FF_ICON_HI_DIM; i++)
 	{
-		unsigned long src_a = scratch->emblem_mask[i];
-		pixel32 under = scratch->pixels128[i];
-		unsigned long under_a = (under >> 24) & 0xFF;
-		unsigned long under_weight = under_a * (255 - src_a);
-		unsigned long total = src_a * 255 + under_weight;
+		pixel32 over = (color & 0x00FFFFFF) | ((pixel32)scratch->emblem_mask[i] << 24);
 
-		if (!src_a)
-			continue;
-		scratch->pixels128[i] = (pixel32)(
-			(((total + 127) / 255) << 24) |
-			(((r * src_a * 255 + ((under >> 16) & 0xFF) * under_weight + total / 2) / total) << 16) |
-			(((g * src_a * 255 + ((under >> 8) & 0xFF) * under_weight + total / 2) / total) << 8) |
-			((b * src_a * 255 + (under & 0xFF) * under_weight + total / 2) / total));
+		scratch->pixels128[i] = ff_icon_over(scratch->pixels128[i], over);
 	}
 }
 
@@ -2533,21 +1959,11 @@ void firefight_draw_player_emblem(
 	if (!mesh)
 	{
 		pixel32 grid[FF_ICON_GRID_DIM][FF_ICON_GRID_DIM];
-		int step = FF_ICON_HI_DIM / FF_ICON_GRID_DIM;
-		short py, px;
 
 		if (!scratch)
 			return;
 		ff_emblem_compose(scratch, e);
-		for (py = 0; py < FF_ICON_GRID_DIM; py++)
-		{
-			for (px = 0; px < FF_ICON_GRID_DIM; px++)
-			{
-				pixel32 pixel = scratch->pixels128[(py * step + step / 2) * FF_ICON_HI_DIM + px * step + step / 2];
-				grid[py][px] = ((pixel >> 24) & 0xFF) >= 128 ? (pixel | 0xFF000000) : 0;
-			}
-		}
-
+		ff_icon_grid(scratch, grid);
 		mesh = &s_emblem_mesh_cache[s_emblem_mesh_next];
 		s_emblem_mesh_next = (s_emblem_mesh_next + 1) & 7;
 		ff_build_merged_icon_mesh(grid, mesh, key);

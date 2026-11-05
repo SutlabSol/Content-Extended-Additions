@@ -638,12 +638,17 @@ struct firefight_challenge_view
 	boolean completed;
 };
 
+/* the service ranks' tours and the ranks in each (Halo 3's 42 UNSC ranks, as
+the insignia in rank_icons.bin: tools/rank_icon_assets.py) */
+#define FIREFIGHT_SERVICE_TOURS 11
+#define FIREFIGHT_SERVICE_RANKS 42
+
 struct firefight_mcc_rank_info
 {
 	short tour_number;       /* 1..11 (Tour 1 Bronze .. Tour 11 Reclaimer) */
 	char const *tour_name;   /* e.g. "Tour 1 (Bronze)" */
-	short rank_in_tour;      /* 1..30 (Recruit .. General) */
-	char const *rank_name;   /* e.g. "Spartan", "Brigadier", "General" */
+	short rank_in_tour;      /* 1..42 (Recruit .. 5 Star General) */
+	char const *rank_name;   /* e.g. "Recruit", "Brigadier", "5 Star General" */
 	long total_xp;
 	long xp_in_rank;
 	long xp_for_next_rank;

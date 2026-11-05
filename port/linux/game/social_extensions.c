@@ -260,7 +260,7 @@ void social_extensions_get_person_rank_and_emblem(
 		out_rank->tour_number = 1;
 		out_rank->rank_in_tour = 1;
 		out_rank->tour_name = "Tour 1";
-		out_rank->rank_name = "Rookie";
+		out_rank->rank_name = "Recruit";
 #endif
 	}
 

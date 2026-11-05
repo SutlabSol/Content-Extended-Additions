@@ -1,7 +1,7 @@
 /*
 SERVICE_RANK.H
 
-Compartmentalised MCC Service Rank / Career Leveling System (11 Tours x 30 Ranks = 330 Levels).
+Compartmentalised MCC Service Rank / Career Leveling System (11 Tours x 42 Ranks = 462 Levels).
 - Awards XP for Campaign, Firefight, and Multiplayer kills, medals, completions,
   Watanoge's Daily Challenge (community.c), and Daily/Weekly mode challenges.
 - Excludes Halo 3 Ranked Mode (1-50 CSR).
@@ -43,8 +43,8 @@ static __inline void service_rank_compute_from_xp(
 		out_rank->tour_number = 1;
 		out_rank->tour_name = "Tour 1";
 		out_rank->rank_in_tour = 1;
-		out_rank->rank_name = "Rookie";
-		out_rank->xp_for_next_rank = 3000L;
+		out_rank->rank_name = "Recruit";
+		out_rank->xp_for_next_rank = 2100L;
 	}
 }
 
