@@ -52,6 +52,7 @@ Friendly AI Reinforcements, and Round-Scheduled Player Vehicles.
 #include "units/vehicles.h"
 
 #include "halo_firefight.h"
+#include "halo_firefight_route.h"
 #include "halo_skulls.h"
 
 /* ---------- constants */
@@ -67,6 +68,10 @@ enum
 	DROPSHIP_PHASE_DESCENDING = 1,
 	DROPSHIP_PHASE_HOVER_DEPLOY = 2,
 	DROPSHIP_PHASE_ASCENDING = 3,
+	DROPSHIP_APPROACH_TICKS = 90,
+	DROPSHIP_HOVER_TICKS = 60,
+	DROPSHIP_DEPARTURE_TICKS = 90,
+	DROPSHIP_ROUTE_MAX_LEG_TICKS = 30 * TICKS_PER_SECOND,
 
 	/* Custom Forge Firefight Spawn Marker ('ffsp' -> scenario_netgame_flag.type == 15) */
 	FF_NETGAME_FLAG_FIREFIGHT_SPAWN = 15,
@@ -567,6 +572,8 @@ static short count_custom_ff_spawn_markers(unsigned long allowed_type_mask)
 		if (!flag || flag->type != FF_NETGAME_FLAG_FIREFIGHT_SPAWN)
 			continue;
 		stype = FF_UNPACK_SPAWN_TYPE(flag->team_index);
+		if (stype == FF_ROUTE_SPAWN_TYPE)
+			continue;
 		if (allowed_type_mask == 0xFFFFFFFFUL || (allowed_type_mask & (1UL << stype)) != 0)
 			count++;
 	}
@@ -2281,6 +2288,105 @@ static long pick_vehicle_driver_variant(long fallback_variant, byte wave_faction
 	return fallback_variant;
 }
 
+/* (the flight in progress, set up by start_dropship_insertion) */
+static struct ff_route_leg g_dropship_route[FF_ROUTE_LEG_COUNT];
+
+/* the route of the dropship zone at this spot, when Forge gave it one */
+static boolean dropship_route_load(real_point3d const *zone, real facing)
+{
+	struct scenario *scen = global_scenario_try_and_get();
+	real best_distance = 2.0f;
+	int route_id = 0;
+	short i;
+
+	if (!scen)
+		return FALSE;
+
+	for (i = 0; i < scen->netgame_flags.count; i++)
+	{
+		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
+			&scen->netgame_flags, i, struct scenario_netgame_flag);
+
+		if (flag && flag->type == FF_NETGAME_FLAG_FIREFIGHT_SPAWN &&
+			FF_UNPACK_SPAWN_TYPE(flag->team_index) == FF_SPAWN_TYPE_DROPSHIP_ZONE &&
+			FF_ROUTE_ID(flag->team_index) != 0)
+		{
+			real distance = distance3d(&flag->position, zone);
+
+			if (distance < best_distance)
+			{
+				best_distance = distance;
+				route_id = FF_ROUTE_ID(flag->team_index);
+			}
+		}
+	}
+	if (route_id == 0)
+		return FALSE;
+
+	csmemset(g_dropship_route, 0, sizeof(g_dropship_route));
+	for (i = 0; i < scen->netgame_flags.count; i++)
+	{
+		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
+			&scen->netgame_flags, i, struct scenario_netgame_flag);
+
+		if (flag && flag->type == FF_NETGAME_FLAG_FIREFIGHT_SPAWN &&
+			FF_UNPACK_SPAWN_TYPE(flag->team_index) == FF_ROUTE_SPAWN_TYPE &&
+			FF_ROUTE_ID(flag->team_index) == route_id)
+		{
+			ff_route_leg_add(
+				&g_dropship_route[FF_ROUTE_POINT_LEG(flag->team_index)],
+				FF_ROUTE_POINT_ORDER(flag->team_index),
+				flag->position.x,
+				flag->position.y,
+				flag->position.z);
+		}
+	}
+	if (g_dropship_route[FF_ROUTE_APPROACH].count == 0 && g_dropship_route[FF_ROUTE_DEPARTURE].count == 0)
+		return FALSE;
+
+	ff_route_legs_finish(g_dropship_route, zone->x, zone->y, zone->z, facing);
+	return TRUE;
+}
+
+/* a leg flies at about the automatic path's speed; a long one speeds up rather
+than hold the wave's troops back */
+static short dropship_route_leg_ticks(struct ff_route_leg const *leg, short shortest)
+{
+	long ticks = (long)(leg->length * (real)TICKS_PER_SECOND / 14.0f);
+
+	return (short)PIN(ticks, (long)shortest, (long)DROPSHIP_ROUTE_MAX_LEG_TICKS);
+}
+
+/* where along the leg the ship is (0-1), and which way that heads it */
+static void dropship_route_sample(short leg_index, real fraction, real_point3d *position, real *heading)
+{
+	struct ff_route_leg const *leg = &g_dropship_route[leg_index];
+	real travelled = fraction * leg->length;
+	struct ff_route_point here = ff_route_leg_at(leg, travelled);
+	struct ff_route_point ahead = ff_route_leg_at(leg, travelled + 1.0f);
+	struct ff_route_point behind = ff_route_leg_at(leg, travelled - 1.0f);
+	real dx = ahead.x - behind.x;
+	real dy = ahead.y - behind.y;
+
+	position->x = here.x;
+	position->y = here.y;
+	position->z = here.z;
+	if (dx * dx + dy * dy > 0.0001f)
+		*heading = (real)atan2((double)dy, (double)dx);
+}
+
+/* turns from one heading to the other the short way round: 0 is from, 1 is to */
+static real dropship_blend_heading(real from, real to, real amount)
+{
+	real turn = to - from;
+
+	while (turn > _pi)
+		turn -= 2.0f * _pi;
+	while (turn < -_pi)
+		turn += 2.0f * _pi;
+	return from + turn * amount * amount * (3.0f - 2.0f * amount);
+}
+
 static boolean start_dropship_insertion(
 	boolean is_pelican,
 	real_point3d const *landing_zone,
@@ -2304,6 +2410,9 @@ static boolean start_dropship_insertion(
 	real_point3d start_pos;
 	real_point3d hover_pos;
 	real_point3d exit_pos;
+	boolean has_route;
+	short approach_ticks = DROPSHIP_APPROACH_TICKS;
+	short departure_ticks = DROPSHIP_DEPARTURE_TICKS;
 
 	if (!landing_zone)
 		return FALSE;
@@ -2321,10 +2430,12 @@ static boolean start_dropship_insertion(
 	/* Trigger Covenant Teleport / Orbital Insertion Beacon flash + sound at the zone */
 	spawn_insertion_beacon_effect(landing_zone, NONE, wave_faction, is_boss_wave);
 
-	/* Require >= 10.0f world units of vertical ceiling clearance above the drop zone via upward raycast */
+	/* Require >= 10.0f world units of vertical ceiling clearance above the drop zone via upward raycast
+	 * (a placed route was laid out around whatever is overhead, so it is taken as flyable) */
+	has_route = dropship_route_load(landing_zone, facing);
 	ray_start = *landing_zone;
 	ray_start.z += 0.5f;
-	if (collision_test_vector(FLAG(_collision_test_structure_bit), &ray_start, &ray_up, NONE, &coll))
+	if (!has_route && collision_test_vector(FLAG(_collision_test_structure_bit), &ray_start, &ray_up, NONE, &coll))
 	{
 		if (coll.t * 10.5f < 10.0f)
 			has_sky_clearance = FALSE;
@@ -2344,17 +2455,32 @@ static boolean start_dropship_insertion(
 	cos_a = cosine(approach_angle);
 	sin_a = sine(approach_angle);
 
-	start_pos.x = landing_zone->x + cos_a * 35.0f;
-	start_pos.y = landing_zone->y + sin_a * 35.0f;
-	start_pos.z = landing_zone->z + 16.0f;
+	start_pos.x = landing_zone->x + cos_a * FF_ROUTE_START_BEHIND;
+	start_pos.y = landing_zone->y + sin_a * FF_ROUTE_START_BEHIND;
+	start_pos.z = landing_zone->z + FF_ROUTE_START_HEIGHT;
 
 	hover_pos.x = landing_zone->x;
 	hover_pos.y = landing_zone->y;
-	hover_pos.z = landing_zone->z + 3.5f;
+	hover_pos.z = landing_zone->z + FF_ROUTE_HOVER_HEIGHT;
 
-	exit_pos.x = landing_zone->x - cos_a * 45.0f;
-	exit_pos.y = landing_zone->y - sin_a * 45.0f;
-	exit_pos.z = landing_zone->z + 22.0f;
+	exit_pos.x = landing_zone->x - cos_a * FF_ROUTE_EXIT_AHEAD;
+	exit_pos.y = landing_zone->y - sin_a * FF_ROUTE_EXIT_AHEAD;
+	exit_pos.z = landing_zone->z + FF_ROUTE_EXIT_HEIGHT;
+
+	if (has_route)
+	{
+		struct ff_route_leg const *approach = &g_dropship_route[FF_ROUTE_APPROACH];
+		struct ff_route_leg const *departure = &g_dropship_route[FF_ROUTE_DEPARTURE];
+
+		start_pos.x = approach->points[0].x;
+		start_pos.y = approach->points[0].y;
+		start_pos.z = approach->points[0].z;
+		exit_pos.x = departure->points[departure->count - 1].x;
+		exit_pos.y = departure->points[departure->count - 1].y;
+		exit_pos.z = departure->points[departure->count - 1].z;
+		approach_ticks = dropship_route_leg_ticks(approach, DROPSHIP_APPROACH_TICKS);
+		departure_ticks = dropship_route_leg_ticks(departure, DROPSHIP_DEPARTURE_TICKS);
+	}
 
 	{
 		struct object_placement_data placement;
@@ -2391,7 +2517,10 @@ static boolean start_dropship_insertion(
 	ff_state.active_dropship.approach_angle = approach_angle;
 	ff_state.active_dropship.phase = DROPSHIP_PHASE_DESCENDING;
 	ff_state.active_dropship.elapsed_ticks = 0;
-	ff_state.active_dropship.timer_ticks = 240;
+	ff_state.active_dropship.timer_ticks = (short)(approach_ticks + DROPSHIP_HOVER_TICKS + departure_ticks);
+	ff_state.active_dropship.approach_ticks = approach_ticks;
+	ff_state.active_dropship.departure_ticks = departure_ticks;
+	ff_state.active_dropship.has_route = has_route;
 	ff_state.active_dropship.squad_to_spawn = squad_to_spawn;
 	ff_state.active_dropship.forced_team = forced_team;
 	ff_state.active_dropship.wave_faction = wave_faction;
@@ -3869,6 +3998,10 @@ void firefight_update_dropships_and_vehicles(void)
 	{
 		long v_idx = ff_state.active_dropship.vehicle_index;
 		short elapsed = ff_state.active_dropship.elapsed_ticks;
+		short approach_end = ff_state.active_dropship.approach_ticks;
+		short hover_end = (short)(approach_end + DROPSHIP_HOVER_TICKS);
+		short flight_end = (short)(hover_end + ff_state.active_dropship.departure_ticks);
+		boolean has_route = ff_state.active_dropship.has_route;
 		real angle = ff_state.active_dropship.approach_angle;
 		real cos_a = cosine(angle);
 		real sin_a = sine(angle);
@@ -3883,35 +4016,49 @@ void firefight_update_dropships_and_vehicles(void)
 		up.j = 0.0f;
 		up.k = 1.0f;
 
-		if (elapsed < 90)
+		if (elapsed < approach_end)
 		{
-			/* Phase 1 — Approach (0 .. 90 ticks / 3 seconds): cubic ease-out trajectory to hover_pos */
-			real t = PIN((real)elapsed / 90.0f, 0.0f, 1.0f);
+			/* Phase 1 — Approach (3 seconds, or the route's own length): cubic ease-out trajectory to hover_pos */
+			real t = PIN((real)elapsed / (real)approach_end, 0.0f, 1.0f);
 			real inv = 1.0f - t;
-			real ease = 1.0f - (inv * inv * inv);
+			real ease = has_route ? 1.0f - (inv * inv) : 1.0f - (inv * inv * inv);
 			real pitch_flare = 0.14f * (real)sin((double)(t * _pi));
 
-			pos.x = ff_state.active_dropship.start_position.x +
-				(ff_state.active_dropship.hover_position.x - ff_state.active_dropship.start_position.x) * ease;
-			pos.y = ff_state.active_dropship.start_position.y +
-				(ff_state.active_dropship.hover_position.y - ff_state.active_dropship.start_position.y) * ease;
-			pos.z = ff_state.active_dropship.start_position.z +
-				(ff_state.active_dropship.hover_position.z - ff_state.active_dropship.start_position.z) * ease;
+			if (has_route)
+			{
+				/* Follows the route nose first, swinging round to the zone's facing for the last stretch */
+				real hover_heading = angle + _pi;
+				real heading = hover_heading;
 
-			forward.k = pitch_flare;
-			normalize3d(&forward);
-			up.i = cos_a * pitch_flare;
-			up.j = sin_a * pitch_flare;
+				dropship_route_sample(FF_ROUTE_APPROACH, ease, &pos, &heading);
+				heading = dropship_blend_heading(heading, hover_heading, PIN((ease - 0.7f) / 0.3f, 0.0f, 1.0f));
+				forward.i = cosine(heading);
+				forward.j = sine(heading);
+			}
+			else
+			{
+				pos.x = ff_state.active_dropship.start_position.x +
+					(ff_state.active_dropship.hover_position.x - ff_state.active_dropship.start_position.x) * ease;
+				pos.y = ff_state.active_dropship.start_position.y +
+					(ff_state.active_dropship.hover_position.y - ff_state.active_dropship.start_position.y) * ease;
+				pos.z = ff_state.active_dropship.start_position.z +
+					(ff_state.active_dropship.hover_position.z - ff_state.active_dropship.start_position.z) * ease;
+			}
+
+			up.i = -forward.i * pitch_flare;
+			up.j = -forward.j * pitch_flare;
 			up.k = 1.0f;
 			normalize3d(&up);
+			forward.k = pitch_flare;
+			normalize3d(&forward);
 
 			ff_state.active_dropship.phase = DROPSHIP_PHASE_DESCENDING;
 		}
-		else if (elapsed < 150)
+		else if (elapsed < hover_end)
 		{
-			/* Phase 2 — Hover & Squad/Vehicle Unload (90 .. 150 ticks / 2 seconds) */
+			/* Phase 2 — Hover & Squad/Vehicle Unload (2 seconds) */
 			pos = ff_state.active_dropship.hover_position;
-			pos.z += 0.08f * (real)sin((double)(elapsed - 90) * 0.15);
+			pos.z += 0.08f * (real)sin((double)(elapsed - approach_end) * 0.15);
 			normalize3d(&forward);
 			ff_state.active_dropship.phase = DROPSHIP_PHASE_HOVER_DEPLOY;
 
@@ -3973,24 +4120,37 @@ void firefight_update_dropships_and_vehicles(void)
 		}
 		else
 		{
-			/* Phase 3 — Departure & Cleanup (150 .. 240 ticks / 3 seconds): accelerate along exit vector */
-			real t = PIN((real)(elapsed - 150) / 90.0f, 0.0f, 1.0f);
+			/* Phase 3 — Departure & Cleanup (3 seconds, or the route's own length): accelerate along exit vector */
+			real t = PIN((real)(elapsed - hover_end) / (real)(flight_end - hover_end), 0.0f, 1.0f);
 			real ease = t * t * (3.0f - 2.0f * t);
 			real climb_pitch = 0.20f * t;
 
-			pos.x = ff_state.active_dropship.hover_position.x +
-				(ff_state.active_dropship.exit_position.x - ff_state.active_dropship.hover_position.x) * ease;
-			pos.y = ff_state.active_dropship.hover_position.y +
-				(ff_state.active_dropship.exit_position.y - ff_state.active_dropship.hover_position.y) * ease;
-			pos.z = ff_state.active_dropship.hover_position.z +
-				(ff_state.active_dropship.exit_position.z - ff_state.active_dropship.hover_position.z) * ease;
+			if (has_route)
+			{
+				real hover_heading = angle + _pi;
+				real heading = hover_heading;
 
-			forward.k = climb_pitch;
-			normalize3d(&forward);
-			up.i = cos_a * climb_pitch;
-			up.j = sin_a * climb_pitch;
+				dropship_route_sample(FF_ROUTE_DEPARTURE, ease, &pos, &heading);
+				heading = dropship_blend_heading(hover_heading, heading, PIN(ease / 0.3f, 0.0f, 1.0f));
+				forward.i = cosine(heading);
+				forward.j = sine(heading);
+			}
+			else
+			{
+				pos.x = ff_state.active_dropship.hover_position.x +
+					(ff_state.active_dropship.exit_position.x - ff_state.active_dropship.hover_position.x) * ease;
+				pos.y = ff_state.active_dropship.hover_position.y +
+					(ff_state.active_dropship.exit_position.y - ff_state.active_dropship.hover_position.y) * ease;
+				pos.z = ff_state.active_dropship.hover_position.z +
+					(ff_state.active_dropship.exit_position.z - ff_state.active_dropship.hover_position.z) * ease;
+			}
+
+			up.i = -forward.i * climb_pitch;
+			up.j = -forward.j * climb_pitch;
 			up.k = 1.0f;
 			normalize3d(&up);
+			forward.k = climb_pitch;
+			normalize3d(&forward);
 
 			ff_state.active_dropship.phase = DROPSHIP_PHASE_ASCENDING;
 		}
@@ -4015,7 +4175,7 @@ void firefight_update_dropships_and_vehicles(void)
 		if (ff_state.active_dropship.timer_ticks > 0)
 			ff_state.active_dropship.timer_ticks--;
 
-		if (ff_state.active_dropship.elapsed_ticks >= 240)
+		if (ff_state.active_dropship.elapsed_ticks >= flight_end)
 		{
 			if (ff_state.active_dropship.vehicle_index != NONE)
 			{

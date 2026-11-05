@@ -1,7 +1,7 @@
 /*
  * OpenCE : Faber ("OpenCE - Faber.exe")
  * Collaborative P2P Forge Network Synchronization:
- * - Bidirectional Spawn (!FS: / !FH:), Transform (!FM:), and Delete (!FD:) replication
+ * - Bidirectional Spawn (!FS: / !FH:), Transform (!FM:), Delete (!FD:) and Firefight marker usage (!FU:) replication
  * - Per-Player Monitor vs. Spartan mode & 3D Monitor flight state synchronization (!FT:)
  * - Late-join / full-session state synchronization (!FQ)
  * - Automatic client-side external tag & .ocetags faulting on object creation
@@ -711,6 +711,24 @@ void forge_network_send_delete_ext(int32_t live_idx, long obj_idx)
 	}
 }
 
+void forge_network_send_marker_usage(int32_t live_idx, int16_t usage)
+{
+	char msg[64];
+
+	if (!forge_is_multiplayer_session())
+		return;
+
+	snprintf(msg, sizeof(msg), "!FU:%d:%d", (int)live_idx, (int)usage);
+	if (game_connection() == _game_connection_network_client)
+	{
+		forge_send_packet_to_host(msg);
+	}
+	else if (game_connection() == _game_connection_network_server)
+	{
+		forge_broadcast_packet_to_clients(msg, -1);
+	}
+}
+
 static long forge_find_live_object_by_abs_index(int obj_abs)
 {
 	if (obj_abs < 0 || !object_header_data)
@@ -777,6 +795,13 @@ static int32_t forge_resolve_target_live_idx(int live_idx, int obj_abs)
 	if (live_idx >= 0 && live_idx < g_forge.live_instance_count)
 		return live_idx;
 	return -1;
+}
+
+/* Firefight markers look alike, and a dropship route's points are told apart by
+their usage alone: a host's spawn links only to the one it was asked for */
+static int forge_spawn_usage_matches(struct forge_live_instance const *cand, int16_t team_designator)
+{
+	return cand->group_tag != 'ffsp' || cand->team_designator == team_designator;
 }
 
 static void forge_client_configure_linked_object(int32_t live_idx, long obj_idx, int is_held)
@@ -892,7 +917,8 @@ static void forge_client_handle_host_spawn(
 		struct forge_live_instance const *cand = &g_forge.live_instances[g_forge.grabbed_live_index];
 		if (cand->active && !cand->is_default_scenario_object &&
 			(cand->pad_inst & 0x80u) != 0 &&
-			cand->group_tag == ce->group_tag && _stricmp(cand->tag_path, ce->tag_path) == 0)
+			cand->group_tag == ce->group_tag && _stricmp(cand->tag_path, ce->tag_path) == 0 &&
+			forge_spawn_usage_matches(cand, team_designator))
 		{
 			match_idx = g_forge.grabbed_live_index;
 			matched_client_unlinked = 1;
@@ -905,7 +931,8 @@ static void forge_client_handle_host_spawn(
 		struct forge_live_instance const *cand = &g_forge.live_instances[host_live_idx];
 		if (cand->active && !cand->is_default_scenario_object &&
 			(cand->pad_inst & 0x80u) != 0 &&
-			cand->group_tag == ce->group_tag && _stricmp(cand->tag_path, ce->tag_path) == 0)
+			cand->group_tag == ce->group_tag && _stricmp(cand->tag_path, ce->tag_path) == 0 &&
+			forge_spawn_usage_matches(cand, team_designator))
 		{
 			match_idx = host_live_idx;
 			matched_client_unlinked = 1;
@@ -921,7 +948,8 @@ static void forge_client_handle_host_spawn(
 			if (!cand->active || cand->is_default_scenario_object ||
 				(cand->pad_inst & 0x80u) == 0)
 				continue;
-			if (cand->group_tag == ce->group_tag && _stricmp(cand->tag_path, ce->tag_path) == 0)
+			if (cand->group_tag == ce->group_tag && _stricmp(cand->tag_path, ce->tag_path) == 0 &&
+				forge_spawn_usage_matches(cand, team_designator))
 			{
 				match_idx = i;
 				matched_client_unlinked = 1;
@@ -1212,10 +1240,26 @@ int forge_network_intercept_chat_packet(long machine_index, char const *text, in
 		return 1;
 	}
 
-	/* 3. Client -> Host Packets (!FS:, !FM:, !FD:) */
+	/* 3. Client -> Host Packets (!FS:, !FM:, !FD:, !FU:) */
 	if (is_from_client_to_host && game_connection() == _game_connection_network_server)
 	{
-		if (strncmp(text, "!FS:", 4) == 0)
+		if (strncmp(text, "!FU:", 4) == 0)
+		{
+			int live_idx = -1, usage = 0;
+			if (sscanf(text + 4, "%d:%d", &live_idx, &usage) == 2)
+			{
+				int32_t target_idx = forge_resolve_target_live_idx(live_idx, -1);
+				if (target_idx >= 0)
+				{
+					char relay[64];
+					forge_3d_marker_usage_apply(target_idx, (int16_t)usage);
+					snprintf(relay, sizeof(relay), "!FU:%d:%d", (int)target_idx, usage);
+					forge_broadcast_packet_to_clients(relay, machine_index);
+				}
+			}
+			return 1;
+		}
+		else if (strncmp(text, "!FS:", 4) == 0)
 		{
 			unsigned int hash = 0;
 			float x = 0.0f, y = 0.0f, z = 0.0f;
@@ -1322,10 +1366,21 @@ int forge_network_intercept_chat_packet(long machine_index, char const *text, in
 			return 1;
 		}
 	}
-	/* 4. Host -> Client Packets (!FH:, !FM:, !FD:) */
+	/* 4. Host -> Client Packets (!FH:, !FM:, !FD:, !FU:) */
 	else if (!is_from_client_to_host && game_connection() == _game_connection_network_client)
 	{
-		if (strncmp(text, "!FH:", 4) == 0)
+		if (strncmp(text, "!FU:", 4) == 0)
+		{
+			int live_idx = -1, usage = 0;
+			if (sscanf(text + 4, "%d:%d", &live_idx, &usage) == 2)
+			{
+				int32_t target_idx = forge_resolve_target_live_idx(live_idx, -1);
+				if (target_idx >= 0)
+					forge_3d_marker_usage_apply(target_idx, (int16_t)usage);
+			}
+			return 1;
+		}
+		else if (strncmp(text, "!FH:", 4) == 0)
 		{
 			unsigned int live_idx_u = 0, hash = 0, obj_enc = 0;
 			float x = 0.0f, y = 0.0f, z = 0.0f;

@@ -154,3 +154,38 @@ def test_a_host_s_spawn_line_is_never_cut_short():
     source = (ROOT / "port/forge/src/forge_network.c").read_text()
     assert '"!FH:%X:%08X:%X:%.0f:%.0f:%.0f:%d:%d:%d:%d"' in source
     assert "the host placed a tag this machine has not got" in source
+
+
+def test_a_saved_map_keeps_its_firefight_markers_when_played():
+    # (the saver gives them FF_SPAWN lines, not NETGAME_FLAG ones: reading only
+    # those replaced the scenario's flags without them)
+    builder = (ROOT / "port/forge/src/forge_cache_builder.c").read_text()
+    assert '"FF_SPAWN|%.4f|%.4f|%.4f|%.4f|%d' in builder
+    tags = (ROOT / "port/forge/src/forge_runtime_tags.c").read_text()
+    reader = tags[tags.rindex("static void forge_saved_markers_apply(char const *text)"):]
+    assert 'replace_flags && !strncmp(cur, "FF_SPAWN|", 9)' in reader
+    assert "nf->type = FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN;" in reader
+
+
+def test_a_dropship_route_is_markers_every_machine_tells_apart():
+    route = (ROOT / "port/linux/include/halo_firefight_route.h").read_text()
+    engine = (ROOT / "port/forge/include/forge_engine.h").read_text()
+    spawner = (ROOT / "port/linux/game/firefight_spawner.c").read_text()
+    # (a route's type stays out of the spawn type cycle, and the zone's wave
+    # stops short of the route id's bits)
+    assert int(re.search(r"FF_ROUTE_SPAWN_TYPE = (\d+)", route).group(1)) >= \
+        int(re.search(r"NUMBER_OF_FORGE_FF_SPAWN_TYPES = (\d+)", engine).group(1))
+    assert "(((int)(u)) >> 8) & 0x07" in engine
+    assert "if (stype == FF_ROUTE_SPAWN_TYPE)" in spawner
+
+    # (points differ only by their usage: a spawn links to the one it asked for,
+    # at each of the three places a client looks)
+    network = (ROOT / "port/forge/src/forge_network.c").read_text()
+    assert network.count("forge_spawn_usage_matches(cand, team_designator)") == 3
+    assert '"!FU:%d:%d"' in network
+    limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text()
+    assert int(re.search(r"#define HALO_PORT_MOD_NETWORK_VERSION (\d+)", limits).group(1)) >= 12
+
+    # (a property change keeps the route it's on)
+    forge = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
+    assert "inst->team_designator = FORGE_FF_PACK_USAGE(" not in forge

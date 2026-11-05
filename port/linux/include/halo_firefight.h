@@ -412,15 +412,18 @@ struct firefight_dropship_flight
 	real_point3d hover_position;
 	real_point3d exit_position;
 	real approach_angle;
-	short phase; /* 0 = inactive, 1 = approach (0..90), 2 = hover & unload (90..150), 3 = departure (150..240) */
+	short phase; /* 0 = inactive, 1 = approach, 2 = hover & unload, 3 = departure */
 	short elapsed_ticks;
 	short timer_ticks;
+	short approach_ticks;
+	short departure_ticks;
 	short squad_to_spawn;
 	short forced_team;
 	byte wave_faction;
 	boolean is_boss_wave;
 	boolean is_pelican;
 	boolean payload_deployed;
+	boolean has_route; /* flying a route placed in Forge (halo_firefight_route.h) */
 };
 
 typedef struct firefight_dropship_flight firefight_dropship_state;

@@ -1426,6 +1426,7 @@ void forge_runtime_init(void)
 	if (g_forge.initialized)
 		return;
 	memset(&g_forge, 0, sizeof(g_forge));
+	g_forge.route_follow_live_index = -1;
 	g_forge.initialized = 1;
 	g_forge.mode = _forge_mode_play;
 	g_forge.active_modal = _forge_modal_none;
@@ -5870,6 +5871,19 @@ static void forge_saved_markers_apply(char const *text)
 				flag_count++;
 			}
 		}
+		/* (Firefight's flags are saved on lines of their own) */
+		else if (replace_flags && !strncmp(cur, "FF_SPAWN|", 9) && flag_count < FORGE_MAX_NETGAME_FLAGS)
+		{
+			struct forge_netgame_flag_entry *nf = &flags[flag_count];
+			int usage = 0;
+
+			if (sscanf(cur + 9, "%f|%f|%f|%f|%d", &nf->x, &nf->y, &nf->z, &nf->yaw, &usage) == 5)
+			{
+				nf->type = FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN;
+				nf->usage_id = (int16_t)usage;
+				flag_count++;
+			}
+		}
 		cur = strchr(cur, '\n');
 		if (cur)
 			cur++;
@@ -7050,7 +7064,7 @@ static int resolve_marker_kind_and_color(
 		*out_mesh_kind = _marker_mesh_firefight_spawn;
 		if (ff_type == _forge_ff_spawn_player_vehicle)
 			*out_color_preset = _marker_color_tele_green;
-		else if (ff_type == _forge_ff_spawn_dropship_zone)
+		else if (ff_type == _forge_ff_spawn_dropship_zone || ff_type == FF_ROUTE_SPAWN_TYPE)
 			*out_color_preset = _marker_color_koth_gold;
 		else if (ff_type >= _forge_ff_spawn_ai_and_vehicles && ff_type <= _forge_ff_spawn_enemy_heavy_veh)
 			*out_color_preset = _marker_color_race_orange;

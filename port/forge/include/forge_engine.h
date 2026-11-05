@@ -158,6 +158,8 @@ enum forge_snap_angle_mode
 	NUMBER_OF_FORGE_SNAP_MODES
 };
 
+#include "halo_firefight_route.h"
+
 /* ---------- Firefight Custom Spawn Marker ('ffsp' / netgame_flag type 15) */
 
 #define FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN 15
@@ -197,11 +199,13 @@ enum forge_ff_wave_filter
 	NUMBER_OF_FORGE_FF_WAVE_FILTERS = 4
 };
 
+/* (bits 11-14 are a dropship route's, and a route's own points read the rest
+differently: halo_firefight_route.h) */
 #define FORGE_FF_PACK_USAGE(type, rnd, wav) \
-	((int16_t)((((int)(type)) & 0x0F) | ((((int)(rnd)) & 0x0F) << 4) | ((((int)(wav)) & 0x0F) << 8)))
+	((int16_t)((((int)(type)) & 0x0F) | ((((int)(rnd)) & 0x0F) << 4) | ((((int)(wav)) & 0x07) << 8)))
 #define FORGE_FF_UNPACK_TYPE(u)  (((int)(u)) & 0x0F)
 #define FORGE_FF_UNPACK_ROUND(u) ((((int)(u)) >> 4) & 0x0F)
-#define FORGE_FF_UNPACK_WAVE(u)  ((((int)(u)) >> 8) & 0x0F)
+#define FORGE_FF_UNPACK_WAVE(u)  ((((int)(u)) >> 8) & 0x07)
 
 /* ---------- Runtime Palette Catalog Entry */
 
@@ -332,6 +336,9 @@ struct forge_runtime_state
 	int koth_group_hill_id;
 	float koth_group_radius;
 	int32_t koth_group_live_indices[10];
+
+	/* The dropship zone whose freshly made route moves with it while it is held, or -1 */
+	int32_t route_follow_live_index;
 
 	/* Catalogs: 0 = map-local [MAP] (transient), 1 = stock cached_tags, 2 = custom cached_tags [C] */
 	struct forge_catalog_entry catalog[FORGE_MAX_CATALOG_ENTRIES];
@@ -491,6 +498,7 @@ int32_t forge_3d_spawn_object_at(
 void forge_3d_move_instance(int32_t live_idx, float x, float y, float z, float yaw, float pitch, float roll, int broadcast_net);
 void forge_3d_move_instance_ext(int32_t live_idx, float x, float y, float z, float yaw, float pitch, float roll, int is_held, int broadcast_net);
 void forge_3d_delete_instance(int32_t live_idx, int broadcast_net);
+void forge_3d_marker_usage_apply(int32_t live_idx, int16_t usage);
 int forge_is_unit_in_monitor_mode(long unit_index);
 int forge_get_local_player_abs_index(void);
 void forge_render_begin_monitor_visibility(void);
@@ -527,6 +535,7 @@ void forge_network_send_transform_ext(
 	int is_held,
 	int immediate);
 void forge_network_send_delete_ext(int32_t live_idx, long obj_idx);
+void forge_network_send_marker_usage(int32_t live_idx, int16_t usage);
 int forge_network_intercept_chat_packet(long machine_index, char const *text, int is_from_client_to_host);
 void forge_network_pre_handle_object_changes(void const *entries, short count);
 void forge_network_post_handle_object_changes(void const *entries, short count);
