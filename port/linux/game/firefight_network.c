@@ -48,6 +48,9 @@ struct firefight_net_packet
 	short banner_type;
 	short banner_data;
 	short banner_timer_ticks;
+	short dropship_object; /* its absolute index in flight, or NONE */
+	byte dropship_scale;
+	byte dropship_cloak;
 	long player_score[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	short player_kills[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 	short player_assists[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
@@ -98,6 +101,14 @@ long firefight_write_network_state(
 	pkt.banner_type = ff_state.banner_type;
 	pkt.banner_data = ff_state.banner_data;
 	pkt.banner_timer_ticks = ff_state.banner_timer_ticks;
+
+	pkt.dropship_object = NONE;
+	if (ff_state.active_dropship.phase != 0 && ff_state.active_dropship.vehicle_index != NONE)
+	{
+		pkt.dropship_object = (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(ff_state.active_dropship.vehicle_index);
+		pkt.dropship_scale = (byte)(PIN(ff_state.active_dropship.scale, 0.0f, 1.0f) * 255.0f);
+		pkt.dropship_cloak = (byte)(PIN(ff_state.active_dropship.cloak, 0.0f, 1.0f) * 255.0f);
+	}
 
 	for (i = 0; i < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; i++)
 	{
@@ -162,6 +173,14 @@ boolean firefight_read_network_state(
 		ff_state.banner_type = pkt.banner_type;
 		ff_state.banner_data = pkt.banner_data;
 		ff_state.banner_timer_ticks = pkt.banner_timer_ticks;
+	}
+
+	if (pkt.dropship_object != NONE)
+	{
+		firefight_dropship_apply_look(
+			pkt.dropship_object,
+			MAX((real)pkt.dropship_scale / 255.0f, 0.02f),
+			(real)pkt.dropship_cloak / 255.0f);
 	}
 
 	for (i = 0; i < HALO_PORT_MAXIMUM_NETWORK_PLAYERS; i++)

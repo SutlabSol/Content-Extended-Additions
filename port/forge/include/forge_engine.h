@@ -160,6 +160,15 @@ enum forge_snap_angle_mode
 
 #include "halo_firefight_route.h"
 
+/* what a piece of a dropship route's line is, for its colour */
+enum forge_route_piece
+{
+	_forge_route_piece_approach = 0,
+	_forge_route_piece_departure,
+	_forge_route_piece_blocked,
+	_forge_route_piece_tail
+};
+
 /* ---------- Firefight Custom Spawn Marker ('ffsp' / netgame_flag type 15) */
 
 #define FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN 15
@@ -499,6 +508,7 @@ void forge_3d_move_instance(int32_t live_idx, float x, float y, float z, float y
 void forge_3d_move_instance_ext(int32_t live_idx, float x, float y, float z, float yaw, float pitch, float roll, int is_held, int broadcast_net);
 void forge_3d_delete_instance(int32_t live_idx, int broadcast_net);
 void forge_3d_marker_usage_apply(int32_t live_idx, int16_t usage);
+void forge_3d_dropship_routes_render(void (*draw_piece)(float const *from, float const *to, int kind));
 int forge_is_unit_in_monitor_mode(long unit_index);
 int forge_get_local_player_abs_index(void);
 void forge_render_begin_monitor_visibility(void);

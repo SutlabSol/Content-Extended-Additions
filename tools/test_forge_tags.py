@@ -176,6 +176,9 @@ def test_a_dropship_route_is_markers_every_machine_tells_apart():
     assert int(re.search(r"FF_ROUTE_SPAWN_TYPE = (\d+)", route).group(1)) >= \
         int(re.search(r"NUMBER_OF_FORGE_FF_SPAWN_TYPES = (\d+)", engine).group(1))
     assert "(((int)(u)) >> 8) & 0x07" in engine
+    # (points are renumbered with their leg's style, or it would be lost)
+    forge_source = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
+    assert not re.search(r"FF_ROUTE_POINT_USAGE\([^(),]*,[^(),]*,[^(),]*\)", forge_source)
     assert "if (stype == FF_ROUTE_SPAWN_TYPE)" in spawner
 
     # (points differ only by their usage: a spawn links to the one it asked for,
@@ -189,3 +192,32 @@ def test_a_dropship_route_is_markers_every_machine_tells_apart():
     # (a property change keeps the route it's on)
     forge = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
     assert "inst->team_designator = FORGE_FF_PACK_USAGE(" not in forge
+
+
+def test_a_flight_is_one_flight_in_firefight_and_in_forge():
+    spawner = (ROOT / "port/linux/game/firefight_spawner.c").read_text()
+    # (Firefight's and the test's go through the same pose and the same ship)
+    assert spawner.count("ff_route_flight_pose(") >= 4
+    assert spawner.count("dropship_new(") == 3
+    assert spawner.count("dropship_flight_prepare(") == 3
+    packet = (ROOT / "port/linux/game/firefight_network.c").read_text()
+    assert "firefight_dropship_apply_look(" in packet
+
+
+def test_route_lines_are_drawn_in_the_world():
+    forge = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
+    # (the HUD pass draws over everything: the level has to be able to hide them)
+    assert "draw_dropship_routes" not in forge
+    tags = (ROOT / "port/forge/src/forge_runtime_tags.c").read_text()
+    assert "forge_3d_dropship_routes_render(draw_dropship_route_piece);" in tags
+
+
+def test_vehicle_drivers_ride_as_their_tag_says():
+    spawner = (ROOT / "port/linux/game/firefight_spawner.c").read_text()
+    # (sword carriers and stealth stay on foot)
+    assert 'strstr(name, "sword") != NULL' in spawner
+    # (the tag is shared: "stand" isn't left on it for the next driver, and the
+    # seat's invisibility is applied by hand, as entering is cut short)
+    assert '_stricmp(seat->label, "stand") != 0' in spawner
+    assert "object_set_visibility(driver_unit, FALSE);" in spawner
+    assert spawner.count("vehicle_seat_driver(driver_unit, vehicle_index, seat0);") == 2

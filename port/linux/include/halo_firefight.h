@@ -408,22 +408,19 @@ struct firefight_dropship_flight
 {
 	long vehicle_index;
 	real_point3d drop_zone;
-	real_point3d start_position;
 	real_point3d hover_position;
-	real_point3d exit_position;
 	real approach_angle;
+	real scale; /* how it looks this tick, which clients are told */
+	real cloak;
 	short phase; /* 0 = inactive, 1 = approach, 2 = hover & unload, 3 = departure */
 	short elapsed_ticks;
 	short timer_ticks;
-	short approach_ticks;
-	short departure_ticks;
 	short squad_to_spawn;
 	short forced_team;
 	byte wave_faction;
 	boolean is_boss_wave;
 	boolean is_pelican;
 	boolean payload_deployed;
-	boolean has_route; /* flying a route placed in Forge (halo_firefight_route.h) */
 };
 
 typedef struct firefight_dropship_flight firefight_dropship_state;
@@ -825,6 +822,7 @@ short firefight_spawn_wave(
 	short wave_num,
 	boolean is_bonus);
 void firefight_update_dropships_and_vehicles(void);
+void firefight_dropship_apply_look(short absolute_index, real scale, real cloak);
 void firefight_spawn_ordnance_drop(boolean heavy_anti_armor);
 void firefight_spawn_scheduled_round_vehicles(short round_num, boolean pre_boss);
 void firefight_despawn_round_vehicles(void);

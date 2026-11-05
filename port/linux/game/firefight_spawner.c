@@ -68,10 +68,6 @@ enum
 	DROPSHIP_PHASE_DESCENDING = 1,
 	DROPSHIP_PHASE_HOVER_DEPLOY = 2,
 	DROPSHIP_PHASE_ASCENDING = 3,
-	DROPSHIP_APPROACH_TICKS = 90,
-	DROPSHIP_HOVER_TICKS = 60,
-	DROPSHIP_DEPARTURE_TICKS = 90,
-	DROPSHIP_ROUTE_MAX_LEG_TICKS = 30 * TICKS_PER_SECOND,
 
 	/* Custom Forge Firefight Spawn Marker ('ffsp' -> scenario_netgame_flag.type == 15) */
 	FF_NETGAME_FLAG_FIREFIGHT_SPAWN = 15,
@@ -2246,13 +2242,75 @@ static void patch_vehicle_for_ai_driver(long vehicle_tag_index, boolean is_bansh
 			SET_FLAG(seat0->flags, _ff_unit_seat_ai_enterable_bit, TRUE);
 			SET_FLAG(seat0->flags, _unit_seat_driver_bit, TRUE);
 			SET_FLAG(seat0->flags, _unit_seat_gunner_bit, TRUE);
+			/* A wraith's driver rides out of sight inside the hull, as its tag has it:
+			 * Forge shows every vehicle's driver, and this one has no pose that fits */
+			if (tag_get_name(vehicle_tag_index) && strstr(tag_get_name(vehicle_tag_index), "wraith") != NULL)
+				SET_FLAG(seat0->flags, _unit_seat_invisible_bit, TRUE);
 		}
 	}
+}
+
+/* a driver with the animations for seat 0, the tag's label changed if not: and
+never left on "stand" from a driver who had nothing better, as the tag is
+every vehicle of its kind's */
+static void vehicle_seat_fit_driver(long driver_unit, long vehicle_index, struct unit_seat *seat)
+{
+	static char const *const fallback_seat_labels[] = {
+		"W-driver", "G-driver", "B-driver", "S-driver", "stand"
+	};
+	short lbl_idx;
+
+	if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0) && _stricmp(seat->label, "stand") != 0)
+		return;
+	for (lbl_idx = 0; lbl_idx < (short)NUMBEROF(fallback_seat_labels); lbl_idx++)
+	{
+		strncpy(seat->label, fallback_seat_labels[lbl_idx], TAG_STRING_LENGTH);
+		seat->label[TAG_STRING_LENGTH] = '\0';
+		if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0))
+			break;
+	}
+}
+
+/* seats a vehicle's driver. Entering is cut short here, and it's the animation's
+end that hides a driver in an invisible seat, so that's done here too */
+static void vehicle_seat_driver(long driver_unit, long vehicle_index, struct unit_seat *seat)
+{
+	struct unit_datum *v_unit = unit_get(vehicle_index);
+
+	if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0) &&
+		unit_enter_seat(driver_unit, vehicle_index, 0))
+	{
+		unit_abort_animation(driver_unit);
+		unit_close(vehicle_index);
+		v_unit->unit.driver_object_index = driver_unit;
+		v_unit->unit.gunner_object_index = driver_unit;
+		v_unit->unit.player_index = NONE;
+		SET_FLAG(v_unit->unit.flags, _unit_actively_controlled_bit, TRUE);
+		if (TEST_FLAG(seat->flags, _unit_seat_invisible_bit))
+			object_set_visibility(driver_unit, FALSE);
+	}
+}
+
+/* how well an Elite variant suits a driver's seat: 0 for one to keep on foot.
+Sword carriers have nothing to do in a vehicle, and commanders are the wave's
+gold leaders */
+static short elite_driver_rank(char const *name)
+{
+	if (strstr(name, "elite") == NULL || strstr(name, "sword") != NULL || strstr(name, "stealth") != NULL ||
+		strstr(name, "special") != NULL || strstr(name, "specops") != NULL)
+	{
+		return 0;
+	}
+	if (strstr(name, "major") != NULL)
+		return 3;
+	return strstr(name, "minor") != NULL ? 2 : 1;
 }
 
 static long pick_vehicle_driver_variant(long fallback_variant, byte wave_faction)
 {
 	short i;
+	short best_rank = 0;
+	long best_elite = NONE;
 	long marine_candidate = NONE;
 
 	/* Prefer an Elite actor variant because Elites have W-driver, B-driver, and G-driver seat animations */
@@ -2260,16 +2318,21 @@ static long pick_vehicle_driver_variant(long fallback_variant, byte wave_faction
 	{
 		long v_idx = g_roster[i].variant_tag_index;
 		char const *name = v_idx != NONE ? tag_get_name(v_idx) : NULL;
+		short rank;
 		if (!name)
 			continue;
-		if (strstr(name, "elite") != NULL && strstr(name, "special") == NULL)
+		rank = elite_driver_rank(name);
+		if (rank > best_rank)
 		{
-			if (wave_faction != _firefight_faction_unsc_humans)
-				return v_idx;
+			best_rank = rank;
+			best_elite = v_idx;
 		}
 		if (strstr(name, "marine") != NULL || strstr(name, "odst") != NULL)
 			marine_candidate = v_idx;
 	}
+
+	if (wave_faction != _firefight_faction_unsc_humans && best_elite != NONE)
+		return best_elite;
 
 	if (wave_faction == _firefight_faction_unsc_humans && marine_candidate != NONE)
 		return marine_candidate;
@@ -2289,20 +2352,21 @@ static long pick_vehicle_driver_variant(long fallback_variant, byte wave_faction
 }
 
 /* (the flight in progress, set up by start_dropship_insertion) */
-static struct ff_route_leg g_dropship_route[FF_ROUTE_LEG_COUNT];
+static struct ff_route_flight g_dropship_flight;
 
-/* the route of the dropship zone at this spot, when Forge gave it one */
-static boolean dropship_route_load(real_point3d const *zone, real facing)
+/* a flight to the zone at this spot: on its route if Forge gave it one, which
+this says, or else the automatic path */
+static boolean dropship_flight_prepare(struct ff_route_flight *flight, real_point3d const *zone, real facing)
 {
 	struct scenario *scen = global_scenario_try_and_get();
 	real best_distance = 2.0f;
 	int route_id = 0;
+	boolean has_route = FALSE;
 	short i;
 
-	if (!scen)
-		return FALSE;
+	csmemset(flight, 0, sizeof(*flight));
 
-	for (i = 0; i < scen->netgame_flags.count; i++)
+	for (i = 0; scen && i < scen->netgame_flags.count; i++)
 	{
 		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
 			&scen->netgame_flags, i, struct scenario_netgame_flag);
@@ -2320,11 +2384,8 @@ static boolean dropship_route_load(real_point3d const *zone, real facing)
 			}
 		}
 	}
-	if (route_id == 0)
-		return FALSE;
 
-	csmemset(g_dropship_route, 0, sizeof(g_dropship_route));
-	for (i = 0; i < scen->netgame_flags.count; i++)
+	for (i = 0; scen && route_id != 0 && i < scen->netgame_flags.count; i++)
 	{
 		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
 			&scen->netgame_flags, i, struct scenario_netgame_flag);
@@ -2333,58 +2394,195 @@ static boolean dropship_route_load(real_point3d const *zone, real facing)
 			FF_UNPACK_SPAWN_TYPE(flag->team_index) == FF_ROUTE_SPAWN_TYPE &&
 			FF_ROUTE_ID(flag->team_index) == route_id)
 		{
+			int leg = FF_ROUTE_POINT_LEG(flag->team_index);
+
 			ff_route_leg_add(
-				&g_dropship_route[FF_ROUTE_POINT_LEG(flag->team_index)],
+				&flight->legs[leg],
 				FF_ROUTE_POINT_ORDER(flag->team_index),
 				flag->position.x,
 				flag->position.y,
 				flag->position.z);
+			flight->styles[leg] = FF_ROUTE_POINT_STYLE(flag->team_index);
+			has_route = TRUE;
 		}
 	}
-	if (g_dropship_route[FF_ROUTE_APPROACH].count == 0 && g_dropship_route[FF_ROUTE_DEPARTURE].count == 0)
+
+	ff_route_flight_finish(flight, zone->x, zone->y, zone->z, facing);
+	return has_route;
+}
+
+/* a ship for a flight, facing along it and out of everything's way */
+static long dropship_new(long dropship_tag, struct ff_route_flight const *flight, short team)
+{
+	struct ff_route_pose pose = ff_route_flight_pose(flight, 0.0f);
+	struct object_placement_data placement;
+	struct object_datum *d_obj;
+	long dropship_index;
+
+	object_placement_data_new(&placement, dropship_tag, NONE);
+	placement.position.x = pose.position.x;
+	placement.position.y = pose.position.y;
+	placement.position.z = pose.position.z;
+	placement.forward.i = cosine(pose.heading);
+	placement.forward.j = sine(pose.heading);
+	placement.forward.k = 0.0f;
+	normalize3d(&placement.forward);
+	placement.owner_team_index = team;
+	dropship_index = object_new(&placement);
+	if (dropship_index == NONE)
+		return NONE;
+
+	d_obj = object_try_and_get_and_verify_type(dropship_index, _object_mask_vehicle);
+	vehicle_hover(dropship_index, TRUE);
+	object_set_automatic_deactivation(dropship_index, FALSE);
+	if (d_obj)
+	{
+		SET_FLAG(d_obj->object.flags, _object_no_collisions_bit, TRUE);
+		SET_FLAG(d_obj->object.flags, _object_at_rest_bit, TRUE);
+		SET_FLAG(d_obj->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
+	}
+	return dropship_index;
+}
+
+/* puts a ship where its flight has it on this tick; FALSE when it's gone */
+static boolean dropship_fly(long vehicle_index, struct ff_route_pose const *pose)
+{
+	struct unit_datum *ship = vehicle_index != NONE ?
+		(struct unit_datum *)object_try_and_get_and_verify_type(vehicle_index, _object_mask_vehicle) : NULL;
+	real_point3d position;
+	real_vector3d forward;
+	real_vector3d up;
+
+	if (!ship)
 		return FALSE;
 
-	ff_route_legs_finish(g_dropship_route, zone->x, zone->y, zone->z, facing);
+	position.x = pose->position.x;
+	position.y = pose->position.y;
+	position.z = pose->position.z;
+	forward.i = cosine(pose->heading);
+	forward.j = sine(pose->heading);
+	forward.k = pose->pitch;
+	up.i = -forward.i * pose->pitch;
+	up.j = -forward.j * pose->pitch;
+	up.k = 1.0f;
+	normalize3d(&forward);
+	normalize3d(&up);
+
+	/* (set before the move: that's what works out its nodes at this size. A
+	camouflage left alone wears off a little each tick, so it's held here) */
+	ship->object.scale = pose->scale;
+	ship->unit.active_camouflage = pose->cloak;
+	object_set_position(vehicle_index, &position, &forward, &up);
+	vehicle_hover(vehicle_index, TRUE);
+	SET_FLAG(ship->object.flags, _object_no_collisions_bit, TRUE);
+	SET_FLAG(ship->object.flags, _object_at_rest_bit, TRUE);
 	return TRUE;
 }
 
-/* a leg flies at about the automatic path's speed; a long one speeds up rather
-than hold the wave's troops back */
-static short dropship_route_leg_ticks(struct ff_route_leg const *leg, short shortest)
+/* a slipspace end's flash, as a flight starts and just before it finishes */
+static void dropship_flash(
+	struct ff_route_flight const *flight,
+	real previous_tick,
+	real tick,
+	struct ff_route_pose const *pose,
+	byte wave_faction,
+	boolean is_boss_wave)
 {
-	long ticks = (long)(leg->length * (real)TICKS_PER_SECOND / 14.0f);
+	real flash_tick = (real)(ff_route_flight_total_ticks(flight) - FF_ROUTE_FLASH_TICKS_BEFORE_END);
+	boolean starting = previous_tick < 0.0f && flight->styles[FF_ROUTE_APPROACH] == FF_ROUTE_STYLE_SLIPSPACE;
+	boolean ending = previous_tick < flash_tick && tick >= flash_tick &&
+		flight->styles[FF_ROUTE_DEPARTURE] == FF_ROUTE_STYLE_SLIPSPACE;
 
-	return (short)PIN(ticks, (long)shortest, (long)DROPSHIP_ROUTE_MAX_LEG_TICKS);
+	if (starting || ending)
+	{
+		real_point3d position;
+
+		position.x = pose->position.x;
+		position.y = pose->position.y;
+		position.z = pose->position.z;
+		spawn_insertion_beacon_effect(&position, NONE, wave_faction, is_boss_wave);
+	}
 }
 
-/* where along the leg the ship is (0-1), and which way that heads it */
-static void dropship_route_sample(short leg_index, real fraction, real_point3d *position, real *heading)
-{
-	struct ff_route_leg const *leg = &g_dropship_route[leg_index];
-	real travelled = fraction * leg->length;
-	struct ff_route_point here = ff_route_leg_at(leg, travelled);
-	struct ff_route_point ahead = ff_route_leg_at(leg, travelled + 1.0f);
-	struct ff_route_point behind = ff_route_leg_at(leg, travelled - 1.0f);
-	real dx = ahead.x - behind.x;
-	real dy = ahead.y - behind.y;
+/* ---------- A flight tested in Forge: the same flight, with no one aboard */
 
-	position->x = here.x;
-	position->y = here.y;
-	position->z = here.z;
-	if (dx * dx + dy * dy > 0.0001f)
-		*heading = (real)atan2((double)dy, (double)dx);
+static struct
+{
+	long vehicle_index;
+	struct ff_route_flight flight;
+	real tick;
+} g_dropship_preview = { NONE };
+
+void firefight_dropship_preview_stop(void)
+{
+	if (g_dropship_preview.vehicle_index != NONE &&
+		object_try_and_get_and_verify_type(g_dropship_preview.vehicle_index, _object_mask_vehicle))
+	{
+		object_delete(g_dropship_preview.vehicle_index);
+	}
+	g_dropship_preview.vehicle_index = NONE;
 }
 
-/* turns from one heading to the other the short way round: 0 is from, 1 is to */
-static real dropship_blend_heading(real from, real to, real amount)
+boolean firefight_dropship_preview_start(real_point3d const *zone, real facing, long dropship_tag)
 {
-	real turn = to - from;
+	struct ff_route_pose pose;
 
-	while (turn > _pi)
-		turn -= 2.0f * _pi;
-	while (turn < -_pi)
-		turn += 2.0f * _pi;
-	return from + turn * amount * amount * (3.0f - 2.0f * amount);
+	firefight_dropship_preview_stop();
+	dropship_flight_prepare(&g_dropship_preview.flight, zone, facing);
+	g_dropship_preview.vehicle_index = dropship_new(dropship_tag, &g_dropship_preview.flight, _game_team_covenant);
+	if (g_dropship_preview.vehicle_index == NONE)
+		return FALSE;
+
+	g_dropship_preview.tick = 0.0f;
+	pose = ff_route_flight_pose(&g_dropship_preview.flight, 0.0f);
+	dropship_fly(g_dropship_preview.vehicle_index, &pose);
+	dropship_flash(&g_dropship_preview.flight, -1.0f, 0.0f, &pose, _firefight_faction_covenant, FALSE);
+	return TRUE;
+}
+
+/* a frame of the test flight: its phase, or 0 once there's none in the air */
+short firefight_dropship_preview_update(real seconds)
+{
+	struct ff_route_pose pose;
+	real previous_tick = g_dropship_preview.tick;
+
+	if (g_dropship_preview.vehicle_index == NONE)
+		return 0;
+
+	g_dropship_preview.tick += seconds * (real)FF_ROUTE_TICKS_PER_SECOND;
+	if (g_dropship_preview.tick >= (real)ff_route_flight_total_ticks(&g_dropship_preview.flight))
+	{
+		firefight_dropship_preview_stop();
+		return 0;
+	}
+
+	pose = ff_route_flight_pose(&g_dropship_preview.flight, g_dropship_preview.tick);
+	if (!dropship_fly(g_dropship_preview.vehicle_index, &pose))
+	{
+		g_dropship_preview.vehicle_index = NONE;
+		return 0;
+	}
+	dropship_flash(
+		&g_dropship_preview.flight, previous_tick, g_dropship_preview.tick, &pose, _firefight_faction_covenant, FALSE);
+	return (short)pose.phase;
+}
+
+/* a client's ship: what the host's state says of how it looks */
+void firefight_dropship_apply_look(short absolute_index, real scale, real cloak)
+{
+	struct object_iterator iterator;
+	struct object_datum *object;
+
+	object_iterator_new(&iterator, _object_mask_vehicle, 0);
+	while ((object = object_iterator_next(&iterator)) != NULL)
+	{
+		if (DATUM_INDEX_TO_ABSOLUTE_INDEX(iterator.index) == absolute_index)
+		{
+			object->object.scale = scale;
+			((struct unit_datum *)object)->unit.active_camouflage = cloak;
+			return;
+		}
+	}
 }
 
 static boolean start_dropship_insertion(
@@ -2405,14 +2603,8 @@ static boolean start_dropship_insertion(
 	real_vector3d ray_up = { 0.0f, 0.0f, 10.5f };
 	boolean has_sky_clearance = TRUE;
 	real approach_angle;
-	real cos_a;
-	real sin_a;
-	real_point3d start_pos;
-	real_point3d hover_pos;
-	real_point3d exit_pos;
+	struct ff_route_pose first_pose;
 	boolean has_route;
-	short approach_ticks = DROPSHIP_APPROACH_TICKS;
-	short departure_ticks = DROPSHIP_DEPARTURE_TICKS;
 
 	if (!landing_zone)
 		return FALSE;
@@ -2432,7 +2624,7 @@ static boolean start_dropship_insertion(
 
 	/* Require >= 10.0f world units of vertical ceiling clearance above the drop zone via upward raycast
 	 * (a placed route was laid out around whatever is overhead, so it is taken as flyable) */
-	has_route = dropship_route_load(landing_zone, facing);
+	has_route = dropship_flight_prepare(&g_dropship_flight, landing_zone, facing);
 	ray_start = *landing_zone;
 	ray_start.z += 0.5f;
 	if (!has_route && collision_test_vector(FLAG(_collision_test_structure_bit), &ray_start, &ray_up, NONE, &coll))
@@ -2452,81 +2644,31 @@ static boolean start_dropship_insertion(
 
 	/* Approach angle from drop_zone out to start_pos; the dropship faces inward toward drop_zone */
 	approach_angle = facing + _pi;
-	cos_a = cosine(approach_angle);
-	sin_a = sine(approach_angle);
 
-	start_pos.x = landing_zone->x + cos_a * FF_ROUTE_START_BEHIND;
-	start_pos.y = landing_zone->y + sin_a * FF_ROUTE_START_BEHIND;
-	start_pos.z = landing_zone->z + FF_ROUTE_START_HEIGHT;
-
-	hover_pos.x = landing_zone->x;
-	hover_pos.y = landing_zone->y;
-	hover_pos.z = landing_zone->z + FF_ROUTE_HOVER_HEIGHT;
-
-	exit_pos.x = landing_zone->x - cos_a * FF_ROUTE_EXIT_AHEAD;
-	exit_pos.y = landing_zone->y - sin_a * FF_ROUTE_EXIT_AHEAD;
-	exit_pos.z = landing_zone->z + FF_ROUTE_EXIT_HEIGHT;
-
-	if (has_route)
-	{
-		struct ff_route_leg const *approach = &g_dropship_route[FF_ROUTE_APPROACH];
-		struct ff_route_leg const *departure = &g_dropship_route[FF_ROUTE_DEPARTURE];
-
-		start_pos.x = approach->points[0].x;
-		start_pos.y = approach->points[0].y;
-		start_pos.z = approach->points[0].z;
-		exit_pos.x = departure->points[departure->count - 1].x;
-		exit_pos.y = departure->points[departure->count - 1].y;
-		exit_pos.z = departure->points[departure->count - 1].z;
-		approach_ticks = dropship_route_leg_ticks(approach, DROPSHIP_APPROACH_TICKS);
-		departure_ticks = dropship_route_leg_ticks(departure, DROPSHIP_DEPARTURE_TICKS);
-	}
-
-	{
-		struct object_placement_data placement;
-		object_placement_data_new(&placement, dropship_tag, NONE);
-		placement.position = start_pos;
-		placement.forward.i = -cos_a;
-		placement.forward.j = -sin_a;
-		placement.forward.k = 0.0f;
-		normalize3d(&placement.forward);
-		placement.owner_team_index = is_pelican ? _game_team_human : _game_team_covenant;
-		dropship_index = object_new(&placement);
-	}
-
+	dropship_index = dropship_new(
+		dropship_tag, &g_dropship_flight, is_pelican ? _game_team_human : _game_team_covenant);
 	if (dropship_index == NONE)
 		return FALSE;
 
-	{
-		struct object_datum *d_obj = object_try_and_get_and_verify_type(dropship_index, _object_mask_vehicle);
-		vehicle_hover(dropship_index, TRUE);
-		object_set_automatic_deactivation(dropship_index, FALSE);
-		if (d_obj)
-		{
-			SET_FLAG(d_obj->object.flags, _object_no_collisions_bit, TRUE);
-			SET_FLAG(d_obj->object.flags, _object_at_rest_bit, TRUE);
-			SET_FLAG(d_obj->object.damage_flags, _object_cannot_take_damage_bit, TRUE);
-		}
-	}
-
 	ff_state.active_dropship.vehicle_index = dropship_index;
 	ff_state.active_dropship.drop_zone = *landing_zone;
-	ff_state.active_dropship.start_position = start_pos;
-	ff_state.active_dropship.hover_position = hover_pos;
-	ff_state.active_dropship.exit_position = exit_pos;
+	ff_state.active_dropship.hover_position.x = landing_zone->x;
+	ff_state.active_dropship.hover_position.y = landing_zone->y;
+	ff_state.active_dropship.hover_position.z = landing_zone->z + FF_ROUTE_HOVER_HEIGHT;
 	ff_state.active_dropship.approach_angle = approach_angle;
 	ff_state.active_dropship.phase = DROPSHIP_PHASE_DESCENDING;
 	ff_state.active_dropship.elapsed_ticks = 0;
-	ff_state.active_dropship.timer_ticks = (short)(approach_ticks + DROPSHIP_HOVER_TICKS + departure_ticks);
-	ff_state.active_dropship.approach_ticks = approach_ticks;
-	ff_state.active_dropship.departure_ticks = departure_ticks;
-	ff_state.active_dropship.has_route = has_route;
+	ff_state.active_dropship.timer_ticks = (short)ff_route_flight_total_ticks(&g_dropship_flight);
 	ff_state.active_dropship.squad_to_spawn = squad_to_spawn;
 	ff_state.active_dropship.forced_team = forced_team;
 	ff_state.active_dropship.wave_faction = wave_faction;
 	ff_state.active_dropship.is_boss_wave = is_boss_wave;
 	ff_state.active_dropship.is_pelican = is_pelican;
 	ff_state.active_dropship.payload_deployed = FALSE;
+
+	first_pose = ff_route_flight_pose(&g_dropship_flight, 0.0f);
+	dropship_fly(dropship_index, &first_pose);
+	dropship_flash(&g_dropship_flight, -1.0f, 0.0f, &first_pose, wave_faction, is_boss_wave);
 
 	firefight_announce_banner(_ff_banner_dropship_inbound, 0, 3 * TICKS_PER_SECOND);
 	return TRUE;
@@ -2653,30 +2795,10 @@ static long spawn_boss_vehicle_at(
 			v_unit->object.owner_team_index = enemy_team;
 
 			/* Ensure the driver biped animation graph matches seat 0's label so unit_enter_seat succeeds */
-			if (seat0 && !unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0))
+			if (seat0)
 			{
-				static char const *const fallback_seat_labels[] = {
-					"W-driver", "G-driver", "B-driver", "S-driver", "stand"
-				};
-				short lbl_idx;
-				for (lbl_idx = 0; lbl_idx < (short)NUMBEROF(fallback_seat_labels); lbl_idx++)
-				{
-					strncpy(seat0->label, fallback_seat_labels[lbl_idx], TAG_STRING_LENGTH);
-					seat0->label[TAG_STRING_LENGTH] = '\0';
-					if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0))
-						break;
-				}
-			}
-
-			if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0) &&
-				unit_enter_seat(driver_unit, vehicle_index, 0))
-			{
-				unit_abort_animation(driver_unit);
-				unit_close(vehicle_index);
-				v_unit->unit.driver_object_index = driver_unit;
-				v_unit->unit.gunner_object_index = driver_unit;
-				v_unit->unit.player_index = NONE;
-				SET_FLAG(v_unit->unit.flags, _unit_actively_controlled_bit, TRUE);
+				vehicle_seat_fit_driver(driver_unit, vehicle_index, seat0);
+				vehicle_seat_driver(driver_unit, vehicle_index, seat0);
 			}
 		}
 
@@ -2800,30 +2922,10 @@ static long spawn_specific_enemy_vehicle_at(
 				SET_FLAG(v_unit->unit.flags, _unit_actively_controlled_bit, FALSE);
 				v_unit->object.owner_team_index = enemy_team;
 
-				if (seat0 && !unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0))
+				if (seat0)
 				{
-					static char const *const fallback_seat_labels[] = {
-						"W-driver", "G-driver", "B-driver", "S-driver", "stand"
-					};
-					short lbl_idx;
-					for (lbl_idx = 0; lbl_idx < (short)NUMBEROF(fallback_seat_labels); lbl_idx++)
-					{
-						strncpy(seat0->label, fallback_seat_labels[lbl_idx], TAG_STRING_LENGTH);
-						seat0->label[TAG_STRING_LENGTH] = '\0';
-						if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0))
-							break;
-					}
-				}
-
-				if (unit_has_animation_to_enter_seat(driver_unit, vehicle_index, 0) &&
-					unit_enter_seat(driver_unit, vehicle_index, 0))
-				{
-					unit_abort_animation(driver_unit);
-					unit_close(vehicle_index);
-					v_unit->unit.driver_object_index = driver_unit;
-					v_unit->unit.gunner_object_index = driver_unit;
-					v_unit->unit.player_index = NONE;
-					SET_FLAG(v_unit->unit.flags, _unit_actively_controlled_bit, TRUE);
+					vehicle_seat_fit_driver(driver_unit, vehicle_index, seat0);
+					vehicle_seat_driver(driver_unit, vehicle_index, seat0);
 				}
 			}
 
@@ -3998,70 +4100,25 @@ void firefight_update_dropships_and_vehicles(void)
 	{
 		long v_idx = ff_state.active_dropship.vehicle_index;
 		short elapsed = ff_state.active_dropship.elapsed_ticks;
-		short approach_end = ff_state.active_dropship.approach_ticks;
-		short hover_end = (short)(approach_end + DROPSHIP_HOVER_TICKS);
-		short flight_end = (short)(hover_end + ff_state.active_dropship.departure_ticks);
-		boolean has_route = ff_state.active_dropship.has_route;
+		short flight_end = (short)ff_route_flight_total_ticks(&g_dropship_flight);
 		real angle = ff_state.active_dropship.approach_angle;
 		real cos_a = cosine(angle);
 		real sin_a = sine(angle);
-		real_vector3d forward;
-		real_vector3d up;
-		real_point3d pos = ff_state.active_dropship.hover_position;
+		struct ff_route_pose pose = ff_route_flight_pose(&g_dropship_flight, (real)elapsed);
 
-		forward.i = -cos_a;
-		forward.j = -sin_a;
-		forward.k = 0.0f;
-		up.i = 0.0f;
-		up.j = 0.0f;
-		up.k = 1.0f;
+		ff_state.active_dropship.phase = (short)pose.phase;
+		ff_state.active_dropship.scale = pose.scale;
+		ff_state.active_dropship.cloak = pose.cloak;
+		dropship_flash(
+			&g_dropship_flight,
+			(real)elapsed - 1.0f < 0.0f ? 0.0f : (real)elapsed - 1.0f,
+			(real)elapsed,
+			&pose,
+			ff_state.active_dropship.wave_faction,
+			ff_state.active_dropship.is_boss_wave);
 
-		if (elapsed < approach_end)
+		if (pose.phase == FF_ROUTE_PHASE_HOVER)
 		{
-			/* Phase 1 — Approach (3 seconds, or the route's own length): cubic ease-out trajectory to hover_pos */
-			real t = PIN((real)elapsed / (real)approach_end, 0.0f, 1.0f);
-			real inv = 1.0f - t;
-			real ease = has_route ? 1.0f - (inv * inv) : 1.0f - (inv * inv * inv);
-			real pitch_flare = 0.14f * (real)sin((double)(t * _pi));
-
-			if (has_route)
-			{
-				/* Follows the route nose first, swinging round to the zone's facing for the last stretch */
-				real hover_heading = angle + _pi;
-				real heading = hover_heading;
-
-				dropship_route_sample(FF_ROUTE_APPROACH, ease, &pos, &heading);
-				heading = dropship_blend_heading(heading, hover_heading, PIN((ease - 0.7f) / 0.3f, 0.0f, 1.0f));
-				forward.i = cosine(heading);
-				forward.j = sine(heading);
-			}
-			else
-			{
-				pos.x = ff_state.active_dropship.start_position.x +
-					(ff_state.active_dropship.hover_position.x - ff_state.active_dropship.start_position.x) * ease;
-				pos.y = ff_state.active_dropship.start_position.y +
-					(ff_state.active_dropship.hover_position.y - ff_state.active_dropship.start_position.y) * ease;
-				pos.z = ff_state.active_dropship.start_position.z +
-					(ff_state.active_dropship.hover_position.z - ff_state.active_dropship.start_position.z) * ease;
-			}
-
-			up.i = -forward.i * pitch_flare;
-			up.j = -forward.j * pitch_flare;
-			up.k = 1.0f;
-			normalize3d(&up);
-			forward.k = pitch_flare;
-			normalize3d(&forward);
-
-			ff_state.active_dropship.phase = DROPSHIP_PHASE_DESCENDING;
-		}
-		else if (elapsed < hover_end)
-		{
-			/* Phase 2 — Hover & Squad/Vehicle Unload (2 seconds) */
-			pos = ff_state.active_dropship.hover_position;
-			pos.z += 0.08f * (real)sin((double)(elapsed - approach_end) * 0.15);
-			normalize3d(&forward);
-			ff_state.active_dropship.phase = DROPSHIP_PHASE_HOVER_DEPLOY;
-
 			if (!ff_state.active_dropship.payload_deployed)
 			{
 				long player_units[16];
@@ -4118,58 +4175,8 @@ void firefight_update_dropships_and_vehicles(void)
 				ff_state.active_dropship.squad_to_spawn = 0;
 			}
 		}
-		else
-		{
-			/* Phase 3 — Departure & Cleanup (3 seconds, or the route's own length): accelerate along exit vector */
-			real t = PIN((real)(elapsed - hover_end) / (real)(flight_end - hover_end), 0.0f, 1.0f);
-			real ease = t * t * (3.0f - 2.0f * t);
-			real climb_pitch = 0.20f * t;
-
-			if (has_route)
-			{
-				real hover_heading = angle + _pi;
-				real heading = hover_heading;
-
-				dropship_route_sample(FF_ROUTE_DEPARTURE, ease, &pos, &heading);
-				heading = dropship_blend_heading(hover_heading, heading, PIN(ease / 0.3f, 0.0f, 1.0f));
-				forward.i = cosine(heading);
-				forward.j = sine(heading);
-			}
-			else
-			{
-				pos.x = ff_state.active_dropship.hover_position.x +
-					(ff_state.active_dropship.exit_position.x - ff_state.active_dropship.hover_position.x) * ease;
-				pos.y = ff_state.active_dropship.hover_position.y +
-					(ff_state.active_dropship.exit_position.y - ff_state.active_dropship.hover_position.y) * ease;
-				pos.z = ff_state.active_dropship.hover_position.z +
-					(ff_state.active_dropship.exit_position.z - ff_state.active_dropship.hover_position.z) * ease;
-			}
-
-			up.i = -forward.i * climb_pitch;
-			up.j = -forward.j * climb_pitch;
-			up.k = 1.0f;
-			normalize3d(&up);
-			forward.k = climb_pitch;
-			normalize3d(&forward);
-
-			ff_state.active_dropship.phase = DROPSHIP_PHASE_ASCENDING;
-		}
-
-		if (v_idx != NONE)
-		{
-			struct object_datum *v_obj = object_try_and_get_and_verify_type(v_idx, _object_mask_vehicle);
-			if (v_obj)
-			{
-				object_set_position(v_idx, &pos, &forward, &up);
-				vehicle_hover(v_idx, TRUE);
-				SET_FLAG(v_obj->object.flags, _object_no_collisions_bit, TRUE);
-				SET_FLAG(v_obj->object.flags, _object_at_rest_bit, TRUE);
-			}
-			else
-			{
-				ff_state.active_dropship.vehicle_index = NONE;
-			}
-		}
+		if (v_idx != NONE && !dropship_fly(v_idx, &pose))
+			ff_state.active_dropship.vehicle_index = NONE;
 
 		ff_state.active_dropship.elapsed_ticks++;
 		if (ff_state.active_dropship.timer_ticks > 0)

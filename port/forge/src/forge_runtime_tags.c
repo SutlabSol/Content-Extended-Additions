@@ -7125,9 +7125,11 @@ static int resolve_marker_kind_and_color(
 	return 0;
 }
 
-static void draw_translucent_koth_beam_3d(
+static void draw_translucent_beam_3d(
 	union real_point3d const *p0,
-	union real_point3d const *p1)
+	union real_point3d const *p1,
+	int color_preset,
+	float thickness)
 {
 	struct rasterizer_model_begin_parameters model_parameters;
 	union real_rgb_color change_colors[4];
@@ -7150,7 +7152,7 @@ static void draw_translucent_koth_beam_3d(
 	if (len_3d < 0.01f)
 		return;
 
-	col_shdr_idx = get_or_create_translucent_marker_shader(_marker_color_koth_gold, 1, 0);
+	col_shdr_idx = get_or_create_translucent_marker_shader(color_preset, 1, 0);
 	if (col_shdr_idx == NONE)
 		return;
 	col_shdr_def = shader_definition_get(col_shdr_idx);
@@ -7182,7 +7184,9 @@ static void draw_translucent_koth_beam_3d(
 	}
 	node_matrix.up.i = 0.0f;
 	node_matrix.up.j = 0.0f;
-	node_matrix.up.k = 1.0f;
+	node_matrix.up.k = thickness;
+	node_matrix.left.i *= thickness;
+	node_matrix.left.j *= thickness;
 
 	change_colors[0].red = 1.0f;
 	change_colors[0].green = 1.0f;
@@ -7233,6 +7237,25 @@ static void draw_translucent_koth_beam_3d(
 			NONE);
 	}
 	rasterizer_model_end();
+}
+
+static void draw_dropship_route_piece(float const *from, float const *to, int kind)
+{
+	static int const colors[] = {
+		_marker_color_koth_gold,  /* approach */
+		_marker_color_blue_team,  /* departure */
+		_marker_color_red_team,   /* blocked */
+		_marker_color_tele_green  /* tail */
+	};
+	union real_point3d p0, p1;
+
+	p0.x = from[0];
+	p0.y = from[1];
+	p0.z = from[2];
+	p1.x = to[0];
+	p1.y = to[1];
+	p1.z = to[2];
+	draw_translucent_beam_3d(&p0, &p1, colors[kind], 3.0f);
 }
 
 static void render_world_objective_and_spawn_markers(void)
@@ -7322,6 +7345,9 @@ static void render_world_objective_and_spawn_markers(void)
 	 * (or actively being placed as a 10-point hill), connecting the exact 3D marker positions. */
 	if (g_forge.mode != _forge_mode_3d_monitor)
 		return;
+
+	forge_3d_dropship_routes_render(draw_dropship_route_piece);
+
 	for (hill_id = 0; hill_id < 16; hill_id++)
 	{
 		int node_indices[32];
@@ -7385,7 +7411,7 @@ static void render_world_objective_and_spawn_markers(void)
 				p1.x = inst1->x;
 				p1.y = inst1->y;
 				p1.z = inst1->z;
-				draw_translucent_koth_beam_3d(&p0, &p1);
+				draw_translucent_beam_3d(&p0, &p1, _marker_color_koth_gold, 1.0f);
 			}
 		}
 	}
