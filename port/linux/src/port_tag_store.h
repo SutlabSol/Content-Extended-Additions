@@ -46,6 +46,10 @@ void port_tag_store_close(long handle);
 again when they are a quarter of it; with no tag files, the pack and its
 index go. 0 if it cannot be read or written (it is as it was). */
 int port_tag_store_collect(const char *folder, const char *const *files, long file_count);
+/* The tag file `file` of the folder `from` written into the folder `to`, its
+regions added to that folder's pack as port_tag_store_write adds them. 0 if
+it cannot be read or written. */
+int port_tag_store_copy(const char *from, const char *file, const char *to, unsigned long *stored);
 /* the bytes of the folder's pack and its index */
 unsigned long port_tag_store_pack_size(const char *folder);
 

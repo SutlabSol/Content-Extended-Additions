@@ -37,11 +37,6 @@ file layer has on every build (port/linux/src/xbox_files.c): its
 #if FORGE_HOST_FILES blocks, Windows' alone before Content Extended reached
 the other builds */
 #define FORGE_HOST_FILES 1
-#ifndef _WIN32
-/* (a question Windows asks in a dialog: logged, and answered no) */
-int forge_message_box_log(char const *text, char const *caption);
-#define MessageBoxA(window, text, caption, type) forge_message_box_log((text), (caption))
-#endif
 /* (the platform layer's log: halo.log, and the console) */
 void platform_log(char const *format, ...);
 /* a static of Forge's kept on the heap, made (zeroed) when first wanted, not
@@ -454,13 +449,6 @@ uint32_t forge_get_base_map_tag_count(void);
 int forge_ui_save_copy_as(char const *new_map_name);
 void forge_trigger_save_map_action(void);
 void forge_load_saved_map_state_if_present(char const *map_name);
-int forge_cache_active_map_tag(uint32_t group_tag, char const *tag_path);
-int forge_add_custom_map_tag_to_cache(
-	char const *donor_map_path,
-	char const *maps_dir,
-	uint32_t root_group,
-	char const *root_tag_path,
-	char const *user_custom_name);
 void forge_normalize_mcc_hud_tags(void);
 int forge_is_mcc_hud_active(void);
 void forge_set_status(char const *fmt, ...);
@@ -549,15 +537,8 @@ short forge_key_state(int vk);
 int forge_get_readable_donor_map_path(char const *map_path, char *out_path, size_t out_sz);
 struct bitmap_data *forge_tag_preview_get_bitmap(void);
 void forge_tag_preview_clear(void);
-void forge_tag_preview_set_map_tag(char const *map_path, uint32_t group_tag, char const *tag_path);
 void forge_tag_preview_set_installed_tag(uint32_t group_tag, char const *tag_path, int is_custom);
 uint32_t forge_tag_preview_get_current_size_bytes(void);
-int forge_extract_tag_from_donor_map_to_ocetags(
-	char const *donor_map_path,
-	uint32_t root_group,
-	char const *root_tag_path,
-	char const *user_custom_name);
-int forge_delete_installed_tag_entry(uint32_t group_tag, char const *tag_path, int is_custom);
 int forge_reset_stock_tags_only(void);
 int forge_reset_custom_tags_only(void);
 

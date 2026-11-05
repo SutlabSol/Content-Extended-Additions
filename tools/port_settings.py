@@ -753,8 +753,6 @@ SCREENS["gameplay"] = {
         ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand medals, in multiplayer too."),
         ("COMMUNITY", "gameplay/community",
          "Online leaderboards, the daily challenge, and\nthe community server."),
-        ("TAG INJECTOR", "gameplay/tag_injector",
-         "Weapons and AI of Custom Edition maps, in\nprofiles the randomizer can add."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -2062,7 +2060,7 @@ def _randomizer_tag_profiles_screen(base: str) -> list:
 
 
 # the Tag Injector (port/linux/game/tag_injector.c, docs/tag_injector.md):
-# Gameplay's TAG INJECTOR, a screen laid out as the mods' is (_mods), its rows
+# Forge's TAG INJECTOR, a screen laid out as the mods' is (_mods), its rows
 # a list at a time. The first: TAG INJECTION (on or off), TAG PROFILES and
 # MAPS. TAG PROFILES lists the profiles, each with its size; A on one lists
 # its tags (where each came from, and its size), left and right turning one
@@ -2092,7 +2090,7 @@ CUSTOM_SCREENS = {"gameplay/tag_injector": {"screen": "tag_injector_screen"}}
 
 
 def _tag_injector_screen() -> list:
-    """Gameplay's TAG INJECTOR: on the left two thirds the rows of the list
+    """Forge's TAG INJECTOR: on the left two thirds the rows of the list
     shown, a row each with its name and state (ON, a profile's size, a tag's,
     a setting's value, a folder's maps, a kind's tags, ADDED); on the right
     third, in the lobby's frame, the row chosen's details, the word of the

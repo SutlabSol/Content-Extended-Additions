@@ -1723,27 +1723,9 @@ static void multiplayer_tags_loaded(char const *scenario_name, long profile, int
 }
 
 #if OPENCE_ENABLE_FORGE
-static int is_saved_forge_map(char const *scenario_name)
-{
-	char const *leaf = scenario_name ? tag_name_strip_path(scenario_name) : NULL;
-	char path[512];
-	FILE *f;
-	unsigned char hdr[0x200];
-
-	if (!leaf || !leaf[0])
-		return 0;
-	snprintf(path, sizeof(path), "custom_maps/%s.map", leaf);
-	f = fopen(path, "rb");
-	if (!f)
-		return 0;
-	if (fread(hdr, 1, sizeof(hdr), f) != sizeof(hdr))
-	{
-		fclose(f);
-		return 0;
-	}
-	fclose(f);
-	return (*(unsigned long const *)(hdr + 0x1FC) == 0x464C4731UL) ? 1 : 0;
-}
+/* (forge_runtime_tags.c's) whether the level is a saved Forge map */
+extern int forge_saved_map(char const *scenario_name);
+#define is_saved_forge_map forge_saved_map
 
 static int vault_profile_has_enabled_tags(long profile)
 {
@@ -1760,19 +1742,20 @@ static int vault_profile_has_enabled_tags(long profile)
 	return 0;
 }
 
+/* a Forge level's tags: the map's bake (tag_injector_tags_baked_set, which
+the injector reads first) and the profile, either of which may be none */
 static void forge_vault_tags_loaded(char const *scenario_name, long profile)
 {
 	custom_profile = profile;
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", tag_name_strip_path(scenario_name));
-	stock_hud_count = custom_profile != NONE ? tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX) : 0;
+	stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
 	if (stock_hud_count && tag_import_begin())
 	{
 		gather_stock_huds(map_name_leaf);
 		tag_import_run();
 		tag_import_end();
 	}
-	custom_root_count = custom_profile != NONE ?
-		tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX) : 0;
+	custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
 	tag_import_log("forge vault");
 	{
 		long count;
@@ -1782,6 +1765,47 @@ static void forge_vault_tags_loaded(char const *scenario_name, long profile)
 		error(_error_silent, "forge vault: %s's tag table: %ld tags, fingerprint %08lx",
 			map_name_leaf, count, hash);
 	}
+}
+#endif
+
+#if OPENCE_ENABLE_FORGE
+/* a Forge game's tags, or a saved Forge map's in any game: the map's bake,
+on every machine, then the player's chosen profile, or a network game's
+share of the host's. 1 when that was the level's import; a Firefight game
+goes on, with these two to play among its own */
+static int forge_level_tags(char const *scenario_name, int firefight, long *forge_profile, long *forge_baked)
+{
+	extern int g_forge_session_enabled;
+	extern long forge_level_baked_open(char const *scenario_name);
+	extern char const *forge_tag_profile_folder(void);
+	int saved = is_saved_forge_map(scenario_name);
+	long baked;
+	long profile = NONE;
+
+	*forge_profile = NONE;
+	*forge_baked = NONE;
+	if (!g_forge_session_enabled && !saved)
+		return 0;
+	baked = saved ? forge_level_baked_open(scenario_name) : NONE;
+	if (network_game_get_game())
+		profile = tag_multiplayer_forge_level_profile(scenario_name);
+	else if (g_forge_session_enabled && forge_tag_profile_folder()[0])
+	{
+		port_tag_profiles_scan();
+		profile = port_tag_profiles_find(forge_tag_profile_folder());
+		if (!vault_profile_has_enabled_tags(profile))
+			profile = NONE;
+	}
+	tag_injector_tags_baked_set(baked);
+	if (firefight)
+	{
+		*forge_profile = profile;
+		*forge_baked = baked;
+		return 0;
+	}
+	if (profile != NONE || baked != NONE)
+		forge_vault_tags_loaded(scenario_name, profile);
+	return 1;
 }
 #endif
 
@@ -2068,30 +2092,10 @@ void randomizer_custom_edition_tags_loaded(char const *scenario_name)
 	randomizer_tags_unloaded();
 #if OPENCE_ENABLE_FORGE
 	{
-		extern int g_forge_session_enabled;
+		long forge_profile, forge_baked;
 
-		if (g_forge_session_enabled || is_saved_forge_map(scenario_name))
-		{
-			char const *cfg_prof = config_string("randomizer.tag_profile");
-			long profile = NONE;
-
-			port_tag_profiles_scan();
-			if (cfg_prof && cfg_prof[0])
-			{
-				profile = port_tag_profiles_find(cfg_prof);
-				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
-					profile = NONE;
-			}
-			if (profile == NONE)
-			{
-				profile = port_tag_profiles_find("creation_hub");
-				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
-					profile = NONE;
-			}
-			if (profile != NONE && vault_profile_has_enabled_tags(profile))
-				forge_vault_tags_loaded(scenario_name, profile);
+		if (forge_level_tags(scenario_name, 0, &forge_profile, &forge_baked))
 			return;
-		}
 	}
 #endif
 	game_modes_tags_loaded(scenario_name);
@@ -2111,6 +2115,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 	int scarab;
 	long campaign_profile = NONE;
 	long forge_profile = NONE;
+	long forge_baked = NONE;
 
 	randomizer_tags_unloaded();
 	extra_enemies = 1;
@@ -2127,6 +2132,10 @@ void randomizer_tags_loaded(char const *scenario_name)
 		extern int g_forge_session_enabled;
 		g_forge_session_enabled = 0;
 	}
+#endif
+#if OPENCE_ENABLE_FORGE
+	if (forge_level_tags(scenario_name, firefight, &forge_profile, &forge_baked))
+		return;
 #endif
 	/* (a multiplayer game's shared weapons, on the game's own multiplayer
 	maps) */
@@ -2158,53 +2167,6 @@ void randomizer_tags_loaded(char const *scenario_name)
 			return;
 		}
 	}
-#if OPENCE_ENABLE_FORGE
-	/* (Forge Mode's Faber Tag Vault bundles, injected into the map when
-	Forge Mode is active or when loading a saved Forge map) */
-	{
-		extern int g_forge_session_enabled;
-
-		if (g_forge_session_enabled || is_saved_forge_map(scenario_name))
-		{
-			char const *cfg_prof = config_string("randomizer.tag_profile");
-			long profile = NONE;
-
-			port_tag_profiles_scan();
-			if (cfg_prof && cfg_prof[0])
-			{
-				profile = port_tag_profiles_find(cfg_prof);
-				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
-					profile = NONE;
-			}
-			if (profile == NONE)
-			{
-				profile = port_tag_profiles_find("creation_hub");
-				if (profile != NONE && !vault_profile_has_enabled_tags(profile))
-					profile = NONE;
-			}
-			if (profile == NONE)
-			{
-				long p, n = port_tag_profiles_count();
-				for (p = 0; p < n; p++)
-				{
-					if (vault_profile_has_enabled_tags(p))
-					{
-						profile = p;
-						break;
-					}
-				}
-			}
-			if (!firefight)
-			{
-				if (profile != NONE && vault_profile_has_enabled_tags(profile))
-					forge_vault_tags_loaded(scenario_name, profile);
-				return;
-			}
-			if (profile != NONE && vault_profile_has_enabled_tags(profile))
-				forge_profile = profile;
-		}
-	}
-#endif
 	/* (a multiplayer game's mode's: Floodfection's burst and forms) */
 	if (!campaign_leaf(scenario_name, leaf, sizeof(leaf)))
 	{
@@ -2278,7 +2240,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 		custom_profile = campaign_profile;
 		stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
 	}
-	else if (forge_profile != NONE)
+	else if (forge_profile != NONE || forge_baked != NONE)
 	{
 		custom_profile = forge_profile;
 		stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
@@ -2315,7 +2277,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 		tag_import_end();
 	}
 	/* (its tags, after those) */
-	if (custom_profile != NONE)
+	if (custom_profile != NONE || forge_baked != NONE)
 		custom_root_count = tag_injector_tags_load(custom_profile, custom_roots, custom_root_tags, CUSTOM_ROOT_MAX);
 	if (campaign_profile != NONE)
 	{

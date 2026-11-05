@@ -60,7 +60,7 @@ calls them from PC_MENU_FUNCTION_BASE on):
   "skulls screen update" ticks them and shows the chosen one's help;
 - Settings > Gameplay > Skulls: "skulls reset progress" (A twice) forgets
   the skulls found and the question of how they are had;
-- Settings > Gameplay > Tag Injector (tools/port_settings.py), laid out as
+- Forge > Tag Injector (tools/port_settings.py), laid out as
   the Mods screen is: "port tags update" shows its rows and the details of
   the one chosen (under a map's tag's or a profile's, its model, turning:
   tag_preview.c), "port tags choose" (A) goes down a list (the profiles, a
@@ -6452,7 +6452,7 @@ static boolean mods_save(void)
 	return TRUE;
 }
 
-/* ---------- the Tag Injector (Settings > Gameplay > Tag Injector,
+/* ---------- the Tag Injector (Forge > Tag Injector,
 tools/port_settings.py's TAG_INJECTOR): laid out as the Mods screen is, its
 rows (op_tag_<n>) a list at a time, and in the frame beside them the
 details of the row chosen. The first list has whether the randomizer plays
@@ -6855,13 +6855,12 @@ static char const *tags_browse_folder(void)
 listed) */
 static long tags_profile_category_count(short category)
 {
-	unsigned long group = tag_injector_category_group(category);
 	long count = port_tag_profiles_tag_count(tags_screen.profile);
 	long found = 0;
 	long tag;
 
-	for (tag = 0; group && tag < count; tag++)
-		found += port_tag_profiles_tag_group(tags_screen.profile, tag) == group;
+	for (tag = 0; tag < count; tag++)
+		found += tag_injector_group_in_category(port_tag_profiles_tag_group(tags_screen.profile, tag), category) != 0;
 	return found;
 }
 
@@ -6923,16 +6922,16 @@ that failed to load first (tags_listed_failed), then the rest, each in the
 profile's order */
 static long tags_profile_tag_of(short place)
 {
-	unsigned long group = tag_injector_category_group(tags_screen.profile_category);
 	long count = port_tag_profiles_tag_count(tags_screen.profile);
 	short pass;
 	long tag;
 
 	for (pass = 0; pass < 2; pass++)
 	{
-		for (tag = 0; group && place >= 0 && tag < count; tag++)
+		for (tag = 0; place >= 0 && tag < count; tag++)
 		{
-			if (port_tag_profiles_tag_group(tags_screen.profile, tag) == group &&
+			if (tag_injector_group_in_category(port_tag_profiles_tag_group(tags_screen.profile, tag),
+					tags_screen.profile_category) &&
 				tags_listed_failed(tag) == !pass && !place--)
 			{
 				return tag;
@@ -7618,7 +7617,9 @@ static char const *tags_tag_shown(long profile, long tag)
 /* the kind of a profile's tag, as the menu names it */
 static char const *tags_group_name(unsigned long group)
 {
-	return group == 'weap' ? "WEAPON" : group == 'actv' ? "AI" : group == 'eqip' ? "EQUIPMENT" : "TAG";
+	return group == 'weap' ? "WEAPON" : group == 'actv' ? "AI" : group == 'eqip' ? "EQUIPMENT" :
+		group == 'vehi' ? "VEHICLE" : group == 'bipd' ? "BIPED" : group == 'scen' ? "SCENERY" :
+		group == 'mach' ? "DOOR" : group == 'ctrl' ? "CONTROL" : group == 'lifi' ? "LIGHT" : "TAG";
 }
 
 /* MAPS' row at `place`: a folder (its name), or a map (its index of
@@ -12291,6 +12292,8 @@ static void server_settings_sections_update(struct widget_instance *list)
 		gametype_setup_type(wide);
 		text_set(named(list, "game_settings_value", 0), wide);
 	}
+	/* (a Forge game has no rules to set: it is a map being edited) */
+	visible_set(named(list, "op_game_settings", 0), multiplayer.gamemode != _gamemode_forge);
 	visible_set(named(list, "op_fork_settings", 0), server_settings_fork_shown(value, sizeof(value)));
 	text_field_show(named(list, "fork_settings_value", 0), value, FALSE);
 }
@@ -12419,7 +12422,8 @@ static void server_settings_update(struct widget_instance *list)
 		a Firefight game's (GAME SETTINGS') */
 		{
 			boolean local = multiplayer.mode == _multiplayer_mode_host_local && !cooperative;
-			boolean bots = !cooperative;
+			/* (no bots in a Forge game: its machines are editing) */
+			boolean bots = !cooperative && multiplayer.gamemode != _gamemode_forge;
 			boolean pve_bots = firefight;
 			struct widget_instance *help = list->parameters.list.extended_description;
 
@@ -13048,8 +13052,16 @@ static boolean advertised_in_progress(struct advertised_game *game)
 	return network_game_client_advertised_game_in_progress(global_network_game_client_get(), game);
 }
 
-/* (network_client_manager.c's) an advertised game's, by its place */
+/* (network_client_manager.c's) an advertised game's, by its place: whether
+it is modded, and its host's network version (a modded game's base one) */
 boolean network_game_client_port_advertised_modded(short game_index);
+unsigned short network_game_client_port_advertised_version(short game_index);
+
+/* (forge_runtime_tags.c's) the network version of the game being looked for:
+Forge's in a Forge session, whose browser lists only Forge's games */
+extern long forge_get_network_version(void);
+#define BROWSER_NETWORK_VERSION forge_get_network_version()
+#define BROWSER_FORGE_ONLY (forge_get_network_version() != HALO_PORT_NETWORK_VERSION)
 
 static void browser_games_read(void)
 {
@@ -13070,7 +13082,8 @@ static void browser_games_read(void)
 
 			if (network_game_client_advertised_game_is_valid(game) && !advertised_in_progress(game) == (pass < 2) &&
 				!network_game_client_port_advertised_modded(index) == (pass % 2 == 1) &&
-				game_from_peer(game) == (multiplayer.mode == _multiplayer_mode_direct_link))
+				game_from_peer(game) == (multiplayer.mode == _multiplayer_mode_direct_link) &&
+				(!BROWSER_FORGE_ONLY || network_game_client_port_advertised_version(index) == BROWSER_NETWORK_VERSION))
 			{
 				multiplayer.games[multiplayer.game_count++] = game;
 			}
@@ -13802,6 +13815,10 @@ static short lobby_browser_valid_games(struct p2p_listing *games, short count)
 		wchar_t name[P2P_LISTING_NAME_SIZE + 1];
 		short index;
 
+		/* (Forge's browser: Forge's games alone, modded or not, whose
+		listing carries the host's own version either way) */
+		if (BROWSER_FORGE_ONLY && games[read].network_version != BROWSER_NETWORK_VERSION)
+			continue;
 		text_to_wide(games[read].name, name, NUMBEROF(name));
 		if (!player_name_clean(name, NUMBEROF(name)))
 			continue;
@@ -14258,9 +14275,9 @@ static void lobby_browser_game_lines(struct p2p_listing const *game, wchar_t *pl
 		text_append_word(players, size, !game->open ? _browser_word_full : _browser_word_under_way);
 	}
 	rules[0] = 0;
-	if (game->network_version != HALO_PORT_NETWORK_VERSION)
+	if (game->network_version != BROWSER_NETWORK_VERSION)
 	{
-		text_append_word(rules, size, game->network_version > HALO_PORT_NETWORK_VERSION ?
+		text_append_word(rules, size, game->network_version > BROWSER_NETWORK_VERSION ?
 			_browser_word_newer_build : _browser_word_older_build);
 		return;
 	}
@@ -14398,7 +14415,7 @@ static void lobby_browser_update(struct widget_instance *list)
 		if (index >= lobby_browser.count)
 			continue;
 		game = &lobby_browser.games[index];
-		other_version = game->network_version != HALO_PORT_NETWORK_VERSION;
+		other_version = game->network_version != BROWSER_NETWORK_VERSION;
 		text_to_wide(game->name, text, ROW_TEXT_LENGTH);
 		text_set(named(row, "server_item_server_name", 0), text);
 		map_display_name(game->map, text);
@@ -14418,7 +14435,7 @@ static void lobby_browser_update(struct widget_instance *list)
 			browser_word(_browser_word_joining, text, ROW_TEXT_LENGTH);
 		else if (other_version)
 		{
-			browser_word(game->network_version > HALO_PORT_NETWORK_VERSION ? _browser_word_newer : _browser_word_older,
+			browser_word(game->network_version > BROWSER_NETWORK_VERSION ? _browser_word_newer : _browser_word_older,
 				text, ROW_TEXT_LENGTH);
 		}
 		else
@@ -14749,7 +14766,7 @@ static boolean lobby_browser_select(struct widget_instance *widget, short contro
 	if (index >= lobby_browser.count)
 		return campaign_fail();
 	game = &lobby_browser.games[index];
-	if (game->network_version != HALO_PORT_NETWORK_VERSION)
+	if (game->network_version != BROWSER_NETWORK_VERSION)
 	{
 		network_game_client_tell_version(game->network_version, TRUE);
 		return campaign_fail();
@@ -19062,10 +19079,8 @@ static boolean gamemode_menu_init(struct widget_instance *list)
 	}
 	if (list->name && !strcmp(list->name, "forge_tag_options_select_list"))
 	{
-		if (named(list, "forge_item_add_tags", 0))
-			list->focused_child = named(list, "forge_item_add_tags", 0);
-		else if (named(list, "forge_item_inject_tags", 0))
-			list->focused_child = named(list, "forge_item_inject_tags", 0);
+		if (named(list, "forge_item_reset_stock_tags", 0))
+			list->focused_child = named(list, "forge_item_reset_stock_tags", 0);
 		return TRUE;
 	}
 	return TRUE;
@@ -19127,18 +19142,14 @@ static void gamemode_menu_update(struct widget_instance *list)
 						L"MULTIPLAYER FORGE\r\nHOST OR JOIN LIVE\r\nCO-OP MAP EDITING\r\nSESSIONS" :
 					!strcmp(fc, "forge_item_edit_maps") ?
 						L"SAVED FORGE MAPS\r\nBROWSE & LOAD SAVED\r\nFORGE & CUSTOM MAPS" :
+					!strcmp(fc, "forge_item_tag_injector") ?
+						L"TAG INJECTOR\r\nPROFILES OF TAGS FROM\r\nCUSTOM MAPS, FOR FORGE,\r\nCAMPAIGN & MULTIPLAYER" :
 					!strcmp(fc, "forge_item_tag_options") ?
-						L"TAG OPTIONS\r\nADD TAGS FROM MAPS,\r\nMANAGE & RESET\r\nTAG CACHES" :
-					!strcmp(fc, "forge_item_add_tags") ?
-						L"ADD TAGS\r\nBROWSE CUSTOM MAPS\r\nWITH 3D PREVIEW &\r\nEXTRACT TAGS" :
-					!strcmp(fc, "forge_item_installed_tags") ?
-						L"INSTALLED TAGS\r\nVIEW 3D PREVIEWS &\r\nMANAGE INSTALLED\r\nCACHE TAGS" :
+						L"TAG OPTIONS\r\nRESET TAG CACHES &\r\nASSIGN SNAP POINTS" :
 					!strcmp(fc, "forge_item_reset_stock_tags") ?
 						L"RESET STOCK TAGS\r\nCLEAR STOCK TAG CACHE\r\nWHILE KEEPING\r\nCUSTOM TAGS" :
 					!strcmp(fc, "forge_item_reset_custom_tags") ?
 						L"RESET CUSTOM TAGS\r\nREMOVE ALL EXTRACTED\r\nCUSTOM [C] TAG\r\nPACKAGES" :
-					!strcmp(fc, "forge_item_inject_tags") ?
-						L"SYNC CUSTOM TAGS\r\nIMPORT .OCETAGS\r\nPACKAGES FROM\r\nFABER_DATA" :
 					!strcmp(fc, "clear_custom_cache_profile_item") ?
 						L"CLEAR CUSTOM TAGS\r\nREMOVE IMPORTED\r\nCUSTOM .OCETAGS\r\nPACKAGES" :
 					!strcmp(fc, "reset_tag_cache_profile_item") ?

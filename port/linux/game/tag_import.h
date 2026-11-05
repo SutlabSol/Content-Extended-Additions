@@ -64,6 +64,16 @@ the map itself when the pack is not written. Closed with tag_import_peek_close *
 struct tag_import_donor *tag_import_peek(char const *pack, char const *map);
 void tag_import_peek_close(struct tag_import_donor *donor);
 
+/* a pack's map opened on its own, from the pack alone and for as long as its
+opener likes: no level's import or end closes it (Forge's palette, which
+reads a tag from it the moment one is placed). The map's tag section as it
+is in the map, and a read of its pixels or samples by where they are in the
+map: how many bytes the pack had. NULL when the pack has not got the map */
+struct tag_import_donor *tag_import_pack_open(char const *pack, char const *map);
+void tag_import_pack_close(struct tag_import_donor *donor);
+unsigned char *tag_import_pack_tags(struct tag_import_donor *donor, unsigned long *size);
+long tag_import_pack_read(struct tag_import_donor *donor, long offset, long size, void *buffer);
+
 /* a donor's tags: how many, each one's group, name (NULL when its name is
 not in its tags) and its data, when `bytes` of it are in them (NULL
 otherwise); its scenario's (NONE) */

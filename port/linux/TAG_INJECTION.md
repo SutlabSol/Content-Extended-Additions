@@ -40,6 +40,11 @@ level's import: `randomizer_tags_loaded`), `skulls.c`
 (`skulls_tag_import`), `infection.c` (`infection_tag_import`, Floodfection)
 and the Tag Injector's stock HUDs (`randomizer.c`'s `gather_stock_huds`).
 
+Forge (`port/forge/src/forge_runtime_tags.c`) reads its pack differently: it
+copies nothing as the level loads, as a level has room for only so much of a
+palette (8192 tags, 64 MB), and instead reads one tag as it is placed, through
+`tag_import_pack_open`, a reader with a pack of its own that no level closes.
+
 ## Making a pack
 
 A pack is described by a manifest, `port/assets/tag_packs/<name>.toml`.

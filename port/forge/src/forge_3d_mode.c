@@ -2320,6 +2320,92 @@ static void sync_live_player_spawns_to_scenario(void)
 	}
 }
 
+/* a saved map's spawns and flags in the level loading's scenario, as it is
+playing them, for every machine and any game: the map's own go. Forge's
+own scan of the scenario then finds these, and its sync keeps them */
+void forge_3d_saved_markers_apply(
+	struct scenario *scen,
+	struct forge_player_spawn_entry const *spawns,
+	int spawn_count,
+	int replace_spawns,
+	struct forge_netgame_flag_entry const *flags,
+	int flag_count,
+	int replace_flags)
+{
+	int i;
+
+	if (!scen)
+		return;
+	if (replace_spawns && spawn_count <= FORGE_MAX_PLAYER_SPAWNS)
+	{
+		if (!s_live_sp_buf)
+			s_live_sp_buf = (uint8_t *)calloc(FORGE_MAX_PLAYER_SPAWNS, 52u);
+		if (s_live_sp_buf)
+		{
+			s_orig_sp_scen = scen;
+			s_orig_sp_addr = scen->players.address;
+			s_orig_sp_count = scen->players.count;
+			memset(s_live_sp_buf, 0, (size_t)FORGE_MAX_PLAYER_SPAWNS * 52u);
+			for (i = 0; i < spawn_count; i++)
+			{
+				uint8_t *dst = s_live_sp_buf + (size_t)i * 52u;
+
+				*(float *)(dst + 0x00) = spawns[i].x;
+				*(float *)(dst + 0x04) = spawns[i].y;
+				*(float *)(dst + 0x08) = spawns[i].z;
+				*(float *)(dst + 0x0C) = spawns[i].yaw;
+				*(int16_t *)(dst + 0x10) = spawns[i].team_index;
+				*(int16_t *)(dst + 0x12) = spawns[i].bsp_index;
+				*(int16_t *)(dst + 0x14) = spawns[i].type0;
+				*(int16_t *)(dst + 0x16) = spawns[i].type1;
+				*(int16_t *)(dst + 0x18) = spawns[i].type2;
+				*(int16_t *)(dst + 0x1A) = spawns[i].type3;
+			}
+			scen->players.address = s_live_sp_buf;
+			scen->players.count = spawn_count;
+		}
+	}
+	if (replace_flags && flag_count <= FORGE_MAX_NETGAME_FLAGS)
+	{
+		if (!s_live_nf_buf)
+			s_live_nf_buf = (uint8_t *)calloc(FORGE_MAX_NETGAME_FLAGS, 148u);
+		if (s_live_nf_buf)
+		{
+			s_orig_nf_scen = scen;
+			s_orig_nf_addr = (uint8_t *)scen->netgame_flags.address;
+			s_orig_nf_count = scen->netgame_flags.count;
+			memset(s_live_nf_buf, 0, (size_t)FORGE_MAX_NETGAME_FLAGS * 148u);
+			for (i = 0; i < flag_count; i++)
+			{
+				uint8_t *dst = s_live_nf_buf + (size_t)i * 148u;
+
+				*(float *)(dst + 0x00) = flags[i].x;
+				*(float *)(dst + 0x04) = flags[i].y;
+				*(float *)(dst + 0x08) = flags[i].z;
+				*(float *)(dst + 0x0C) = flags[i].yaw;
+				*(int16_t *)(dst + 0x10) = flags[i].type;
+				*(int16_t *)(dst + 0x12) = flags[i].usage_id;
+				*(int32_t *)(dst + 0x1C) = NONE; /* weapon_group.index = NONE */
+			}
+			scen->netgame_flags.address = s_live_nf_buf;
+			scen->netgame_flags.count = flag_count;
+		}
+	}
+}
+
+/* a scenario object a saved map moved: its rotation, as its position is set */
+void forge_3d_saved_object_place(long object_index, float x, float y, float z, float yaw, float pitch, float roll)
+{
+	real_point3d pos;
+	real_vector3d fwd, up;
+
+	pos.x = x;
+	pos.y = y;
+	pos.z = z;
+	euler_to_forward_up(yaw, pitch, roll, &fwd, &up);
+	object_set_position(object_index, &pos, &fwd, &up);
+}
+
 static char const *forge_ff_spawn_type_label(int type)
 {
 	switch (type)
@@ -2826,7 +2912,12 @@ int32_t forge_3d_spawn_object_at_slot(
 			po->pitch = pitch;
 			po->roll = roll;
 		}
-		forge_set_status("Placed '%s' at (%.1f, %.1f, %.1f)", tag_path, x, y, z);
+		/* (an old save's tag no one has now: the object stays in the map's
+		record, and comes back if the tag does) */
+		if (def_idx == NONE)
+			forge_set_status("Missing tag '%s': it stays in the map, but cannot be shown", tag_path);
+		else
+			forge_set_status("Placed '%s' at (%.1f, %.1f, %.1f)", tag_path, x, y, z);
 
 		if (broadcast_net && forge_is_multiplayer_session())
 		{
@@ -4580,7 +4671,7 @@ void forge_3d_update(float dt)
 {
 	static int prev_f1, prev_f2, prev_f4, prev_f5, prev_f8, prev_esc, prev_x, prev_bk, prev_lmb;
 	static int prev_up, prev_down, prev_left, prev_right, prev_enter, prev_g, prev_z, prev_f, prev_del, prev_rot;
-	static int prev_copy, prev_tab_cache;
+	static int prev_copy;
 	static uint32_t s_gp_b_hold_start_ms = 0;
 	static int s_gp_b_hold_consumed = 0;
 	static int32_t s_hover_rot_live_idx = -1;
@@ -4588,7 +4679,7 @@ void forge_3d_update(float dt)
 	static int s_prev_modal = 0;
 	struct scenario *scen;
 	int cur_f1, cur_f2, cur_f4, cur_f5, cur_f8, cur_esc, cur_x, cur_bk, cur_lmb, cur_rot;
-	int cur_up, cur_down, cur_left, cur_right, cur_enter, cur_g, cur_z, cur_f, cur_del, cur_copy, cur_tab_cache;
+	int cur_up, cur_down, cur_left, cur_right, cur_enter, cur_g, cur_z, cur_f, cur_del, cur_copy;
 	float gp_lx = 0.0f, gp_ly = 0.0f, gp_rx = 0.0f, gp_ry = 0.0f, gp_lt = 0.0f, gp_rt = 0.0f;
 
 	if (!s_player_last_unit_init)
@@ -4621,6 +4712,9 @@ void forge_3d_update(float dt)
 		s_init_wait_ticks = 0;
 		s_has_valid_spartan_pos = 0;
 		g_forge.monitor_cam_initialized = 0;
+		/* (what the level plays, on every machine: its bake, and a profile) */
+		if (g_forge_session_enabled)
+			forge_runtime_reload_catalogs();
 		if (g_forge.live_instance_count == 0)
 			forge_init_map_scenario_entities();
 		forge_load_saved_map_state_if_present(forge_get_active_map_name());
@@ -4875,7 +4969,6 @@ void forge_3d_update(float dt)
 	cur_bk = ((GetAsyncKeyState(VK_BACK) & 0x8000) != 0) || forge_gp_button_down(FORGE_GP_B);
 	cur_lmb = ((GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0) ||
 			  (g_forge.active_modal == _forge_modal_none && forge_gp_button_down(FORGE_GP_A));
-	cur_tab_cache = ((GetAsyncKeyState(VK_TAB) & 0x8000) != 0) || forge_gp_button_down(FORGE_GP_BACK);
 
 	/* When holding an item on controller and both Palette & Object Options share FORGE_GP_X,
 	 * route FORGE_GP_X to Object Properties instead of opening the Spawn Palette (unless keyboard F2 is pressed). */
@@ -5179,16 +5272,6 @@ void forge_3d_update(float dt)
 			if (g_forge.palette_cursor >= g_forge.palette_scroll + visible_rows)
 				g_forge.palette_scroll = g_forge.palette_cursor - (visible_rows - 1);
 		}
-		if (cur_tab_cache && !prev_tab_cache && fcount > 0 && g_forge.palette_cursor < fcount)
-		{
-			struct forge_catalog_entry const *ce = &g_forge.catalog[filtered[g_forge.palette_cursor]];
-			if (ce->source_cache_id == 0)
-			{
-				forge_cache_active_map_tag(ce->group_tag, ce->tag_path);
-				prev_tab_cache = 1;
-				goto update_prev_keys;
-			}
-		}
 		if (cur_enter && !prev_enter && fcount > 0 && g_forge.palette_cursor < fcount)
 		{
 			struct forge_catalog_entry const *ce = &g_forge.catalog[filtered[g_forge.palette_cursor]];
@@ -5343,12 +5426,7 @@ void forge_3d_update(float dt)
 	{
 		struct forge_live_instance *inst = &g_forge.live_instances[g_forge.grabbed_live_index];
 		int is_ff_spawn = (inst->group_tag == 'ffsp');
-		int can_cache_tag = (!is_ff_spawn &&
-							 inst->source_cache_id == 0 &&
-							 inst->group_tag != 'spwn' &&
-							 inst->group_tag != 'tele' &&
-							 inst->group_tag != 'flag');
-		int max_props_row = (is_ff_spawn || can_cache_tag) ? 5 : 4;
+		int max_props_row = is_ff_spawn ? 5 : 4;
 		int dir = (cur_left && !prev_left) ? -1 : ((cur_right && !prev_right) || (cur_enter && !prev_enter) ? 1 : 0);
 		if (g_forge.props_cursor > max_props_row)
 			g_forge.props_cursor = max_props_row;
@@ -5474,15 +5552,6 @@ void forge_3d_update(float dt)
 				g_forge.grabbed_live_index = -1;
 				g_forge.grabbed_object_index = NONE;
 				g_forge.active_modal = _forge_modal_none;
-				goto update_prev_keys;
-			}
-			else if (g_forge.props_cursor == 5 && can_cache_tag && cur_enter && !prev_enter)
-			{
-				if (forge_cache_active_map_tag(inst->group_tag, inst->tag_path) == 0)
-				{
-					inst->source_cache_id = 2;
-					g_forge.props_cursor = 4;
-				}
 				goto update_prev_keys;
 			}
 		}
@@ -6584,7 +6653,6 @@ update_prev_keys:
 	prev_f = cur_f;
 	prev_del = cur_del;
 	prev_copy = cur_copy;
-	prev_tab_cache = cur_tab_cache;
 	prev_rot = cur_rot;
 	prev_bk = cur_bk;
 	prev_lmb = cur_lmb;
@@ -7253,14 +7321,9 @@ void forge_3d_draw_hud(
 		{
 			struct forge_live_instance const *inst = &g_forge.live_instances[g_forge.grabbed_live_index];
 			int is_ff_spawn = (inst->group_tag == 'ffsp');
-			int can_cache_tag = (!is_ff_spawn &&
-								 inst->source_cache_id == 0 &&
-								 inst->group_tag != 'spwn' &&
-								 inst->group_tag != 'tele' &&
-								 inst->group_tag != 'flag');
-			int row_count = (is_ff_spawn || can_cache_tag) ? 6 : 5;
+			int row_count = is_ff_spawn ? 6 : 5;
 			short box_w = 312;
-			short box_h = (short)((is_ff_spawn || can_cache_tag) ? 252 : 224);
+			short box_h = (short)(is_ff_spawn ? 252 : 224);
 			short px0 = (short)(window_x0 + 16);
 			short py0 = (short)(window_y0 + 34);
 			short px1 = (short)(px0 + box_w);

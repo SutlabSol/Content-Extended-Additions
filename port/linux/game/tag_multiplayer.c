@@ -200,6 +200,8 @@ enum
 	_played_multiplayer,
 	_played_campaign,
 	_played_randomizer,
+	/* a Forge game's: all its tags, for the palette and to place */
+	_played_forge,
 };
 
 /* what a share is played as: the game's profile (a multiplayer or campaign
@@ -208,6 +210,8 @@ enum
 {
 	_share_profile,
 	_share_randomizer,
+	/* (a Forge game's: nothing swapped, the tags are placed by hand) */
+	_share_forge,
 	NUMBER_OF_SHARE_KINDS
 };
 
@@ -463,7 +467,7 @@ static long played_profile(
 	if (played == NONE)
 		return NONE;
 	port_tag_profiles_scan();
-	if (kind == _played_randomizer)
+	if (kind == _played_randomizer || kind == _played_forge)
 		return played;
 	return port_tag_profiles_find(kind == _played_campaign ? port_tag_campaign_profiles_option(played, "profile") :
 		port_tag_mp_profiles_option(played, "profile"));
@@ -609,7 +613,8 @@ static boolean share_build(
 	map_share_file_hashed(xbox_path, _map_share_file_tags, hosted->size, piece_hashes, piece_count, hosted->hash);
 	free(piece_hashes);
 	hosted->active = TRUE;
-	hosted->kind = kind == _played_randomizer ? _share_randomizer : _share_profile;
+	hosted->kind = kind == _played_randomizer ? _share_randomizer : kind == _played_forge ? _share_forge :
+		_share_profile;
 	tag_multiplayer.hosted_serial++;
 	error(_error_silent, "tag multiplayer: shared %ld %s of %s as %s, %lu bytes, in %lu ms", shared,
 		kind == _played_multiplayer ? "weapons" : "tags", port_tag_profiles_name(profile), hosted->id, hosted->size,
@@ -668,6 +673,9 @@ static boolean game_takes(
 {
 	if (!game || !game->map.name[0])
 		return FALSE;
+	/* (a Forge game, on any map: its own custom maps too) */
+	if (tag_multiplayer.game_kind == _played_forge)
+		return TRUE;
 	return game->variant.game_engine_index == game_engine_none ? tag_multiplayer_campaign_takes(game->map.name) :
 		tag_multiplayer_map_takes(game->map.name);
 }
@@ -680,6 +688,8 @@ static boolean host_takes(
 {
 	if (!game_takes(game))
 		return FALSE;
+	if (tag_multiplayer.game_kind == _played_forge)
+		return TRUE;
 	if (game->variant.game_engine_index != game_engine_none)
 		return tag_multiplayer.game_kind == _played_multiplayer;
 	return tag_multiplayer.game_kind == _played_campaign ||
@@ -693,6 +703,8 @@ static long host_played(
 	*kind = tag_multiplayer.game_kind;
 	if (*kind == _played_campaign)
 		return tag_multiplayer_game_campaign_profile();
+	if (*kind == _played_forge)
+		return tag_multiplayer_game_forge_profile();
 	return *kind == _played_randomizer ? tag_multiplayer_game_randomizer_profile() : tag_multiplayer_game_profile();
 }
 
@@ -986,6 +998,36 @@ void tag_multiplayer_game_randomizer_profile_set(
 		profile == NONE ? " (listed for every build)" : " (listed for builds with the mod alone)");
 }
 
+long tag_multiplayer_game_forge_profile(
+	void)
+{
+	char const *folder = tag_multiplayer.game_kind == _played_forge ? tag_multiplayer.game_profile : "";
+	long profile;
+
+	if (!hosting() || !folder[0])
+		return NONE;
+	/* (as the randomizer's: found again without a scan when it can be) */
+	profile = port_tag_profiles_find(folder);
+	if (profile == NONE)
+	{
+		port_tag_profiles_scan();
+		profile = port_tag_profiles_find(folder);
+	}
+	return profile;
+}
+
+void tag_multiplayer_game_forge_profile_set(
+	long profile)
+{
+	snprintf(tag_multiplayer.game_profile, sizeof(tag_multiplayer.game_profile), "%s",
+		profile == NONE ? "" : port_tag_profiles_folder(profile));
+	tag_multiplayer.game_kind = profile != NONE ? _played_forge : _played_multiplayer;
+	tag_multiplayer.game_profile_set = TRUE;
+	tag_multiplayer.look_again = TRUE;
+	error(_error_silent, "tag multiplayer: the Forge game hosted plays %s%s", profile == NONE ? "no profile" :
+		"the profile ", profile == NONE ? "" : tag_multiplayer.game_profile);
+}
+
 long tag_multiplayer_game_base_profile(
 	void)
 {
@@ -1157,7 +1199,8 @@ void tag_multiplayer_handle_message(
 	share_id(remote->hash, remote->id);
 	tag_multiplayer.remote_heard = TRUE;
 	error(_error_silent, "tag multiplayer: the host plays the tags of its share %s (%lu bytes)%s%s", remote->id,
-		remote->size, remote->kind == _share_randomizer ? " in the randomizer's pools" : "",
+		remote->size, remote->kind == _share_randomizer ? " in the randomizer's pools" :
+			remote->kind == _share_forge ? " for Forge" : "",
 		port_tag_profiles_shared_present(remote->id) ? ", which this machine has" : "");
 }
 
@@ -1397,6 +1440,12 @@ long tag_multiplayer_level_profile(
 	if (!game || game->variant.game_engine_index == game_engine_none || !tag_multiplayer_map_takes(scenario_name))
 		return NONE;
 	return level_share_open(scenario_name, _share_profile);
+}
+
+long tag_multiplayer_forge_level_profile(
+	char const *scenario_name)
+{
+	return network_game_get_game() ? level_share_open(scenario_name, _share_forge) : NONE;
 }
 
 long tag_multiplayer_campaign_level_profile(

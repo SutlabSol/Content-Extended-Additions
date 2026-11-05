@@ -20,7 +20,7 @@ and the maps in `custom_maps`, with Custom Edition's `bitmaps.map` and
 
 ## The menu
 
-**Settings > Gameplay > Tag Injector** is laid out as the Mods screen is: a
+**Forge > Tag Injector** (PLAY > FORGE) is laid out as the Mods screen is: a
 list on the left, and in the frame on the right what the row chosen is and
 what A does with it. B, or **BACK**, goes back up a list, and from the
 first leaves. Its first list has:
@@ -797,3 +797,37 @@ map is loaded it is as it was. The pause menu's QUIT leaves the range.
 The game's log says what is taken out and added (`tag injector:`), and why
 a map cannot be read, a tag cannot be taken out (a tag it names is of a
 group this build cannot bundle), or a bundle is left out.
+
+## In Forge
+
+The Tag Injector is Forge's source of custom tags, and its only one: Forge's
+menu opens it (TAG INJECTOR), and TAG OPTIONS keeps the resets and SNAP POINTS.
+
+- **The palette** is Forge's default tags, the profile chosen, and the tags
+  saved in the map. The default tags are a tag pack, `watanoge_forge` (about
+  565 MB), written at the main menu once Forge's menu has been opened; a tag is
+  read from it the moment it is placed, so a level holds only what it uses.
+  What it can place is kept in `Faber_data/cached_tags/pack_palette.txt`.
+- **Choosing.** After the map, in Single Player, Multiplayer and Edit Maps, a
+  TAG PROFILE screen lists NONE and each profile with a tag on (no such
+  profile, or Custom Edition maps off: it is skipped). The choice lasts the
+  session.
+- **Online.** A Forge game shares the whole profile, not only its weapons, as
+  co-op does: its share kind is `_share_forge`, the host swaps nothing, and
+  a game with a profile is a modded one (flag 0x40) on Forge's own network
+  version. Scenery and doors spawn on each machine, so whether a door is open
+  is not kept the same.
+- **Saved maps.** Saving on a stock map stores the tags of what is placed that
+  are not the game's in the map: an `OCETAGS1` archive after the map's other
+  trailers, found by the state's `BAKED_TAGS|offset|size|id` line. Only the
+  tags objects use are kept, so a tag nothing uses is dropped at the next save.
+  As the map loads, on every machine and in any game, the archive is unpacked
+  once into `tag_injector/.baked/<id>/` and read before any profile: a baked
+  tag stays as it was saved, even over a tag of the same path in the profile.
+  A Custom Edition base has its tags in the file already. An old save's tag
+  no one has any more stays in the map, and the HUD says it cannot be shown.
+- **Spawns, teleporters and objectives** of a stock map are saved in the same
+  state (`PLAYER_SPAWN|`, `NETGAME_FLAG|`, with `PLAYER_SPAWNS_SAVED` and
+  `NETGAME_FLAGS_SAVED` to say they stand in place of the map's) and put in the
+  scenario as the level loads, so they play the same solo, for a client, and
+  in a normal game of the saved map.

@@ -68,6 +68,13 @@ long tag_multiplayer_game_randomizer_profile(
 	void);
 void tag_multiplayer_game_randomizer_profile_set(
 	long profile);
+/* ... or the profile (port_tag_profiles' index) a Forge game plays: all its
+tags, on any map, on every machine; nothing is swapped, they are placed by
+hand (NONE: none, or not this machine's game) */
+long tag_multiplayer_game_forge_profile(
+	void);
+void tag_multiplayer_game_forge_profile_set(
+	long profile);
 long tag_multiplayer_game_base_profile(
 	void);
 /* whether a game on this level plays a multiplayer profile: one of the
@@ -79,6 +86,10 @@ boolean tag_multiplayer_map_takes(
 campaign's ten levels (not a Custom Edition map) */
 boolean tag_multiplayer_campaign_takes(
 	char const *level_name);
+
+/* the share a Forge game's level plays (opened; NONE: none) */
+long tag_multiplayer_forge_level_profile(
+	char const *scenario_name);
 
 /* every frame (main.c): the host's share made (once its profile is chosen)
 and told to each client in the lobby and in game; a client's download of

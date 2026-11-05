@@ -1,7 +1,7 @@
 /*
 TAG_INJECTOR.C
 
-The tag injector (tag_injector.h): Settings > Gameplay > Tag Injector lists
+The tag injector (tag_injector.h): Forge > Tag Injector lists
 the Custom Edition maps, a map's weapons, AI, equipment, vehicles, bipeds
 and scenery, and takes a weapon or an actor variant out of it, with every
 tag it names, as a tag bundle (tag_bundle.h) into a profile
@@ -404,6 +404,7 @@ struct injected_bundle
 	char const *failure;
 	/* the profile's tag it is, whether it replaces the level's tag of its
 	path ("replace"), and the level's tag it has replaced (NONE) */
+	long profile;
 	long profile_tag;
 	boolean replace;
 	long replaced;
@@ -506,6 +507,10 @@ static struct
 	long bundle_count;
 	boolean bundles_read;
 	long read_profile;
+	/* a saved Forge map's bake, read before the profile, whose tags win
+	(tag_injector_tags_baked_set), when there is one */
+	boolean has_baked;
+	long baked_profile;
 	unsigned long read_bytes;
 	struct injector_tag_instance *saved_instances;
 	long saved_count;
@@ -529,6 +534,8 @@ static struct
 	short notice_lines;
 	long notice_ticks;
 } tag_injector_level;
+
+#define LEVEL_BAKED (tag_injector_level.has_baked ? tag_injector_level.baked_profile : NONE)
 
 /* ---------- private code */
 
@@ -1017,7 +1024,7 @@ static short weapon_stock_hud(
 	struct injected_bundle const *bundle,
 	long bundle_index)
 {
-	long profile = tag_injector_level.read_profile;
+	long profile = bundle->profile;
 	long weapon_tag = port_tag_profiles_tag_find(profile, WEAPON_DEFINITION_TAG,
 		bundle_tag_name(&bundle->loaded, bundle_index));
 	char const *setting = weapon_tag == NONE ? "" : port_tag_profiles_tag_option(profile, weapon_tag, "hud");
@@ -1416,7 +1423,6 @@ long tag_injector_tag_copy(
 the level's) given their edits (tag_editor.c), each once, in the bundles'
 order: the same on every machine of a network game. */
 static void tag_injector_weapons_edit(
-	long profile,
 	long existing)
 {
 	long bundle_index;
@@ -1446,7 +1452,7 @@ static void tag_injector_weapons_edit(
 			if (index < done_count)
 				continue;
 			done[done_count++] = datum;
-			tag_editor_weapon_loaded(profile, datum);
+			tag_editor_weapon_loaded(bundle->profile, datum);
 		}
 	}
 	free(done);
@@ -3107,56 +3113,73 @@ long tag_injector_tags_read(
 	long capacity)
 {
 	unsigned long total = 0;
-	long tag_count = port_tag_profiles_tag_count(profile);
 	long found = 0;
 	long bundle_index;
 	long index;
 	long failed[MAXIMUM_INJECTED_BUNDLES + 1];
 	long failed_count = 0;
 	long skipped = 0;
+	long baked = LEVEL_BAKED;
+	short pass;
 
 	tag_injector_tags_unloaded();
+	tag_injector_tags_baked_set(baked);
 	tag_injector_level.bundles_read = TRUE;
 	tag_injector_level.read_profile = profile;
 
 	/* each bundle read, checked, and its models made (none of the level's
-	tags is touched until all are) */
-	for (index = 0; index < tag_count; index++)
+	tags is touched until all are): a map's bake first, so its tags are the
+	ones played where the profile has the same */
+	for (pass = 0; pass < 2; pass++)
 	{
-		struct injected_bundle *bundle = &tag_injector_level.bundles[tag_injector_level.bundle_count];
+		long source = pass ? profile : baked;
+		long source_count = source == NONE ? 0 : port_tag_profiles_tag_count(source);
 
-		/* (one turned off stays in the profile, and is not played) */
-		if (!port_tag_profiles_tag_enabled(profile, index))
-			continue;
-		/* (past the most a level adds: left out, and said, but not turned
-		off) */
-		if (tag_injector_level.bundle_count >= MAXIMUM_INJECTED_BUNDLES)
+		if (pass && source == baked)
+			break;
+		for (index = 0; index < source_count; index++)
 		{
-			error(_error_silent, "tag injector: %s is left out: a level adds %d tags of a profile at most",
-				port_tag_profiles_tag_name(profile, index), MAXIMUM_INJECTED_BUNDLES);
-			skipped++;
-			continue;
-		}
-		/* (counted, so that what it holds is let go with the rest; the read
-		clears it, and then it is told which tag it is) */
-		tag_injector_level.bundle_count++;
-		if (!level_bundle_read(profile, index, bundle, &total))
-		{
+			struct injected_bundle *bundle = &tag_injector_level.bundles[tag_injector_level.bundle_count];
+
+			/* (one turned off stays in the profile, and is not played) */
+			if (!port_tag_profiles_tag_enabled(source, index))
+				continue;
+			if (pass && baked != NONE &&
+				port_tag_profiles_tag_find(baked, port_tag_profiles_tag_group(source, index),
+					port_tag_profiles_tag_name(source, index)) != NONE)
+				continue;
+			/* (past the most a level adds: left out, and said, but not turned
+			off) */
+			if (tag_injector_level.bundle_count >= MAXIMUM_INJECTED_BUNDLES)
+			{
+				error(_error_silent, "tag injector: %s is left out: a level adds %d tags of a profile at most",
+					port_tag_profiles_tag_name(source, index), MAXIMUM_INJECTED_BUNDLES);
+				skipped++;
+				continue;
+			}
+			/* (counted, so that what it holds is let go with the rest; the read
+			clears it, and then it is told which tag it is) */
+			tag_injector_level.bundle_count++;
+			if (!level_bundle_read(source, index, bundle, &total))
+			{
+				bundle->profile = source;
+				bundle->profile_tag = index;
+				bundle->replaced = NONE;
+				bundle->refused = TRUE;
+				continue;
+			}
+			bundle->profile = source;
 			bundle->profile_tag = index;
+			bundle->replace = port_tag_profiles_tag_option(source, index, "replace")[0] != 0;
 			bundle->replaced = NONE;
-			bundle->refused = TRUE;
-			continue;
-		}
-		bundle->profile_tag = index;
-		bundle->replace = port_tag_profiles_tag_option(profile, index, "replace")[0] != 0;
-		bundle->replaced = NONE;
-		bundle->failure = !bundle_weapons_holdable(bundle) ? "not holdable" :
-			!bundle_bitmaps_drawable(bundle) ? "bitmaps" :
-			!bundle_models_convert(bundle) ? "models" : NULL;
-		if (bundle->failure)
-		{
-			error(_error_silent, "tag injector: %s is left out", port_tag_profiles_tag_name(profile, index));
-			bundle->refused = TRUE;
+			bundle->failure = !bundle_weapons_holdable(bundle) ? "not holdable" :
+				!bundle_bitmaps_drawable(bundle) ? "bitmaps" :
+				!bundle_models_convert(bundle) ? "models" : NULL;
+			if (bundle->failure)
+			{
+				error(_error_silent, "tag injector: %s is left out", port_tag_profiles_tag_name(source, index));
+				bundle->refused = TRUE;
+			}
 		}
 	}
 	tag_injector_level.read_bytes = total;
@@ -3170,14 +3193,16 @@ long tag_injector_tags_read(
 
 		if (!bundle->refused)
 			continue;
-		failed[failed_count++] = bundle->profile_tag;
+		/* (a bake's are said by the map's objects: forge_3d_mode.c) */
+		if (bundle->profile == profile)
+			failed[failed_count++] = bundle->profile_tag;
 		/* (a network game's shared profile is played as the host made it,
 		the same on every machine: tag_multiplayer.c) */
-		if (port_tag_profiles_shared(profile))
+		if (port_tag_profiles_shared(bundle->profile))
 			continue;
-		port_tag_profiles_tag_set_option(profile, bundle->profile_tag, "failed",
+		port_tag_profiles_tag_set_option(bundle->profile, bundle->profile_tag, "failed",
 			bundle->failure ? bundle->failure : "unreadable");
-		port_tag_profiles_tag_set_enabled(profile, bundle->profile_tag, FALSE);
+		port_tag_profiles_tag_set_enabled(bundle->profile, bundle->profile_tag, FALSE);
 	}
 	level_notice_failures(profile, failed, failed_count, skipped);
 
@@ -3422,7 +3447,7 @@ long tag_injector_tags_load(
 		}
 	}
 	/* (the profile's weapons given their edits: tag_editor.c) */
-	tag_injector_weapons_edit(profile, existing);
+	tag_injector_weapons_edit(existing);
 	/* (the channels of every bitmap Halo PC keeps elsewhere, the bundles'
 	among the level's, as a mod's bitmaps are found: mod_bitmaps.c) */
 	if (tag_injector_level.bitmaps_added && !custom_edition_cache_tags_loaded())
@@ -3443,6 +3468,19 @@ long tag_injector_level_profile(
 {
 	return tag_injector_level.bundles_read && tag_injector_level.grown_instances ? tag_injector_level.read_profile :
 		NONE;
+}
+
+void tag_injector_tags_baked_set(
+	long profile)
+{
+	tag_injector_level.has_baked = profile != NONE;
+	tag_injector_level.baked_profile = profile;
+}
+
+long tag_injector_level_baked_profile(
+	void)
+{
+	return tag_injector_level.bundles_read && tag_injector_level.grown_instances ? LEVEL_BAKED : NONE;
 }
 
 void tag_injector_tags_unloaded(
@@ -3488,6 +3526,7 @@ void tag_injector_tags_unloaded(
 	tag_injector_level.bitmaps_added = FALSE;
 	tag_injector_level.bundles_read = FALSE;
 	tag_injector_level.read_profile = NONE;
+	tag_injector_level.has_baked = FALSE;
 	tag_injector_level.read_bytes = 0;
 	tag_injector_level.notice_lines = 0;
 	tag_injector_level.notice_ticks = 0;

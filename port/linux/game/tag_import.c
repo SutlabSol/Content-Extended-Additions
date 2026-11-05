@@ -2420,6 +2420,72 @@ void tag_import_peek_close(struct tag_import_donor *donor)
 		pack_close(pack);
 }
 
+/* ---------- a pack's map read on its own (Forge's palette) */
+
+struct tag_import_donor *tag_import_pack_open(char const *pack_name, char const *map)
+{
+	struct pack *pack;
+	struct tag_import_donor *donor;
+
+	if (!pack_name || !tag_pack_file_name(pack_name))
+		return NULL;
+	/* (a pack of its own, not one of the level's, which the level closes as
+	it goes while this stays open) */
+	pack = malloc(sizeof(*pack));
+	donor = malloc(sizeof(*donor));
+	if (!pack || !donor)
+	{
+		if (pack)
+			free(pack);
+		if (donor)
+			free(donor);
+		return NULL;
+	}
+	memset(pack, 0, sizeof(*pack));
+	snprintf(pack->name, sizeof(pack->name), "%s", pack_name);
+	pack->content = tag_pack_content(pack_name);
+	if (!open_donor(donor, map, pack, 0))
+	{
+		close_donor_bytes(donor);
+		pack_close(pack);
+		free(pack);
+		free(donor);
+		return NULL;
+	}
+
+	return donor;
+}
+
+void tag_import_pack_close(struct tag_import_donor *donor)
+{
+	struct pack *pack;
+
+	if (!donor)
+		return;
+	pack = donor->pack;
+	close_donor_bytes(donor);
+	if (pack)
+	{
+		pack_close(pack);
+		free(pack);
+	}
+	free(donor);
+}
+
+unsigned char *tag_import_pack_tags(struct tag_import_donor *donor, unsigned long *size)
+{
+	if (size)
+		*size = donor ? donor->size : 0;
+	return donor ? donor->bytes : NULL;
+}
+
+long tag_import_pack_read(struct tag_import_donor *donor, long offset, long size, void *buffer)
+{
+	if (!donor || !buffer || offset < 0 || size <= 0 || !donor->from_pack)
+		return 0;
+	return pack_copy(donor, offset, size, buffer);
+}
+
 long tag_import_tag_count(struct tag_import_donor *donor)
 {
 	return donor && donor->instances ? donor->count : 0;

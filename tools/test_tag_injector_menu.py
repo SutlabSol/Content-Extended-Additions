@@ -1,4 +1,4 @@
-"""The Tag Injector's menu (Settings > Gameplay > Tag Injector), as
+"""The Tag Injector's menu (Forge > Tag Injector), as
 tools/port_settings.py writes it, and the code that runs it
 (port/linux/game/menu_functions.c, menu_tags.c, tag_injector.c)."""
 import re
@@ -13,11 +13,16 @@ import port_settings  # noqa: E402
 SCREEN = "main_menu.settings_select.player_setup.player_profile_edit.gameplay.tag_injector.xml"
 
 
-def test_gameplay_opens_the_tag_injector():
+def test_forge_opens_the_tag_injector():
     files = port_settings.settings_files()
     gameplay = "\n".join(files["main_menu.settings_select.player_setup.player_profile_edit.gameplay.xml"])
-    assert f'open="{port_settings.TAG_INJECTOR}/tag_injector_screen"' in gameplay
-    assert "TAG INJECTOR" in gameplay
+    assert f'open="{port_settings.TAG_INJECTOR}/tag_injector_screen"' not in gameplay
+    assert "TAG INJECTOR" not in gameplay
+    forge = "\n".join(port_settings.multiplayer_files()["main_menu.forge_select.port.xml"])
+    assert f'open="{port_settings.TAG_INJECTOR}/tag_injector_screen"' in forge
+    assert 'text="TAG INJECTOR"' in forge
+    for gone in ("forge_item_add_tags", "forge_item_installed_tags", "forge_add_tags", "forge_installed_tag"):
+        assert gone not in forge
     # (its file is one the game embeds)
     assert f'"ce/{SCREEN}"' in (ROOT / "port/assets/menus/menus.json").read_text()
 
@@ -230,8 +235,8 @@ def test_a_tag_that_failed_to_load_is_turned_off_and_said():
     game = (ROOT / "source/game/game.c").read_text()
     read = injector[injector.index("long tag_injector_tags_read("):]
     read = read[:read.index("\n}\n")]
-    assert 'port_tag_profiles_tag_set_option(profile, bundle->profile_tag, "failed",' in read
-    assert "port_tag_profiles_tag_set_enabled(profile, bundle->profile_tag, FALSE);" in read
+    assert 'port_tag_profiles_tag_set_option(bundle->profile, bundle->profile_tag, "failed",' in read
+    assert "port_tag_profiles_tag_set_enabled(bundle->profile, bundle->profile_tag, FALSE);" in read
     assert "level_notice_failures(profile, failed, failed_count, skipped);" in read
     # (every reason a bundle is refused for is one the menu describes)
     table = injector[injector.index("} const failures[] ="):]

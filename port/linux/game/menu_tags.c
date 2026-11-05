@@ -420,7 +420,7 @@ static char const *const port_function_names[] =
 	"port vk driver import",
 	/* (the map lists' IMPORT, Android's: menu_functions.c) */
 	"port map import",
-	/* (Settings > Gameplay > Tag Injector: menu_functions.c) */
+	/* (Forge > Tag Injector: menu_functions.c) */
 	"port tags init", "port tags close", "port tags choose", "port tags left", "port tags right", "port tags back",
 	"port tags new profile", "port tags profile button",
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
@@ -496,7 +496,7 @@ static char const *const port_game_data_input_names[] =
 	"skulls screen update", "gameplay screen update",
 	/* (the main menu's Mods) */
 	"port mods update",
-	/* (Settings > Gameplay > Tag Injector) */
+	/* (Forge > Tag Injector) */
 	"port tags update",
 	/* (network co-op's pause menu's FRIENDLY FIRE: its text, ON or OFF) */
 	"port coop friendly fire text",

@@ -352,14 +352,10 @@ static int forge_source_map_open(char const *path, struct forge_source_map *map)
 		if (map->version == CACHE_VERSION_XBOX)
 		{
 			int slot;
-			for (slot = -2; slot <= 6; slot++)
+			for (slot = 0; slot <= 6; slot++)
 			{
 				char z_xbox[64];
-				if (slot == -2)
-					snprintf(cache_cand, sizeof(cache_cand), "OpenCE Forge/cached_tags/xbox_cache/%s.map", map->map_name);
-				else if (slot == -1)
-					snprintf(cache_cand, sizeof(cache_cand), "OpenCE Forge/cached_tags/xbox_cache/%s", map->filename);
-				else if (slot < 6)
+				if (slot < 6)
 				{
 					snprintf(z_xbox, sizeof(z_xbox), "z:\\cache00%d.map", slot);
 					platform_translate_path(z_xbox, cache_cand, sizeof(cache_cand));
@@ -3359,7 +3355,6 @@ static int cb_find_xbox_donor_map_for_tag(
 		"sidewinder.map", "wizard.map"
 	};
 	static char const *const map_dirs[] = {
-		"OpenCE Forge/cached_tags/xbox_cache",
 		"maps",
 		"assets/maps",
 		"../assets/maps"
@@ -5293,6 +5288,14 @@ static void inplace_apply_default_object_edit(
 	}
 }
 
+extern int forge_baked_archive_make(
+	struct forge_scenario_edit_state const *edits,
+	char *path,
+	unsigned long path_size,
+	char *id,
+	unsigned long id_size,
+	uint32_t *size);
+
 static int append_forge_map_metadata_and_preview_trailer(
 	struct forge_byte_buf *out,
 	char const *output_map_name,
@@ -5311,6 +5314,13 @@ static int append_forge_map_metadata_and_preview_trailer(
 	uint8_t *bmp_mem = NULL;
 	uint32_t bmp_size = 0, desc_len = 0;
 	uint32_t state_foff = 0, state_size = 0, bmp_foff = 0, desc_foff = 0;
+	/* the tags of a stock map's placed objects, saved in it: the archive
+	(forge_baked_archive_make), last in the file, and where its line's offset
+	is in the state's text, written once the file has a place for it */
+	char baked_path[1024];
+	char baked_id[40];
+	uint32_t baked_size = 0;
+	uint32_t baked_line = 0;
 	int line_len, i, j;
 
 	buf_init(&state_buf, 16384u);
@@ -5415,6 +5425,57 @@ static int append_forge_map_metadata_and_preview_trailer(
 				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
 			}
 		}
+		/* a stock map's spawns and flags (a Custom Edition base has them in
+		its scenario): each whole, and that they stand in the map's place, so
+		one deleted stays deleted */
+		if (!ce_base_map && edits->replace_player_spawns)
+		{
+			line_len = snprintf(line, sizeof(line), "PLAYER_SPAWNS_SAVED\r\n");
+			if (line_len > 0 && state_buf.data)
+			{
+				uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
+			}
+			for (i = 0; i < edits->player_spawn_count; i++)
+			{
+				struct forge_player_spawn_entry const *sp = &edits->player_spawns[i];
+				line_len = snprintf(line, sizeof(line),
+					"PLAYER_SPAWN|%.4f|%.4f|%.4f|%.4f|%d|%d|%d|%d|%d|%d\r\n",
+					sp->x, sp->y, sp->z, sp->yaw,
+					(int)sp->team_index, (int)sp->bsp_index,
+					(int)sp->type0, (int)sp->type1, (int)sp->type2, (int)sp->type3);
+				if (line_len > 0 && state_buf.data)
+				{
+					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+					if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
+				}
+			}
+		}
+		if (!ce_base_map && edits->replace_netgame_flags)
+		{
+			line_len = snprintf(line, sizeof(line), "NETGAME_FLAGS_SAVED\r\n");
+			if (line_len > 0 && state_buf.data)
+			{
+				uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
+			}
+			for (i = 0; i < edits->netgame_flag_count; i++)
+			{
+				struct forge_netgame_flag_entry const *nf = &edits->netgame_flags[i];
+				/* (Firefight's have their FF_SPAWN lines) */
+				if (nf->type == 15)
+					continue;
+				line_len = snprintf(line, sizeof(line),
+					"NETGAME_FLAG|%.4f|%.4f|%.4f|%.4f|%d|%d|%s\r\n",
+					nf->x, nf->y, nf->z, nf->yaw,
+					(int)nf->type, (int)nf->usage_id, nf->weapon_group_path);
+				if (line_len > 0 && state_buf.data)
+				{
+					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+					if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
+				}
+			}
+		}
 		for (i = 0; i < edits->netgame_flag_count; i++)
 		{
 			struct forge_netgame_flag_entry const *nf = &edits->netgame_flags[i];
@@ -5428,6 +5489,22 @@ static int append_forge_map_metadata_and_preview_trailer(
 			{
 				uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
 				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
+			}
+		}
+	}
+
+	if (edits && !ce_base_map &&
+		forge_baked_archive_make(edits, baked_path, sizeof(baked_path), baked_id, sizeof(baked_id), &baked_size) &&
+		baked_size)
+	{
+		line_len = snprintf(line, sizeof(line), "BAKED_TAGS|00000000|%u|%s\r\n", (unsigned)baked_size, baked_id);
+		if (line_len > 0 && state_buf.data)
+		{
+			uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+			if (state_buf.data)
+			{
+				memcpy(state_buf.data + o, line, (size_t)line_len);
+				baked_line = o + 11u;
 			}
 		}
 	}
@@ -5487,6 +5564,25 @@ static int append_forge_map_metadata_and_preview_trailer(
 
 	if (ce_base_map)
 		buf_alloc(out, 0, 32);
+
+	/* (after the state, so a save over this map strips it with the rest) */
+	if (baked_size && baked_line && state_foff)
+	{
+		uint32_t baked_foff = buf_alloc(out, baked_size, 4);
+		FILE *baked_file = fopen(baked_path, "rb");
+
+		if (baked_foff && out->data && baked_file &&
+			fread(out->data + baked_foff, 1, baked_size, baked_file) == baked_size)
+		{
+			char digits[9];
+
+			snprintf(digits, sizeof(digits), "%08X", (unsigned)baked_foff);
+			memcpy(out->data + state_foff + baked_line, digits, 8);
+		}
+		if (baked_file)
+			fclose(baked_file);
+		remove(baked_path);
+	}
 
 	if (!out->data)
 		return 0;

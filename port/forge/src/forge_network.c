@@ -316,16 +316,34 @@ static void forge_format_host_spawn_packet(
 		obj_enc |= (1u << 24);
 	}
 
-	snprintf(
-		out_buf,
-		out_size,
-		"!FH:%X:%08X:%X:%.2f:%.2f:%.2f:%d:%d:%d:%d",
-		(unsigned int)live_idx,
-		(unsigned int)hash,
-		obj_enc,
-		x, y, z,
-		yaw_cr, pitch_cr, roll_cr,
-		(int)team_designator);
+	/* (a far object's line, at two places, can be past the packet's 63
+	letters, and cut short it is dropped: fewer places then, which the
+	reader's %f takes alike) */
+	{
+		static char const *const s_formats[] = {
+			"!FH:%X:%08X:%X:%.2f:%.2f:%.2f:%d:%d:%d:%d",
+			"!FH:%X:%08X:%X:%.1f:%.1f:%.1f:%d:%d:%d:%d",
+			"!FH:%X:%08X:%X:%.0f:%.0f:%.0f:%d:%d:%d:%d"
+		};
+		int f;
+
+		for (f = 0; f < 3; f++)
+		{
+			int length = snprintf(
+				out_buf,
+				out_size,
+				s_formats[f],
+				(unsigned int)live_idx,
+				(unsigned int)hash,
+				obj_enc,
+				x, y, z,
+				yaw_cr, pitch_cr, roll_cr,
+				(int)team_designator);
+
+			if (length >= 0 && (size_t)length < out_size)
+				break;
+		}
+	}
 }
 
 void forge_network_send_monitor_mode(int is_monitor, float x, float y, float z, float yaw, float pitch)
@@ -819,7 +837,11 @@ static void forge_client_handle_host_spawn(
 	int i;
 
 	if (!ce)
+	{
+		platform_log("Forge: the host placed a tag this machine has not got (hash %08X): it is not shown",
+			(unsigned int)hash);
 		return;
+	}
 
 	/* Ensure default scenario entities (spawns, flags, teleporters) are initialized at indices 0..N-1
 	 * before inserting any host-replicated objects, even if !FH: arrives on Frame 0 before forge_3d_update()! */
