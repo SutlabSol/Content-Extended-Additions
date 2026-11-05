@@ -842,7 +842,11 @@ level's copy was its reads' time and zlib's added (2.9 s and 2.3 s of a30's
 5.3 s on the Switch). A thread of the file's own reads it from its start,
 a megabyte at a time, into a ring READ_AHEAD_SIZE ahead of the game's
 reads, which are copied out of it as it fills; a read behind the ring or
-past it (none, as the game reads the map) goes to the file as before. */
+past it (none, as the game reads the map) goes to the file as before.
+
+The thread reads through a descriptor of its own, the file opened again:
+the game's reads go by the file's position, and pread is not sure to leave
+a position alone (Windows's, a ReadFile at an offset, moves it). */
 
 enum
 {
@@ -855,6 +859,8 @@ struct read_ahead
 	pthread_t thread;
 	pthread_mutex_t lock;
 	pthread_cond_t changed;
+	/* the thread's own, of the same file */
+	int descriptor;
 	char *ring;
 	unsigned long long file_size;
 	/* the ring holds the file's bytes from consumed to filled, each at its offset modulo the ring's size */
@@ -900,7 +906,7 @@ static void *read_ahead_thread(void *context)
 			wanted = READ_AHEAD_SIZE - position;
 		pthread_mutex_unlock(&ahead->lock);
 		started = read_ahead_now_us();
-		result = pread(file->descriptor, ahead->ring + position, wanted, (off_t)at);
+		result = pread(ahead->descriptor, ahead->ring + position, wanted, (off_t)at);
 		pthread_mutex_lock(&ahead->lock);
 		ahead->read_us += read_ahead_now_us() - started;
 		if (result < 0 && errno == EINTR)
@@ -942,6 +948,13 @@ void platform_file_read_ahead(HANDLE handle)
 		free(ahead);
 		return;
 	}
+	ahead->descriptor = open(file->path, O_RDONLY | O_CLOEXEC);
+	if (ahead->descriptor < 0)
+	{
+		free(ahead->ring);
+		free(ahead);
+		return;
+	}
 	ahead->file_size = (unsigned long long)size;
 	pthread_mutex_init(&ahead->lock, NULL);
 	pthread_cond_init(&ahead->changed, NULL);
@@ -951,6 +964,7 @@ void platform_file_read_ahead(HANDLE handle)
 		file->read_ahead = NULL;
 		pthread_cond_destroy(&ahead->changed);
 		pthread_mutex_destroy(&ahead->lock);
+		close(ahead->descriptor);
 		free(ahead->ring);
 		free(ahead);
 	}
@@ -1016,6 +1030,7 @@ static void read_ahead_stop(struct platform_file *file)
 		ahead->error ? " (a read failed: the rest from the file)" : "");
 	pthread_cond_destroy(&ahead->changed);
 	pthread_mutex_destroy(&ahead->lock);
+	close(ahead->descriptor);
 	free(ahead->ring);
 	free(ahead);
 	file->read_ahead = NULL;
