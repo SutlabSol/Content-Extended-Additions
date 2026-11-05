@@ -169,7 +169,83 @@ struct firefight_telemetry_post_job
 /* ---------- globals */
 
 static struct firefight_career_stats g_career_stats;
-static struct firefight_emblem_info g_profile_emblem = { 0, 1, TRUE, 11, 0, 3, 0 };
+static struct firefight_emblem_info g_profile_emblem = FIREFIGHT_EMBLEM_DEFAULT;
+
+/* what the emblems drawn by code became, by their old indexes */
+static short const s_old_emblem_foregrounds[] =
+{
+	FIREFIGHT_EMBLEM_FG_SPARTAN_HELMET,
+	FIREFIGHT_EMBLEM_FG_SKULL_KING,
+	FIREFIGHT_EMBLEM_FG_VALKYRIE,
+	FIREFIGHT_EMBLEM_FG_HELMET,
+	FIREFIGHT_EMBLEM_FG_MARK_OF_SHAME,
+	FIREFIGHT_EMBLEM_FG_MARATHON,
+	FIREFIGHT_EMBLEM_FG_BULLSEYE,
+	FIREFIGHT_EMBLEM_FG_CROSSED_SWORDS,
+	FIREFIGHT_EMBLEM_FG_SPEARHEAD,
+	FIREFIGHT_EMBLEM_FG_PHOENIX,
+	FIREFIGHT_EMBLEM_FG_RADIOACTIVE,
+	FIREFIGHT_EMBLEM_FG_CROSSHAIRS,
+	FIREFIGHT_EMBLEM_FG_RADIOACTIVE,
+	FIREFIGHT_EMBLEM_FG_JOLLY_ROGER,
+	FIREFIGHT_EMBLEM_FG_TRIAD,
+	FIREFIGHT_EMBLEM_FG_CHAMPION
+};
+
+static short const s_old_emblem_backgrounds[] =
+{
+	FIREFIGHT_EMBLEM_BG_NONE,
+	FIREFIGHT_EMBLEM_BG_SHIELD,
+	FIREFIGHT_EMBLEM_BG_CIRCLE,
+	FIREFIGHT_EMBLEM_BG_DIAMOND,
+	FIREFIGHT_EMBLEM_BG_OCTAGON,
+	FIREFIGHT_EMBLEM_BG_HEXAGON,
+	FIREFIGHT_EMBLEM_BG_PLUS,
+	FIREFIGHT_EMBLEM_BG_8_POINTED_STAR,
+	FIREFIGHT_EMBLEM_BG_BANNER,
+	FIREFIGHT_EMBLEM_BG_SHIELD,
+	FIREFIGHT_EMBLEM_BG_DELTA_WING,
+	FIREFIGHT_EMBLEM_BG_COG
+};
+
+/* in the order of the armour colours (which the old emblems' colours shared) */
+static short const s_armor_emblem_colors[] =
+{
+	FIREFIGHT_EMBLEM_COLOR_WHITE,
+	FIREFIGHT_EMBLEM_COLOR_STEEL, /* black: the palette's darkest */
+	FIREFIGHT_EMBLEM_COLOR_RED,
+	FIREFIGHT_EMBLEM_COLOR_BLUE,
+	FIREFIGHT_EMBLEM_COLOR_SILVER, /* gray */
+	FIREFIGHT_EMBLEM_COLOR_YELLOW,
+	FIREFIGHT_EMBLEM_COLOR_GREEN,
+	FIREFIGHT_EMBLEM_COLOR_PINK,
+	FIREFIGHT_EMBLEM_COLOR_VIOLET, /* purple */
+	FIREFIGHT_EMBLEM_COLOR_CYAN,
+	FIREFIGHT_EMBLEM_COLOR_COBALT,
+	FIREFIGHT_EMBLEM_COLOR_ORANGE,
+	FIREFIGHT_EMBLEM_COLOR_TEAL,
+	FIREFIGHT_EMBLEM_COLOR_SAGE,
+	FIREFIGHT_EMBLEM_COLOR_BROWN,
+	FIREFIGHT_EMBLEM_COLOR_TAN,
+	FIREFIGHT_EMBLEM_COLOR_CRIMSON, /* maroon */
+	FIREFIGHT_EMBLEM_COLOR_SALMON
+};
+
+short firefight_emblem_color_from_armor(short armor_color)
+{
+	return s_armor_emblem_colors[PIN(armor_color, 0, (short)NUMBEROF(s_armor_emblem_colors) - 1)];
+}
+
+static void store_profile_emblem(struct firefight_emblem_info const *emblem)
+{
+	g_profile_emblem.foreground = (short)PIN(emblem->foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
+	g_profile_emblem.background = (short)PIN(emblem->background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
+	g_profile_emblem.secondary_layer = emblem->secondary_layer ? TRUE : FALSE;
+	g_profile_emblem.primary_color = (short)PIN(emblem->primary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	g_profile_emblem.secondary_color = (short)PIN(emblem->secondary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	g_profile_emblem.background_color = (short)PIN(emblem->background_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	g_profile_emblem.nameplate = (short)PIN(emblem->nameplate, 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
+}
 static long s_session_player_medals[HALO_PORT_MAXIMUM_NETWORK_PLAYERS];
 static short s_session_player_medal_counts[HALO_PORT_MAXIMUM_NETWORK_PLAYERS][38];
 static long s_session_start_xp = -1;
@@ -1097,13 +1173,10 @@ static void load_profile_records(long profile_index)
 	}
 
 	csmemset(&g_career_stats, 0, sizeof(g_career_stats));
-	g_profile_emblem.foreground = 0;
-	g_profile_emblem.background = 1;
-	g_profile_emblem.secondary_layer = TRUE;
-	g_profile_emblem.primary_color = 11;
-	g_profile_emblem.secondary_color = 0;
-	g_profile_emblem.background_color = 3;
-	g_profile_emblem.nameplate = 0;
+	{
+		struct firefight_emblem_info const default_emblem = FIREFIGHT_EMBLEM_DEFAULT;
+		g_profile_emblem = default_emblem;
+	}
 	g_career_loaded = TRUE;
 	g_map_record_count = 0;
 	g_loaded_profile_index = profile_index;
@@ -1198,18 +1271,37 @@ static void load_profile_records(long profile_index)
 					g_career_stats.ranked_csr = g_career_stats.ranked_points;
 				}
 			}
+			else if (strncmp(line, "EMBLEM2:", 8) == 0)
+			{
+				int fg, bg, sec, c1, c2, c3, np = 0;
+				if (sscanf(line + 8, "%d:%d:%d:%d:%d:%d:%d", &fg, &bg, &sec, &c1, &c2, &c3, &np) >= 6)
+				{
+					struct firefight_emblem_info loaded;
+					loaded.foreground = (short)fg;
+					loaded.background = (short)bg;
+					loaded.secondary_layer = (sec != 0) ? TRUE : FALSE;
+					loaded.primary_color = (short)c1;
+					loaded.secondary_color = (short)c2;
+					loaded.background_color = (short)c3;
+					loaded.nameplate = (short)np;
+					store_profile_emblem(&loaded);
+				}
+			}
 			else if (strncmp(line, "EMBLEM:", 7) == 0)
 			{
+				/* a profile saved when emblems were drawn by code: the sprites nearest what it showed */
 				int fg = 0, bg = 1, sec = 1, c1 = 11, c2 = 0, c3 = 3, np = 0;
 				if (sscanf(line + 7, "%d:%d:%d:%d:%d:%d:%d", &fg, &bg, &sec, &c1, &c2, &c3, &np) >= 6)
 				{
-					g_profile_emblem.foreground = (short)PIN(fg, 0, 15);
-					g_profile_emblem.background = (short)PIN(bg, 0, 11);
-					g_profile_emblem.secondary_layer = (sec != 0) ? TRUE : FALSE;
-					g_profile_emblem.primary_color = (short)PIN(c1, 0, 17);
-					g_profile_emblem.secondary_color = (short)PIN(c2, 0, 17);
-					g_profile_emblem.background_color = (short)PIN(c3, 0, 17);
-					g_profile_emblem.nameplate = (short)PIN(np, 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
+					struct firefight_emblem_info loaded;
+					loaded.foreground = s_old_emblem_foregrounds[PIN(fg, 0, (int)NUMBEROF(s_old_emblem_foregrounds) - 1)];
+					loaded.background = s_old_emblem_backgrounds[PIN(bg, 0, (int)NUMBEROF(s_old_emblem_backgrounds) - 1)];
+					loaded.secondary_layer = (sec != 0) ? TRUE : FALSE;
+					loaded.primary_color = firefight_emblem_color_from_armor((short)c1);
+					loaded.secondary_color = firefight_emblem_color_from_armor((short)c2);
+					loaded.background_color = firefight_emblem_color_from_armor((short)c3);
+					loaded.nameplate = (short)np;
+					store_profile_emblem(&loaded);
 				}
 			}
 			else if (strncmp(line, "DAILY_CHAL:", 11) == 0)
@@ -1418,7 +1510,7 @@ static void save_profile_records(long profile_index)
 	pos += (size_t)snprintf(
 		buf + pos,
 		cap - pos,
-		"EMBLEM:%d:%d:%d:%d:%d:%d:%d\n",
+		"EMBLEM2:%d:%d:%d:%d:%d:%d:%d\n",
 		(int)g_profile_emblem.foreground,
 		(int)g_profile_emblem.background,
 		g_profile_emblem.secondary_layer ? 1 : 0,
@@ -2163,13 +2255,7 @@ void firefight_stats_set_emblem(long profile_index, struct firefight_emblem_info
 	if (!emblem)
 		return;
 	load_profile_records(profile_index);
-	g_profile_emblem.foreground = (short)PIN(emblem->foreground, 0, 15);
-	g_profile_emblem.background = (short)PIN(emblem->background, 0, 11);
-	g_profile_emblem.secondary_layer = emblem->secondary_layer ? TRUE : FALSE;
-	g_profile_emblem.primary_color = (short)PIN(emblem->primary_color, 0, 17);
-	g_profile_emblem.secondary_color = (short)PIN(emblem->secondary_color, 0, 17);
-	g_profile_emblem.background_color = (short)PIN(emblem->background_color, 0, 17);
-	g_profile_emblem.nameplate = (short)PIN(emblem->nameplate, 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
+	store_profile_emblem(emblem);
 	save_profile_records(profile_index);
 	fill_sync_telemetry_session(profile_index, "auto_sync", &sync_session);
 	dispatch_telemetry_post_async(profile_index, &sync_session);

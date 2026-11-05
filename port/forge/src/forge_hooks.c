@@ -1178,6 +1178,11 @@ static struct forge_snap_point *forge_snap_editor_point(void)
 	return cfg && cfg->point_count > 0 ? &cfg->points[s_snap_editor.point] : NULL;
 }
 
+int forge_snap_editor_tag_count(unsigned long group_tag, char const *tag_path)
+{
+	return forge_snap_points_count_for_tag((uint32_t)group_tag, tag_path);
+}
+
 int forge_snap_editor_count(void)
 {
 	struct forge_tag_snap_config const *cfg = forge_snap_editor_config(0);

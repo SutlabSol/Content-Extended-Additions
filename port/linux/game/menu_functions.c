@@ -6585,7 +6585,7 @@ short forge_snap_editor_row_count(void);
 void forge_snap_editor_open(unsigned long group_tag, char const *tag_path);
 void forge_snap_editor_measured(float const bounds_min[3], float const bounds_max[3]);
 int forge_snap_editor_count(void);
-int forge_snap_points_count_for_tag(uint32_t group_tag, char const *tag_path);
+int forge_snap_editor_tag_count(unsigned long group_tag, char const *tag_path);
 void forge_snap_editor_row(short row, char *name, size_t name_size, char *state, size_t state_size);
 int forge_snap_editor_step(short row, short dir);
 int forge_snap_editor_activate(short row);
@@ -7759,8 +7759,8 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 			break;
 		case _tags_setting_snap_points:
 			snprintf(name, name_size, "SNAP POINTS");
-			snprintf(state, state_size, "%d", forge_snap_points_count_for_tag(
-				(uint32_t)port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag),
+			snprintf(state, state_size, "%d", forge_snap_editor_tag_count(
+				port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag),
 				port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag)));
 			break;
 		case _tags_setting_remove:
@@ -9253,8 +9253,8 @@ static short tags_buttons(void)
 		return _tags_buttons_profiles;
 	case _tags_list_profile_categories:
 	case _tags_list_profile:
-	case _tags_list_tag:
 	case _tags_list_snap_points:
+	case _tags_list_tag:
 		return _tags_buttons_profile;
 	case _tags_list_mp_profiles:
 		return _tags_buttons_mp_profiles;

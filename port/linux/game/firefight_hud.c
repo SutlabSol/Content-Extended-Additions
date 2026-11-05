@@ -1490,59 +1490,6 @@ static pixel32 ff_apply_alpha(pixel32 argb, real alpha)
 	return (pixel32)((argb & 0x00FFFFFFUL) | (a << 24));
 }
 
-static pixel32 const s_halo_emblem_colors[18] =
-{
-	0xFFECECEC, /* 0: White */
-	0xFF26262A, /* 1: Black */
-	0xFFD62B2B, /* 2: Red */
-	0xFF245EE0, /* 3: Blue */
-	0xFF7E848C, /* 4: Gray */
-	0xFFF0C829, /* 5: Yellow */
-	0xFF33A63C, /* 6: Green */
-	0xFFF278B0, /* 7: Pink */
-	0xFF853CC4, /* 8: Purple */
-	0xFF29D4E6, /* 9: Cyan */
-	0xFF1F42A6, /* 10: Cobalt */
-	0xFFF0801F, /* 11: Orange */
-	0xFF1F968C, /* 12: Teal */
-	0xFF5E8049, /* 13: Sage */
-	0xFF754E30, /* 14: Brown */
-	0xFFC7B080, /* 15: Tan */
-	0xFF821C26, /* 16: Maroon */
-	0xFFF0736B  /* 17: Salmon */
-};
-
-static boolean mcc_point_in_chevron(real nx, real ny, real cy, real width, real thickness)
-{
-	real ax = (nx >= 0.0f) ? nx : -nx;
-	real y_top;
-	if (ax > width)
-		return FALSE;
-	y_top = cy + ax * 0.65f;
-	return (ny >= y_top && ny <= y_top + thickness);
-}
-
-static boolean mcc_point_in_star(real nx, real ny, real cx, real cy, real radius)
-{
-	real dx = nx - cx;
-	real dy = ny - cy;
-	real ax = (dx >= 0.0f) ? dx : -dx;
-	real ay = (dy >= 0.0f) ? dy : -dy;
-	real dist = square_root(dx * dx + dy * dy);
-	if (dist > radius)
-		return FALSE;
-	if (dist <= radius * 0.42f)
-		return TRUE;
-	if (ax < radius * 0.24f * (1.0f - ay / radius))
-		return TRUE;
-	if (ay < radius * 0.24f * (1.0f - ax / radius))
-		return TRUE;
-	if (dy > -radius * 0.15f &&
-		fabsf(ax - ay * 0.85f) < radius * 0.22f * (1.0f - dist / radius))
-		return TRUE;
-	return FALSE;
-}
-
 #define FF_ICON_TEX_DIM 32
 #define FF_ICON_HI_DIM 128
 #define FF_ICON_HI_MIPS 4
@@ -1561,6 +1508,7 @@ struct ff_icon_scratch
 	pixel32 mip64[64 * 64];
 	pixel32 mip32[32 * 32];
 	pixel32 mip16[16 * 16];
+	unsigned char emblem_mask[FIREFIGHT_EMBLEM_MASK_DIM * FIREFIGHT_EMBLEM_MASK_DIM];
 };
 
 static struct ff_icon_scratch *ff_icon_scratch(void)
@@ -2511,268 +2459,104 @@ void firefight_draw_h3_ranked_icon(
 	ff_draw_cached_icon_mesh(mesh, x0, y0, size, alpha);
 }
 
-static boolean mcc_eval_emblem_bg(short bg_index, real nx, real ny, boolean *out_is_border)
-{
-	real ax = (nx >= 0.0f) ? nx : -nx;
-	real ay = (ny >= 0.0f) ? ny : -ny;
-	real dist = square_root(nx * nx + ny * ny);
-	real d = 1.0f;
+/* the emblems' masks and palette (port/assets/emblems, tools/emblem_assets.py):
+a word for each mask, the background's and then each foreground's two, giving
+its offset (0: none), then the masks. EMBLEM_PRIMARY_ON_TOP is set in a
+foreground's first when that layer goes over its second. */
+extern const unsigned int firefight_emblem_masks[];
+extern const unsigned int firefight_emblem_palette[];
 
-	*out_is_border = FALSE;
-	switch (bg_index % 12)
+#define EMBLEM_PRIMARY_ON_TOP 0x80000000u
+
+#if FIREFIGHT_EMBLEM_MASK_DIM != FF_ICON_HI_DIM
+#error the emblems' masks are drawn pixel for pixel into the icons' pictures
+#endif
+
+static unsigned int ff_emblem_foreground_word(short foreground, short layer)
+{
+	return firefight_emblem_masks[FIREFIGHT_EMBLEM_BACKGROUND_COUNT + foreground * 2 + layer];
+}
+
+/* a mask's runs into out: a control byte below 128 is that many plus one bytes
+as they are, others the next byte repeated that many less 126 times */
+static void ff_emblem_unpack_mask(unsigned int offset, unsigned char *out)
+{
+	unsigned char const *in = (unsigned char const *)firefight_emblem_masks + offset;
+	int size = FIREFIGHT_EMBLEM_MASK_DIM * FIREFIGHT_EMBLEM_MASK_DIM;
+	int done = 0;
+
+	while (done < size)
 	{
-	case 0: /* None */
-		return FALSE;
-	case 1: /* Shield */
-	{
-		real max_x = 0.84f;
-		if (ny < -0.55f)
-			max_x = 0.84f - (-0.55f - ny) * 0.6f;
-		else if (ny > 0.15f)
-			max_x = 0.84f - (ny - 0.15f) * 0.92f;
-		if (ny < -0.88f || ny > 0.92f || ax > max_x)
-			return FALSE;
-		d = MIN(max_x - ax, MIN(ny + 0.88f, 0.92f - ny));
-		*out_is_border = (d < 0.11f);
-		return TRUE;
-	}
-	case 2: /* Circle */
-		if (dist > 0.90f)
-			return FALSE;
-		*out_is_border = (dist > 0.78f);
-		return TRUE;
-	case 3: /* Diamond */
-		d = 0.95f - (ax + ay);
-		if (d < 0.0f)
-			return FALSE;
-		*out_is_border = (d < 0.12f);
-		return TRUE;
-	case 4: /* Octagon */
-		d = MIN(0.86f - MAX(ax, ay), 1.20f - (ax + ay));
-		if (d < 0.0f)
-			return FALSE;
-		*out_is_border = (d < 0.10f);
-		return TRUE;
-	case 5: /* Hexagon */
-		d = MIN(0.85f - ax, 1.00f - (ax * 0.55f + ay));
-		if (d < 0.0f)
-			return FALSE;
-		*out_is_border = (d < 0.10f);
-		return TRUE;
-	case 6: /* Maltese Cross */
-		if ((ax <= 0.34f + ay * 0.25f && ay <= 0.88f) ||
-			(ay <= 0.34f + ax * 0.25f && ax <= 0.88f))
+		int control = *in++;
+		if (control < 128)
 		{
-			*out_is_border = (MAX(ax, ay) > 0.78f);
-			return TRUE;
+			int count = MIN(control + 1, size - done);
+			memcpy(out + done, in, (size_t)count);
+			in += control + 1;
+			done += count;
 		}
-		return FALSE;
-	case 7: /* Starburst (8-point star) */
-		if ((ax <= 0.65f && ay <= 0.65f) || (ax + ay <= 0.92f))
+		else
 		{
-			*out_is_border = (MAX(ax, ay) > 0.56f && (ax + ay) > 0.82f);
-			return TRUE;
+			int count = MIN(control - 126, size - done);
+			memset(out + done, *in++, (size_t)count);
+			done += count;
 		}
-		return FALSE;
-	case 8: /* Banner */
-		if (ax <= 0.74f && ny >= -0.88f && ny <= 0.88f - (0.35f - ax * 0.45f))
-		{
-			*out_is_border = (ax > 0.64f || ny < -0.78f);
-			return TRUE;
-		}
-		return FALSE;
-	case 9: /* Crown Plate */
-		if (ax <= 0.84f && ny >= -0.75f + (ax > 0.25f && ax < 0.55f ? 0.22f : 0.0f) && ny <= 0.84f)
-		{
-			*out_is_border = (ax > 0.74f || ny > 0.74f);
-			return TRUE;
-		}
-		return FALSE;
-	case 10: /* Wings */
-		if ((ax <= 0.88f && ny >= -0.50f - ax * 0.25f && ny <= 0.45f - ax * 0.35f) || dist <= 0.55f)
-		{
-			*out_is_border = (dist > 0.46f && ax > 0.76f);
-			return TRUE;
-		}
-		return FALSE;
-	case 11: /* Cog / Gear */
-	default:
-		if (dist <= 0.74f || (dist <= 0.90f && (ax < 0.22f || ay < 0.22f || fabsf(ax - ay) < 0.22f)))
-		{
-			*out_is_border = (dist > 0.64f);
-			return TRUE;
-		}
-		return FALSE;
 	}
 }
 
-static int mcc_eval_emblem_fg(short fg_index, boolean toggle_sec, real nx, real ny)
+/* lays a mask, in color, over the picture so far */
+static void ff_emblem_add_layer(struct ff_icon_scratch *scratch, unsigned int word, pixel32 color)
 {
-	/* Returns: 0 = none, 1 = primary layer, 2 = secondary detail layer */
-	real ax = (nx >= 0.0f) ? nx : -nx;
-	real ay = (ny >= 0.0f) ? ny : -ny;
-	real dist = square_root(nx * nx + ny * ny);
+	unsigned int offset = word & ~EMBLEM_PRIMARY_ON_TOP;
+	unsigned long r = (color >> 16) & 0xFF;
+	unsigned long g = (color >> 8) & 0xFF;
+	unsigned long b = color & 0xFF;
+	int i;
 
-	switch (fg_index % 16)
+	if (!offset)
+		return;
+	ff_emblem_unpack_mask(offset, scratch->emblem_mask);
+	for (i = 0; i < FF_ICON_HI_DIM * FF_ICON_HI_DIM; i++)
 	{
-	case 0: /* Spartan Helmet */
-		if (toggle_sec && ax <= 0.36f && ny >= -0.18f && ny <= 0.08f && (ny >= -0.06f || ax >= 0.10f))
-			return 2; /* Gold Visor */
-		if (toggle_sec && ax <= 0.12f && ny >= -0.58f && ny <= -0.24f)
-			return 2; /* Helmet Crest */
-		if (ax <= 0.46f && ny >= -0.48f && ny <= 0.46f && (ax * 0.9f + ay * 0.8f <= 0.62f))
-		{
-			if (ax <= 0.14f && ny >= 0.18f && ny <= 0.34f)
-				return toggle_sec ? 2 : 0; /* Mouth vent */
-			return 1;
-		}
-		break;
+		unsigned long src_a = scratch->emblem_mask[i];
+		pixel32 under = scratch->pixels128[i];
+		unsigned long under_a = (under >> 24) & 0xFF;
+		unsigned long under_weight = under_a * (255 - src_a);
+		unsigned long total = src_a * 255 + under_weight;
 
-	case 1: /* Legendary Skull & Crossed Swords */
-		if (toggle_sec && fabsf(ax - ay) <= 0.09f && ax <= 0.62f)
-			return 2; /* Crossed swords behind skull */
-		if (square_root(nx * nx + (ny + 0.08f) * (ny + 0.08f)) <= 0.36f ||
-			(ax <= 0.20f && ny >= 0.14f && ny <= 0.44f))
-		{
-			if ((fabsf(ax - 0.13f) <= 0.07f && fabsf(ny + 0.05f) <= 0.07f) ||
-				(ax <= 0.05f && fabsf(ny - 0.10f) <= 0.06f))
-				return 0; /* Eyes & nose cavity */
-			return 1;
-		}
-		break;
-
-	case 2: /* Valkyrie (Winged Sword) */
-		if (ax <= 0.08f && ny >= -0.62f && ny <= 0.62f)
-			return 1; /* Sword blade */
-		if (ax <= 0.28f && fabsf(ny - 0.22f) <= 0.07f)
-			return 1; /* Crossguard */
-		if (toggle_sec && ax >= 0.12f && ax <= 0.60f &&
-			ny >= -0.35f + (ax - 0.12f) * 0.25f && ny <= 0.15f - (ax - 0.12f) * 0.35f)
-			return 2; /* Wings */
-		break;
-
-	case 3: /* ODST Helljumper */
-		if (toggle_sec && ax <= 0.16f && ny >= -0.64f && ny <= -0.28f)
-			return 2; /* Drop trail */
-		if (ax <= 0.44f && ny >= -0.32f && ny <= 0.48f && (ax + (ny > 0.1f ? (ny - 0.1f) * 0.6f : 0.0f) <= 0.50f))
-		{
-			if (ax <= 0.32f && ny >= -0.14f && ny <= 0.08f)
-				return toggle_sec ? 2 : 0; /* ODST Visor */
-			return 1;
-		}
-		break;
-
-	case 4: /* Mark of Shame / Covenant Glyph */
-		if (toggle_sec && dist >= 0.48f && dist <= 0.58f && ny <= 0.35f)
-			return 2;
-		if ((ax <= 0.42f && fabsf(ny + 0.10f + ax * 0.4f) <= 0.09f) ||
-			(ax <= 0.10f && ny >= -0.45f && ny <= 0.48f))
-			return 1;
-		break;
-
-	case 5: /* Marathon / Reclaimer */
-		if (dist >= 0.42f && dist <= 0.56f)
-			return 1;
-		{
-			real inner_d = square_root(nx * nx + (ny + 0.14f) * (ny + 0.14f));
-			if (inner_d >= 0.14f && inner_d <= 0.26f)
-				return toggle_sec ? 2 : 1;
-			if (toggle_sec && ax <= 0.06f && ny >= 0.10f && ny <= 0.54f)
-				return 2;
-		}
-		break;
-
-	case 6: /* 343 Guilty Spark */
-		if (dist <= 0.20f)
-			return toggle_sec ? 2 : 1; /* Glowing blue eye */
-		if (dist >= 0.28f && dist <= 0.52f)
-			return 1;
-		if (toggle_sec && ax <= 0.14f && fabsf(ay - 0.54f) <= 0.08f)
-			return 2;
-		break;
-
-	case 7: /* Energy Sword */
-		if (toggle_sec && ax <= 0.20f && fabsf(ny - 0.18f) <= 0.09f)
-			return 2; /* Sword hilt */
-		if (ax >= 0.04f && ax <= 0.26f - (ny + 0.55f) * 0.14f && ny >= -0.60f && ny <= 0.52f)
-			return 1; /* Twin plasma blades */
-		break;
-
-	case 8: /* Bulltrue */
-		if (toggle_sec && dist >= 0.14f && dist <= 0.24f && ny >= 0.15f)
-			return 2; /* Nose ring */
-		if (ax >= 0.20f && ax <= 0.58f && ny <= -0.05f && ny >= -0.55f &&
-			fabsf((ax - 0.20f) - (-0.05f - ny) * 0.75f) <= 0.12f)
-			return 2; /* Horns */
-		if (ax <= 0.34f - ny * 0.25f && ny >= -0.22f && ny <= 0.32f)
-			return 1;
-		break;
-
-	case 9: /* Phoenix / UNSC Eagle */
-		if (toggle_sec && mcc_point_in_star(nx, ny, 0.0f, -0.32f, 0.20f))
-			return 2;
-		if (ax <= 0.60f && ny >= -0.18f - ax * 0.3f && ny <= 0.28f - ax * 0.4f)
-			return 1;
-		if (ax <= 0.16f && ny >= -0.10f && ny <= 0.48f)
-			return 1;
-		break;
-
-	case 10: /* Biohazard / Flood */
-		if (toggle_sec && dist >= 0.18f && dist <= 0.28f)
-			return 2;
-		if ((square_root(nx * nx + (ny + 0.26f) * (ny + 0.26f)) <= 0.24f &&
-			 square_root(nx * nx + (ny + 0.34f) * (ny + 0.34f)) > 0.14f) ||
-			(square_root((ax - 0.24f) * (ax - 0.24f) + (ny - 0.16f) * (ny - 0.16f)) <= 0.24f &&
-			 square_root((ax - 0.31f) * (ax - 0.31f) + (ny - 0.22f) * (ny - 0.22f)) > 0.14f))
-			return 1;
-		break;
-
-	case 11: /* Crosshairs */
-		if (dist >= 0.36f && dist <= 0.48f)
-			return 1;
-		if (toggle_sec && ((ax <= 0.05f && ay <= 0.62f) || (ay <= 0.05f && ax <= 0.62f)))
-			return 2;
-		if (dist <= 0.10f)
-			return 1;
-		break;
-
-	case 12: /* Atomic */
-		if (toggle_sec && dist <= 0.16f)
-			return 2;
-		if (fabsf((nx * 0.7f + ny * 0.7f) * (nx * 0.7f + ny * 0.7f) * 3.5f +
-			(nx * 0.7f - ny * 0.7f) * (nx * 0.7f - ny * 0.7f) - 0.32f) <= 0.09f)
-			return 1;
-		break;
-
-	case 13: /* Jolly Roger */
-		if (toggle_sec && fabsf(ax - ay * 1.1f) <= 0.08f && ax >= 0.22f && ax <= 0.58f)
-			return 2;
-		if (dist <= 0.32f || (ax <= 0.16f && ny >= 0.10f && ny <= 0.40f))
-		{
-			if (fabsf(ax - 0.11f) <= 0.06f && fabsf(ny + 0.04f) <= 0.06f)
-				return 0;
-			return 1;
-		}
-		break;
-
-	case 14: /* Triad */
-		if (toggle_sec && mcc_point_in_star(nx, ny, 0.0f, 0.0f, 0.22f))
-			return 2;
-		if (ny >= -0.52f && ny <= 0.42f && ax <= (ny + 0.52f) * 0.62f &&
-			(ny > 0.28f || ax >= (ny + 0.52f) * 0.62f - 0.14f))
-			return 1;
-		break;
-
-	case 15: /* Noble */
-	default:
-		if (toggle_sec && ax <= 0.09f && ny >= -0.58f && ny <= 0.54f)
-			return 2;
-		if (mcc_point_in_chevron(nx, ny, -0.35f, 0.54f, 0.15f) ||
-			mcc_point_in_chevron(nx, ny, -0.02f, 0.54f, 0.15f))
-			return 1;
-		break;
+		if (!src_a)
+			continue;
+		scratch->pixels128[i] = (pixel32)(
+			(((total + 127) / 255) << 24) |
+			(((r * src_a * 255 + ((under >> 16) & 0xFF) * under_weight + total / 2) / total) << 16) |
+			(((g * src_a * 255 + ((under >> 8) & 0xFF) * under_weight + total / 2) / total) << 8) |
+			((b * src_a * 255 + (under & 0xFF) * under_weight + total / 2) / total));
 	}
-	return 0;
+}
+
+/* the emblem in the scratch's pixels128: its background, then its foreground's
+layers in their order, each mask tinted with its colour */
+static void ff_emblem_compose(struct ff_icon_scratch *scratch, struct firefight_emblem_info const *e)
+{
+	short foreground = (short)PIN(e->foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
+	short background = (short)PIN(e->background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
+	pixel32 primary = firefight_emblem_palette[PIN(e->primary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1)];
+	pixel32 secondary = firefight_emblem_palette[PIN(e->secondary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1)];
+	pixel32 back = firefight_emblem_palette[PIN(e->background_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1)];
+	unsigned int first = ff_emblem_foreground_word(foreground, 0);
+	unsigned int second = ff_emblem_foreground_word(foreground, 1);
+	int i;
+
+	/* (the empty pixels have the background's colour, for no dark edge where the texture is filtered) */
+	for (i = 0; i < FF_ICON_HI_DIM * FF_ICON_HI_DIM; i++)
+		scratch->pixels128[i] = back & 0x00FFFFFF;
+
+	ff_emblem_add_layer(scratch, firefight_emblem_masks[background], back);
+	if (e->secondary_layer && (first & EMBLEM_PRIMARY_ON_TOP))
+		ff_emblem_add_layer(scratch, second, secondary);
+	ff_emblem_add_layer(scratch, first, primary);
+	if (e->secondary_layer && !(first & EMBLEM_PRIMARY_ON_TOP))
+		ff_emblem_add_layer(scratch, second, secondary);
 }
 
 void firefight_draw_player_emblem(
@@ -2782,15 +2566,16 @@ void firefight_draw_player_emblem(
 	struct firefight_emblem_info const *emblem,
 	real alpha)
 {
-	struct firefight_emblem_info def_emb = { 0, 1, TRUE, 11, 0, 3, 0 };
+	struct firefight_emblem_info def_emb = FIREFIGHT_EMBLEM_DEFAULT;
 	struct firefight_emblem_info const *e = emblem ? emblem : &def_emb;
-	unsigned long fg = (unsigned long)(e->foreground & 0x1F);
-	unsigned long bg = (unsigned long)(e->background & 0x1F);
+	unsigned long fg = (unsigned long)PIN(e->foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
+	unsigned long bg = (unsigned long)PIN(e->background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
 	unsigned long sec = e->secondary_layer ? 1UL : 0UL;
-	unsigned long c_pri = (unsigned long)PIN(e->primary_color, 0, 17);
-	unsigned long c_sec = (unsigned long)PIN(e->secondary_color, 0, 17);
-	unsigned long c_bg = (unsigned long)PIN(e->background_color, 0, 17);
-	unsigned long key = 0x40000000UL | (fg << 24) | (bg << 19) | (sec << 18) | (c_pri << 12) | (c_sec << 6) | c_bg;
+	unsigned long c_pri = (unsigned long)PIN(e->primary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	unsigned long c_sec = (unsigned long)PIN(e->secondary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	unsigned long c_bg = (unsigned long)PIN(e->background_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	/* (7 bits of foreground, 6 of background, 1 of layer, 5 of each colour) */
+	unsigned long key = 0x40000000UL | (fg << 22) | (bg << 16) | (sec << 15) | (c_pri << 10) | (c_sec << 5) | c_bg;
 	struct ff_icon_scratch *scratch = ff_icon_scratch();
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
@@ -2801,71 +2586,8 @@ void firefight_draw_player_emblem(
 			return;
 		if (scratch)
 		{
-			pixel32 *s_pixels128 = scratch->pixels128;
-			pixel32 col_pri = s_halo_emblem_colors[c_pri];
-			pixel32 col_sec = s_halo_emblem_colors[c_sec];
-			pixel32 col_bg = s_halo_emblem_colors[c_bg];
-			pixel32 col_bg_dark = ff_lerp_argb(col_bg, 0xFF080C14, 0.45f);
-			pixel32 col_bg_border = ff_lerp_argb(col_bg, 0xFFFFFFFF, 0.35f);
-			real inv_half = 2.0f / (real)FF_ICON_HI_DIM;
-			short py, px, sy, sx;
-
-			for (py = 0; py < FF_ICON_HI_DIM; py++)
-			{
-				real grad_t = (real)py / (real)(FF_ICON_HI_DIM - 1);
-				pixel32 bg_fill = ff_lerp_argb(col_bg, col_bg_dark, grad_t);
-
-				for (px = 0; px < FF_ICON_HI_DIM; px++)
-				{
-					unsigned long r_sum = 0, g_sum = 0, b_sum = 0, a_sum = 0;
-
-					for (sy = 0; sy < 2; sy++)
-					{
-						real ny = ((real)py + 0.25f + 0.5f * (real)sy) * inv_half - 1.0f;
-						for (sx = 0; sx < 2; sx++)
-						{
-							real nx = ((real)px + 0.25f + 0.5f * (real)sx) * inv_half - 1.0f;
-							pixel32 pcol = 0;
-							boolean is_bg_border = FALSE;
-							int fg_layer = mcc_eval_emblem_fg(e->foreground, e->secondary_layer, nx, ny);
-
-							if (fg_layer == 1)
-								pcol = col_pri;
-							else if (fg_layer == 2)
-								pcol = col_sec;
-							else if (mcc_eval_emblem_bg(e->background, nx, ny, &is_bg_border))
-								pcol = is_bg_border ? col_bg_border : bg_fill;
-
-							if (pcol != 0)
-							{
-								unsigned long sa = (pcol >> 24) & 0xFF;
-								r_sum += ((pcol >> 16) & 0xFF) * sa;
-								g_sum += ((pcol >> 8) & 0xFF) * sa;
-								b_sum += (pcol & 0xFF) * sa;
-								a_sum += sa;
-							}
-						}
-					}
-
-					if (a_sum == 0)
-					{
-						s_pixels128[py * FF_ICON_HI_DIM + px] = 0;
-					}
-					else
-					{
-						unsigned long r = (r_sum + (a_sum >> 1)) / a_sum;
-						unsigned long g = (g_sum + (a_sum >> 1)) / a_sum;
-						unsigned long b = (b_sum + (a_sum >> 1)) / a_sum;
-						unsigned long a = (a_sum + 2) >> 2;
-						if (r > 255) r = 255;
-						if (g > 255) g = 255;
-						if (b > 255) b = 255;
-						if (a > 255) a = 255;
-						s_pixels128[py * FF_ICON_HI_DIM + px] = (pixel32)((a << 24) | (r << 16) | (g << 8) | b);
-					}
-				}
-			}
-			if (ff_draw_hw_icon_pixels(key, s_pixels128, x0, y0, size, alpha))
+			ff_emblem_compose(scratch, e);
+			if (ff_draw_hw_icon_pixels(key, scratch->pixels128, x0, y0, size, alpha))
 				return;
 		}
 	}
@@ -2881,41 +2603,19 @@ void firefight_draw_player_emblem(
 
 	if (!mesh)
 	{
-		pixel32 col_pri = s_halo_emblem_colors[c_pri];
-		pixel32 col_sec = s_halo_emblem_colors[c_sec];
-		pixel32 col_bg = s_halo_emblem_colors[c_bg];
-		pixel32 col_bg_dark = ff_lerp_argb(col_bg, 0xFF080C14, 0.45f);
-		pixel32 col_bg_border = ff_lerp_argb(col_bg, 0xFFFFFFFF, 0.35f);
 		pixel32 grid[FF_ICON_GRID_DIM][FF_ICON_GRID_DIM];
-		real inv_half = 2.0f / (real)FF_ICON_GRID_DIM;
+		int step = FF_ICON_HI_DIM / FF_ICON_GRID_DIM;
 		short py, px;
 
+		if (!scratch)
+			return;
+		ff_emblem_compose(scratch, e);
 		for (py = 0; py < FF_ICON_GRID_DIM; py++)
 		{
-			real ny = ((real)py + 0.5f) * inv_half - 1.0f;
-			real grad_t = (real)(py / 4) / 3.0f;
-			pixel32 bg_fill = ff_lerp_argb(col_bg, col_bg_dark, grad_t);
-
 			for (px = 0; px < FF_ICON_GRID_DIM; px++)
 			{
-				pixel32 pcol = 0;
-				real nx = ((real)px + 0.5f) * inv_half - 1.0f;
-				boolean is_bg_border = FALSE;
-				int fg_layer = mcc_eval_emblem_fg(e->foreground, e->secondary_layer, nx, ny);
-
-				if (fg_layer == 1)
-				{
-					pcol = col_pri;
-				}
-				else if (fg_layer == 2)
-				{
-					pcol = col_sec;
-				}
-				else if (mcc_eval_emblem_bg(e->background, nx, ny, &is_bg_border))
-				{
-					pcol = is_bg_border ? col_bg_border : bg_fill;
-				}
-				grid[py][px] = pcol;
+				pixel32 pixel = scratch->pixels128[(py * step + step / 2) * FF_ICON_HI_DIM + px * step + step / 2];
+				grid[py][px] = ((pixel >> 24) & 0xFF) >= 128 ? (pixel | 0xFF000000) : 0;
 			}
 		}
 

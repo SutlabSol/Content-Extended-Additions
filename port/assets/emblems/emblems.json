@@ -1,0 +1,640 @@
+{
+ "backgrounds": [
+  {
+   "file": "4_diamonds",
+   "name": "4 Diamonds"
+  },
+  {
+   "file": "8_pointed_star",
+   "name": "8 Pointed Star"
+  },
+  {
+   "file": "aero",
+   "name": "Aero"
+  },
+  {
+   "file": "asterisk",
+   "name": "Asterisk"
+  },
+  {
+   "file": "ball_o_fire",
+   "name": "Ball O'Fire"
+  },
+  {
+   "file": "banner",
+   "name": "Banner"
+  },
+  {
+   "file": "blam_2",
+   "name": "Blam 2"
+  },
+  {
+   "file": "blam",
+   "name": "Blam"
+  },
+  {
+   "file": "blunt_diamond_2",
+   "name": "Blunt Diamond 2"
+  },
+  {
+   "file": "blunt_diamond",
+   "name": "Blunt Diamond"
+  },
+  {
+   "file": "buzz_saw",
+   "name": "Buzz Saw"
+  },
+  {
+   "file": "chalice",
+   "name": "Chalice"
+  },
+  {
+   "file": "circle",
+   "name": "Circle"
+  },
+  {
+   "file": "cleft",
+   "name": "Cleft"
+  },
+  {
+   "file": "cog",
+   "name": "Cog"
+  },
+  {
+   "file": "cowboy_hat",
+   "name": "Cowboy Hat"
+  },
+  {
+   "file": "crisscross",
+   "name": "Crisscross"
+  },
+  {
+   "file": "delta_wing",
+   "name": "Delta Wing"
+  },
+  {
+   "file": "diamond",
+   "name": "Diamond"
+  },
+  {
+   "file": "display",
+   "name": "Display"
+  },
+  {
+   "file": "dreamcatcher",
+   "name": "Dreamcatcher"
+  },
+  {
+   "file": "face_mask_2",
+   "name": "Face Mask 2"
+  },
+  {
+   "file": "face_mask",
+   "name": "Face Mask"
+  },
+  {
+   "file": "four_plots",
+   "name": "Four Plots"
+  },
+  {
+   "file": "gradient",
+   "name": "Gradient"
+  },
+  {
+   "file": "hexagon",
+   "name": "Hexagon"
+  },
+  {
+   "file": "horizontal_gradient",
+   "name": "Horizontal Gradient"
+  },
+  {
+   "file": "horizontal_stripe",
+   "name": "Horizontal Stripe"
+  },
+  {
+   "file": "horizontal_stripes",
+   "name": "Horizontal Stripes"
+  },
+  {
+   "file": "inverted_pentagon",
+   "name": "Inverted Pentagon"
+  },
+  {
+   "file": "octagon",
+   "name": "Octagon"
+  },
+  {
+   "file": "oval",
+   "name": "Oval"
+  },
+  {
+   "file": "pentagon",
+   "name": "Pentagon"
+  },
+  {
+   "file": "plus",
+   "name": "Plus"
+  },
+  {
+   "file": "racing_stripes",
+   "name": "Racing Stripes"
+  },
+  {
+   "file": "sharp_diamond_2",
+   "name": "Sharp Diamond 2"
+  },
+  {
+   "file": "sharp_diamond",
+   "name": "Sharp Diamond"
+  },
+  {
+   "file": "shield",
+   "name": "Shield"
+  },
+  {
+   "file": "sprocket",
+   "name": "Sprocket"
+  },
+  {
+   "file": "square",
+   "name": "Square"
+  },
+  {
+   "file": "star",
+   "name": "Star"
+  },
+  {
+   "file": "sun",
+   "name": "Sun"
+  },
+  {
+   "file": "thick_star",
+   "name": "Thick Star"
+  },
+  {
+   "file": "triangle",
+   "name": "Triangle"
+  },
+  {
+   "file": "vertical_hexigon",
+   "name": "Vertical Hexagon"
+  },
+  {
+   "file": "vertical_oval",
+   "name": "Vertical Oval"
+  },
+  {
+   "file": "vertical_stripe",
+   "name": "Vertical Stripe"
+  }
+ ],
+ "foregrounds": [
+  {
+   "file": "bear_claw",
+   "name": "Bear Claw"
+  },
+  {
+   "file": "black_widow",
+   "name": "Black Widow"
+  },
+  {
+   "file": "brute_head",
+   "name": "Brute Head"
+  },
+  {
+   "file": "bubble_shield",
+   "name": "Bubble Shield"
+  },
+  {
+   "file": "bullseye",
+   "name": "Bullseye"
+  },
+  {
+   "file": "cancel",
+   "name": "Cancel"
+  },
+  {
+   "file": "capsule",
+   "name": "Capsule"
+  },
+  {
+   "file": "champion",
+   "name": "Champion"
+  },
+  {
+   "file": "clubs",
+   "name": "Clubs"
+  },
+  {
+   "file": "crossed_swords",
+   "name": "Crossed Swords"
+  },
+  {
+   "file": "crosshairs",
+   "name": "Crosshairs"
+  },
+  {
+   "file": "cube",
+   "name": "Cube"
+  },
+  {
+   "file": "da_bomb",
+   "name": "Da Bomb"
+  },
+  {
+   "file": "daisho",
+   "name": "Daisho"
+  },
+  {
+   "file": "daisy",
+   "name": "Daisy"
+  },
+  {
+   "file": "delta",
+   "name": "Delta"
+  },
+  {
+   "file": "demon",
+   "name": "Demon"
+  },
+  {
+   "file": "diamonds",
+   "name": "Diamonds"
+  },
+  {
+   "file": "double_crescent",
+   "name": "Double Crescent"
+  },
+  {
+   "file": "drone",
+   "name": "Drone"
+  },
+  {
+   "file": "flaming_horns",
+   "name": "Flaming Horns"
+  },
+  {
+   "file": "flaming_ninja",
+   "name": "Flaming Ninja"
+  },
+  {
+   "file": "fleur_de_lis",
+   "name": "Fleur de Lis"
+  },
+  {
+   "file": "frowney",
+   "name": "Frowney"
+  },
+  {
+   "file": "gas_mask",
+   "name": "Gas Mask"
+  },
+  {
+   "file": "grenade",
+   "name": "Grenade"
+  },
+  {
+   "file": "grunt",
+   "name": "Grunt"
+  },
+  {
+   "file": "grunt_head",
+   "name": "Grunt Head"
+  },
+  {
+   "file": "grunt_symbol",
+   "name": "Grunt Symbol"
+  },
+  {
+   "file": "halt",
+   "name": "Halt"
+  },
+  {
+   "file": "hawk",
+   "name": "Hawk"
+  },
+  {
+   "file": "hearts",
+   "name": "Hearts"
+  },
+  {
+   "file": "helmet",
+   "name": "Helmet"
+  },
+  {
+   "file": "jolly_roger",
+   "name": "Jolly Roger"
+  },
+  {
+   "file": "lips",
+   "name": "Lips"
+  },
+  {
+   "file": "marathon",
+   "name": "Marathon"
+  },
+  {
+   "file": "mark_of_shame",
+   "name": "Mark of Shame"
+  },
+  {
+   "file": "number_eight",
+   "name": "Number Eight"
+  },
+  {
+   "file": "number_five",
+   "name": "Number Five"
+  },
+  {
+   "file": "number_four",
+   "name": "Number Four"
+  },
+  {
+   "file": "number_nine",
+   "name": "Number Nine"
+  },
+  {
+   "file": "number_one",
+   "name": "Number One"
+  },
+  {
+   "file": "number_seven",
+   "name": "Number Seven"
+  },
+  {
+   "file": "number_six",
+   "name": "Number Six"
+  },
+  {
+   "file": "number_three",
+   "name": "Number Three"
+  },
+  {
+   "file": "number_two",
+   "name": "Number Two"
+  },
+  {
+   "file": "number_zero",
+   "name": "Number Zero"
+  },
+  {
+   "file": "ohnoudnt",
+   "name": "Ohnoudnt"
+  },
+  {
+   "file": "phoenix",
+   "name": "Phoenix"
+  },
+  {
+   "file": "pirate",
+   "name": "Pirate"
+  },
+  {
+   "file": "radioactive",
+   "name": "Radioactive"
+  },
+  {
+   "file": "rampancy",
+   "name": "Rampancy"
+  },
+  {
+   "file": "runes",
+   "name": "Runes"
+  },
+  {
+   "file": "seventh_column",
+   "name": "Seventh Column"
+  },
+  {
+   "file": "skull_king",
+   "name": "Skull King"
+  },
+  {
+   "file": "smiley",
+   "name": "Smiley"
+  },
+  {
+   "file": "snake",
+   "name": "Snake"
+  },
+  {
+   "file": "sol",
+   "name": "Sol"
+  },
+  {
+   "file": "spades",
+   "name": "Spades"
+  },
+  {
+   "file": "spartan",
+   "name": "Spartan"
+  },
+  {
+   "file": "spartan_helmet",
+   "name": "Spartan Helmet"
+  },
+  {
+   "file": "spearhead",
+   "name": "Spearhead"
+  },
+  {
+   "file": "stuck",
+   "name": "Stuck"
+  },
+  {
+   "file": "subnova",
+   "name": "Subnova"
+  },
+  {
+   "file": "supernova",
+   "name": "Supernova"
+  },
+  {
+   "file": "surf",
+   "name": "Surf"
+  },
+  {
+   "file": "the_librarian",
+   "name": "The Librarian"
+  },
+  {
+   "file": "thor",
+   "name": "Thor"
+  },
+  {
+   "file": "tomcat",
+   "name": "Tomcat"
+  },
+  {
+   "file": "triad",
+   "name": "Triad"
+  },
+  {
+   "file": "trident",
+   "name": "Trident"
+  },
+  {
+   "file": "trinity",
+   "name": "Trinity"
+  },
+  {
+   "file": "trip_mine",
+   "name": "Trip Mine"
+  },
+  {
+   "file": "triplicate",
+   "name": "Triplicate"
+  },
+  {
+   "file": "tsantsa",
+   "name": "Tsantsa"
+  },
+  {
+   "file": "unicorn",
+   "name": "Unicorn"
+  },
+  {
+   "file": "valkyrie",
+   "name": "Valkyrie"
+  },
+  {
+   "file": "vortex",
+   "name": "Vortex"
+  },
+  {
+   "file": "wasp",
+   "name": "Wasp"
+  },
+  {
+   "file": "wolf",
+   "name": "Wolf"
+  },
+  {
+   "file": "ying_yang",
+   "name": "Ying Yang"
+  }
+ ],
+ "colors": [
+  {
+   "name": "Steel",
+   "rgb": "656565"
+  },
+  {
+   "name": "Silver",
+   "rgb": "b1b1b1"
+  },
+  {
+   "name": "White",
+   "rgb": "dedede"
+  },
+  {
+   "name": "Red",
+   "rgb": "9c3433"
+  },
+  {
+   "name": "Mauve",
+   "rgb": "db6b6a"
+  },
+  {
+   "name": "Salmon",
+   "rgb": "ef8383"
+  },
+  {
+   "name": "Orange",
+   "rgb": "da8e07"
+  },
+  {
+   "name": "Coral",
+   "rgb": "f7af5b"
+  },
+  {
+   "name": "Peach",
+   "rgb": "fecba0"
+  },
+  {
+   "name": "Gold",
+   "rgb": "cdae31"
+  },
+  {
+   "name": "Yellow",
+   "rgb": "f1be31"
+  },
+  {
+   "name": "Pale",
+   "rgb": "fbd87e"
+  },
+  {
+   "name": "Sage",
+   "rgb": "5d7720"
+  },
+  {
+   "name": "Green",
+   "rgb": "92a764"
+  },
+  {
+   "name": "Olive",
+   "rgb": "d9f0a8"
+  },
+  {
+   "name": "Teal",
+   "rgb": "367b80"
+  },
+  {
+   "name": "Aqua",
+   "rgb": "4dbdc1"
+  },
+  {
+   "name": "Cyan",
+   "rgb": "92ecec"
+  },
+  {
+   "name": "Blue",
+   "rgb": "385d94"
+  },
+  {
+   "name": "Cobalt",
+   "rgb": "598ad9"
+  },
+  {
+   "name": "Sapphire",
+   "rgb": "9ab7f3"
+  },
+  {
+   "name": "Violet",
+   "rgb": "594292"
+  },
+  {
+   "name": "Orchid",
+   "rgb": "9377e5"
+  },
+  {
+   "name": "Lavender",
+   "rgb": "c5b5fc"
+  },
+  {
+   "name": "Crimson",
+   "rgb": "85064b"
+  },
+  {
+   "name": "Rubine",
+   "rgb": "d24186"
+  },
+  {
+   "name": "Pink",
+   "rgb": "fd8dbb"
+  },
+  {
+   "name": "Brown",
+   "rgb": "553b1a"
+  },
+  {
+   "name": "Tan",
+   "rgb": "ac8d70"
+  },
+  {
+   "name": "Khaki",
+   "rgb": "e1bfa3"
+  }
+ ]
+}

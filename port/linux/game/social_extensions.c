@@ -51,64 +51,6 @@ enum
 	_emb_row_count = 7
 };
 
-static char const *const s_emblem_fg_names[FIREFIGHT_EMBLEM_FOREGROUND_COUNT] =
-{
-	"Spartan Helmet",
-	"ODST Drop Pod",
-	"Valkyrie Wings",
-	"Crossed Swords",
-	"Legendary Shield",
-	"UNSC Eagle",
-	"Flaming Skull",
-	"Covenant Mark",
-	"Marathon Symbol",
-	"Reclaimer Glyph",
-	"Nova Star",
-	"Wolf Fang",
-	"Spartan Spear",
-	"Phoenix Crest",
-	"Atomic Core",
-	"Noble Crown"
-};
-
-static char const *const s_emblem_bg_names[FIREFIGHT_EMBLEM_BACKGROUND_COUNT] =
-{
-	"None",
-	"Circle",
-	"Shield",
-	"Diamond",
-	"Hexagon",
-	"Octagon",
-	"Cross",
-	"Star",
-	"Banner",
-	"Chevron",
-	"Oval",
-	"Square"
-};
-
-static char const *const s_halo_color_names[FIREFIGHT_EMBLEM_COLOR_COUNT] =
-{
-	"White",
-	"Steel",
-	"Red",
-	"Orange",
-	"Gold",
-	"Olive",
-	"Green",
-	"Sage",
-	"Cyan",
-	"Teal",
-	"Cobalt",
-	"Blue",
-	"Violet",
-	"Purple",
-	"Pink",
-	"Crimson",
-	"Brown",
-	"Tan"
-};
-
 static char const *const s_mcc_nameplate_names[FIREFIGHT_NAMEPLATE_COUNT] =
 {
 	"UNSC Standard",
@@ -348,7 +290,12 @@ void social_extensions_get_wide_name_rank_and_emblem(
 		}
 	}
 
-	social_extensions_get_person_rank_and_emblem(NULL, ascii_name, color_hint, out_rank, out_emblem);
+	social_extensions_get_person_rank_and_emblem(
+		NULL,
+		ascii_name,
+		color_hint >= 0 ? firefight_emblem_color_from_armor(color_hint) : NONE,
+		out_rank,
+		out_emblem);
 
 	/* For uncached bots / offline players in-game, give a deterministic non-zero rank from their name */
 	if (!in_cache && out_rank && ascii_name[0])
@@ -574,7 +521,7 @@ void social_extensions_row_text(
 		firefight_stats_get_emblem(NONE, &emb);
 		fg = (short)PIN(emb.foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
 		snprintf(name, (size_t)name_size, "CUSTOMISE EMBLEM");
-		snprintf(state, (size_t)state_size, "%s", s_emblem_fg_names[fg]);
+		snprintf(state, (size_t)state_size, "%s", firefight_emblem_foreground_names[fg]);
 		return;
 	}
 	if (row_kind == _social_ext_row_service_record)
@@ -632,7 +579,7 @@ void social_extensions_row_text(
 		{
 		case _emb_row_foreground:
 			snprintf(name, (size_t)name_size, "EMBLEM");
-			snprintf(state, (size_t)state_size, "%s", s_emblem_fg_names[fg]);
+			snprintf(state, (size_t)state_size, "%s", firefight_emblem_foreground_names[fg]);
 			break;
 		case _emb_row_secondary_layer:
 			snprintf(name, (size_t)name_size, "TOGGLE DETAIL");
@@ -640,19 +587,19 @@ void social_extensions_row_text(
 			break;
 		case _emb_row_background:
 			snprintf(name, (size_t)name_size, "BACKGROUND");
-			snprintf(state, (size_t)state_size, "%s", s_emblem_bg_names[bg]);
+			snprintf(state, (size_t)state_size, "%s", firefight_emblem_background_names[bg]);
 			break;
 		case _emb_row_primary_color:
 			snprintf(name, (size_t)name_size, "PRIMARY COLOUR");
-			snprintf(state, (size_t)state_size, "%s", s_halo_color_names[c1]);
+			snprintf(state, (size_t)state_size, "%s", firefight_emblem_color_names[c1]);
 			break;
 		case _emb_row_secondary_color:
 			snprintf(name, (size_t)name_size, "SECONDARY COLOUR");
-			snprintf(state, (size_t)state_size, "%s", s_halo_color_names[c2]);
+			snprintf(state, (size_t)state_size, "%s", firefight_emblem_color_names[c2]);
 			break;
 		case _emb_row_bg_color:
 			snprintf(name, (size_t)name_size, "BG COLOUR");
-			snprintf(state, (size_t)state_size, "%s", s_halo_color_names[c3]);
+			snprintf(state, (size_t)state_size, "%s", firefight_emblem_color_names[c3]);
 			break;
 		case _emb_row_nameplate:
 			snprintf(name, (size_t)name_size, "NAMEPLATE");
@@ -823,9 +770,9 @@ void social_extensions_row_details(
 			"background shape, primary/secondary\n"
 			"colours, and MCC nameplate.\n\n"
 			"Press A to customise your emblem.",
-			s_emblem_fg_names[fg],
+			firefight_emblem_foreground_names[fg],
 			emb.secondary_layer ? "Full" : "Primary",
-			s_emblem_bg_names[bg],
+			firefight_emblem_background_names[bg],
 			s_mcc_nameplate_names[np],
 			rk.rank_name,
 			(int)rk.tour_number,

@@ -640,10 +640,21 @@ struct firefight_h3_ranked_info
 	long draws;
 };
 
-#define FIREFIGHT_EMBLEM_FOREGROUND_COUNT 16
-#define FIREFIGHT_EMBLEM_BACKGROUND_COUNT 12
-#define FIREFIGHT_EMBLEM_COLOR_COUNT 18
+#include "halo_emblems.h"
+
 #define FIREFIGHT_NAMEPLATE_COUNT 10
+
+/* a profile's emblem until its player picks one */
+#define FIREFIGHT_EMBLEM_DEFAULT \
+	{ \
+		FIREFIGHT_EMBLEM_FG_SPARTAN_HELMET, FIREFIGHT_EMBLEM_BG_SHIELD, TRUE, \
+		FIREFIGHT_EMBLEM_COLOR_ORANGE, FIREFIGHT_EMBLEM_COLOR_WHITE, FIREFIGHT_EMBLEM_COLOR_BLUE, 0 \
+	}
+
+/* the emblems' lists (port/assets/emblems; tools/embed_assets.py makes them) */
+extern char const *const firefight_emblem_foreground_names[];
+extern char const *const firefight_emblem_background_names[];
+extern char const *const firefight_emblem_color_names[];
 
 struct firefight_emblem_info
 {
@@ -885,6 +896,8 @@ void firefight_stats_get_mcc_rank(long profile_index, struct firefight_mcc_rank_
 void firefight_stats_get_h3_ranked(long profile_index, struct firefight_h3_ranked_info *out_ranked);
 void firefight_stats_get_emblem(long profile_index, struct firefight_emblem_info *out_emblem);
 void firefight_stats_set_emblem(long profile_index, struct firefight_emblem_info const *emblem);
+/* the emblem colour nearest a player's armour colour */
+short firefight_emblem_color_from_armor(short armor_color);
 long firefight_stats_get_session_medals(long player_index);
 short firefight_stats_get_player_top_medals(
 	long player_index,
