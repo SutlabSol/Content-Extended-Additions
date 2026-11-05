@@ -33,6 +33,10 @@ boolean social_account_totals(long *matches, long *kills, long *deaths, long *as
 and the friend requests waiting */
 void social_presence_counts(long *friends_online, long *requests_waiting);
 
+/* (firefight_stats.c) a Firefight match's totals added: sent with the
+account (POST /account), which other players' cards read */
+void social_firefight_changed(void);
+
 /* the name the account goes by: player 1's profile's (ASCII, '?' for what it
 has not), "" for none */
 void social_player_name(char *name, long size);

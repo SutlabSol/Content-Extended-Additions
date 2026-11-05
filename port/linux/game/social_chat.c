@@ -2957,16 +2957,17 @@ static void social_chat_player_draw(
 	if (social_chat_player.profile)
 	{
 		real scale = (real)screen_height / 480.0f;
-		short card_left = (short)((screen_width - 600 * scale) / 2);
+		short card_width = (short)MIN(screen_width - 40 * scale, SOCIAL_MENU_CARD_MOST_WIDTH * scale);
+		short card_left = (short)((screen_width - card_width) / 2);
 		short card_top = (short)((screen_height - 335 * scale) / 2);
 		short bottom = social_menu_profile_card_draw(social_chat_player.code, card_left, card_top,
-			(short)(card_left + 600 * scale));
+			(short)(card_left + card_width), scale);
 
 		if (bottom > card_top)
 		{
 			social_chat_player.panel.x0 = card_left;
 			social_chat_player.panel.y0 = card_top;
-			social_chat_player.panel.x1 = (short)(card_left + 600 * scale);
+			social_chat_player.panel.x1 = (short)(card_left + card_width);
 			social_chat_player.panel.y1 = bottom;
 			bounds.x0 = card_left;
 			bounds.x1 = social_chat_player.panel.x1;

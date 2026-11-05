@@ -116,6 +116,8 @@ void social_menu_row(short row, char *name, long name_size, char *state, long st
 /* the platform icon (platform_icons.h) of a friend's row, none for any other */
 short social_menu_row_platform(short row);
 /* the service rank and emblem of a person row (_row_friend, _row_incoming, _row_outgoing, _row_recent_player) */
+/* the emblem a row shows in its state's place (CUSTOMISE EMBLEM's) */
+boolean social_menu_row_emblem(short row, struct firefight_emblem_info *out_emblem);
 boolean social_menu_row_person_icons(short row, struct firefight_mcc_rank_info *out_rank, struct firefight_emblem_info *out_emblem);
 
 /* the row chosen's details: its title and its text, the last thing done
@@ -210,10 +212,14 @@ shared), and a few lines of them: 1 had, 0 still asked, -1 not answered
 void social_menu_profile_ask(char const *code, char const *name);
 short social_menu_profile_text(char const *code, char *text, long size);
 
+/* the widest the player's card is, in the screen's 480 lines' units */
+#define SOCIAL_MENU_CARD_MOST_WIDTH 860
+
 /* (social_chat.c's VIEW PROFILE) the player's card, as the Social screen
 draws it (asked for: social_menu_profile_ask), in the view's pixels from x0
-to x1 and from y0 down: its bottom (y0 for none drawn) */
-short social_menu_profile_card_draw(char const *code, short x0, short y0, short x1);
+to x1 and from y0 down, `unit` pixels to one of the screen's 480 lines: its
+bottom (y0 for none drawn) */
+short social_menu_profile_card_draw(char const *code, short x0, short y0, short x1, real unit);
 /* whether the player is a friend, and muted, as the server last said */
 boolean social_menu_is_friend(char const *code);
 boolean social_menu_is_muted(char const *code);

@@ -69,6 +69,7 @@ the players and their records social_menu.c's.
 #include "campaign_medals.h"
 #include "campaign_score.h"
 #include "community.h"
+#include "halo_firefight.h"
 #include "network_privacy.h"
 #include "network_replay.h"
 #include "social.h"
@@ -410,6 +411,40 @@ static void social_settings_text(
 	text[MIN(index, size - 1)] = 0;
 }
 
+static boolean social_recording(
+	void);
+
+void social_firefight_changed(
+	void)
+{
+	social.hello_due = TRUE;
+}
+
+/* the career's Firefight totals in POST /account: the server keeps the last
+sent, as they are, for other players' cards. None for a profile with none,
+which would wipe what another of the account's devices sent */
+static void social_firefight_json(
+	struct server_json *json)
+{
+	struct firefight_career_stats career;
+
+	if (!social_recording() || !firefight_stats_get_career(NONE, &career) ||
+		(!career.ff_matches && !career.total_sets_completed && !career.total_waves_cleared))
+		return;
+	server_json_object_begin(json, "firefight");
+	server_json_integer(json, "matches", career.ff_matches);
+	server_json_integer(json, "sets", career.total_sets_completed);
+	server_json_integer(json, "waves", career.total_waves_cleared);
+	server_json_integer(json, "kills", career.ff_kills);
+	server_json_integer(json, "bossKills", career.total_boss_kills);
+	server_json_integer(json, "deaths", career.ff_deaths);
+	server_json_integer(json, "assists", career.ff_assists);
+	server_json_integer(json, "bestSpree", career.ff_best_spree);
+	server_json_integer(json, "score", career.ff_score);
+	server_json_integer(json, "seconds", career.ff_seconds);
+	server_json_object_end(json);
+}
+
 void social_presence_counts(
 	long *friends_online,
 	long *requests_waiting)
@@ -578,6 +613,7 @@ static void social_hello_update(
 			}
 		}
 		server_json_object_end(&json);
+		social_firefight_json(&json);
 		server_json_object_end(&json);
 		social.hello_ticket = social_send("/account", server_json_text(&json));
 		server_json_free(&json);

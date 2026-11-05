@@ -7,7 +7,7 @@ Compartmentalised extensions for Watanoge's Social Menu (social_menu.c):
 - Unified Challenges: Watanoge's Daily Challenge (community.c) + Daily & Weekly
   Campaign, Firefight, and Multiplayer challenges (firefight_stats.c)
 - 39 Achievements (1000G) browser
-- Player Card (_list_card) Service Rank icon, Emblem, XP, Gamerscore & Firefight summary
+- Player Card (_list_card) Emblem, Service Rank icon, rank and XP bar
 */
 
 #include <stdio.h>
@@ -48,9 +48,11 @@ enum
 	_emb_row_secondary_color = 4,
 	_emb_row_bg_color = 5,
 	_emb_row_nameplate = 6,
-	_emb_row_count = 7
+	/* (the nameplate's row last, for it may be left out) */
+	_emb_row_count = 6 + OPENCE_ENABLE_NAMEPLATES
 };
 
+#if OPENCE_ENABLE_NAMEPLATES
 static char const *const s_mcc_nameplate_names[FIREFIGHT_NAMEPLATE_COUNT] =
 {
 	"UNSC Standard",
@@ -64,6 +66,7 @@ static char const *const s_mcc_nameplate_names[FIREFIGHT_NAMEPLATE_COUNT] =
 	"Pillar of Autumn",
 	"Reclaimer"
 };
+#endif
 
 /* ---------- Cached Person / Friend Rank & Emblem Table */
 
@@ -377,9 +380,6 @@ void social_extensions_add_home_rows(social_ext_row_add_fn add_fn)
 	if (!add_fn)
 		return;
 	add_fn(_social_ext_row_emblem, 0);
-#if OPENCE_ENABLE_SERVICE_RANK || OPENCE_ENABLE_FIREFIGHT
-	add_fn(_social_ext_row_service_record, 0);
-#endif
 #if OPENCE_ENABLE_EXT_CHALLENGES
 	add_fn(_social_ext_row_challenges, 0);
 #endif
@@ -515,13 +515,8 @@ void social_extensions_row_text(
 
 	if (row_kind == _social_ext_row_emblem)
 	{
-		struct firefight_emblem_info emb;
-		short fg;
-
-		firefight_stats_get_emblem(NONE, &emb);
-		fg = (short)PIN(emb.foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
+		/* (its state is the emblem itself: social_extensions_row_emblem) */
 		snprintf(name, (size_t)name_size, "CUSTOMISE EMBLEM");
-		snprintf(state, (size_t)state_size, "%s", firefight_emblem_foreground_names[fg]);
 		return;
 	}
 	if (row_kind == _social_ext_row_service_record)
@@ -565,21 +560,19 @@ void social_extensions_row_text(
 	if (list_kind == _social_ext_list_emblem)
 	{
 		struct firefight_emblem_info emb;
-		short fg, bg, c1, c2, c3, np;
+		short c1, c2, c3;
 
 		firefight_stats_get_emblem(NONE, &emb);
-		fg = (short)PIN(emb.foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
-		bg = (short)PIN(emb.background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
 		c1 = (short)PIN(emb.primary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
 		c2 = (short)PIN(emb.secondary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
 		c3 = (short)PIN(emb.background_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
-		np = (short)PIN(emb.nameplate, 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
 
+		/* (EMBLEM's and BACKGROUND's states are the emblem itself:
+		social_extensions_row_emblem) */
 		switch (value)
 		{
 		case _emb_row_foreground:
 			snprintf(name, (size_t)name_size, "EMBLEM");
-			snprintf(state, (size_t)state_size, "%s", firefight_emblem_foreground_names[fg]);
 			break;
 		case _emb_row_secondary_layer:
 			snprintf(name, (size_t)name_size, "TOGGLE DETAIL");
@@ -587,7 +580,6 @@ void social_extensions_row_text(
 			break;
 		case _emb_row_background:
 			snprintf(name, (size_t)name_size, "BACKGROUND");
-			snprintf(state, (size_t)state_size, "%s", firefight_emblem_background_names[bg]);
 			break;
 		case _emb_row_primary_color:
 			snprintf(name, (size_t)name_size, "PRIMARY COLOUR");
@@ -601,10 +593,13 @@ void social_extensions_row_text(
 			snprintf(name, (size_t)name_size, "BG COLOUR");
 			snprintf(state, (size_t)state_size, "%s", firefight_emblem_color_names[c3]);
 			break;
+#if OPENCE_ENABLE_NAMEPLATES
 		case _emb_row_nameplate:
 			snprintf(name, (size_t)name_size, "NAMEPLATE");
-			snprintf(state, (size_t)state_size, "%s", s_mcc_nameplate_names[np]);
+			snprintf(state, (size_t)state_size, "%s", s_mcc_nameplate_names[
+				PIN(emb.nameplate, 0, FIREFIGHT_NAMEPLATE_COUNT - 1)]);
 			break;
+#endif
 		default:
 			break;
 		}
@@ -639,7 +634,7 @@ void social_extensions_row_text(
 			break;
 		case _sr_item_firefight:
 			snprintf(name, (size_t)name_size, "FIREFIGHT CAREER");
-			snprintf(state, (size_t)state_size, "%ld SETS / %ld K", career.total_sets_completed, career.total_kills);
+			snprintf(state, (size_t)state_size, "%ld SETS / %ld K", career.total_sets_completed, career.ff_kills);
 			break;
 		case _sr_item_multiplayer:
 			snprintf(name, (size_t)name_size, "MULTIPLAYER CAREER");
@@ -748,47 +743,23 @@ void social_extensions_row_details(
 	}
 	if (row_kind == _social_ext_row_emblem)
 	{
-		struct firefight_emblem_info emb;
-		struct firefight_mcc_rank_info rk;
-		short fg, bg, np;
-
-		firefight_stats_get_emblem(NONE, &emb);
-		firefight_stats_get_mcc_rank(NONE, &rk);
-		fg = (short)PIN(emb.foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
-		bg = (short)PIN(emb.background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
-		np = (short)PIN(emb.nameplate, 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
-
+		/* (below the preview: social_extensions_draw_details_overlay) */
 		snprintf(title, (size_t)title_size, "CUSTOMISE EMBLEM");
-		snprintf(
-			text,
-			(size_t)text_size,
-			"Emblem: %s (%s)\n"
-			"Background: %s\n"
-			"Nameplate: %s\n"
-			"Rank: %s (T%d R%d)\n\n"
-			"Customise your foreground emblem,\n"
-			"background shape, primary/secondary\n"
-			"colours, and MCC nameplate.\n\n"
-			"Press A to customise your emblem.",
-			firefight_emblem_foreground_names[fg],
-			emb.secondary_layer ? "Full" : "Primary",
-			firefight_emblem_background_names[bg],
-			s_mcc_nameplate_names[np],
-			rk.rank_name,
-			(int)rk.tour_number,
-			(int)rk.rank_in_tour);
+		snprintf(text, (size_t)text_size, " \n \n \n \n \n \n \n \n \nPress A to customise your emblem.");
 		return;
 	}
 	if (row_kind == _social_ext_row_service_record)
 	{
 		struct firefight_career_stats career;
 		struct firefight_mcc_rank_info rk;
+#if OPENCE_ENABLE_ACHIEVEMENTS
 		short unlocked = 0, total = 0, score = 0, max_score = 1000;
 
-		firefight_stats_get_career(NONE, &career);
-		firefight_stats_get_mcc_rank(NONE, &rk);
 		firefight_stats_get_achievement_count(NONE, &unlocked, &total);
 		firefight_stats_get_achievement_score(NONE, &score, &max_score);
+#endif
+		firefight_stats_get_career(NONE, &career);
+		firefight_stats_get_mcc_rank(NONE, &rk);
 
 		snprintf(title, (size_t)title_size, "SERVICE RECORD");
 		snprintf(
@@ -796,7 +767,9 @@ void social_extensions_row_details(
 			(size_t)text_size,
 			"Rank: %s (%s)\n"
 			"Career XP: %ld / %ld XP\n"
+#if OPENCE_ENABLE_ACHIEVEMENTS
 			"Gamerscore: %d / %d G (%d/%d)\n"
+#endif
 			"Skulls Unlocked: %ld / %d\n"
 			"Firefight Sets: %ld | Waves: %ld\n"
 			"Career Kills: %ld | MP Kills: %ld\n\n"
@@ -805,10 +778,12 @@ void social_extensions_row_details(
 			rk.tour_name,
 			rk.xp_in_rank,
 			rk.xp_for_next_rank,
+#if OPENCE_ENABLE_ACHIEVEMENTS
 			(int)score,
 			(int)max_score,
 			(int)unlocked,
 			(int)total,
+#endif
 			count_unlocked_skulls_ext(),
 			(int)NUMBER_OF_SKULLS,
 			career.total_sets_completed,
@@ -886,8 +861,12 @@ void social_extensions_row_details(
 					"Next Promotion: %ld XP\n\n"
 					"Earn XP from kills, medals, Campaign\n"
 					"missions, Firefight waves & sets,\n"
+#if OPENCE_ENABLE_EXT_CHALLENGES
 					"Multiplayer matches, and Daily &\n"
 					"Weekly Challenges.",
+#else
+					"and Multiplayer matches.",
+#endif
 					(int)rk.tour_number,
 					(int)rk.rank_in_tour,
 					rk.total_xp,
@@ -937,15 +916,15 @@ void social_extensions_row_details(
 				"Total Deaths: %ld | Assists: %ld\n"
 				"Best Kill Spree: %ld\n"
 				"Total Score: %ld",
-				career.total_matches,
+				career.ff_matches,
 				career.total_sets_completed,
 				career.total_waves_cleared,
-				career.total_kills,
+				career.ff_kills,
 				career.total_boss_kills,
-				career.total_deaths,
-				career.total_assists,
-				career.best_kill_spree,
-				career.total_score);
+				career.ff_deaths,
+				career.ff_assists,
+				career.ff_best_spree,
+				career.ff_score);
 			break;
 		case _sr_item_multiplayer:
 			snprintf(title, (size_t)title_size, "MULTIPLAYER CAREER");
@@ -1176,6 +1155,19 @@ boolean social_extensions_step_row(short list_kind, short row_kind, short value,
 	return FALSE;
 }
 
+boolean social_extensions_row_emblem(
+	short list_kind,
+	short row_kind,
+	short value,
+	struct firefight_emblem_info *out_emblem)
+{
+	if (row_kind != _social_ext_row_emblem && (list_kind != _social_ext_list_emblem || row_kind != _social_ext_row_item ||
+		(value != _emb_row_foreground && value != _emb_row_background)))
+		return FALSE;
+	firefight_stats_get_emblem(NONE, out_emblem);
+	return TRUE;
+}
+
 static void draw_rect_quad(short x0, short y0, short x1, short y1, pixel32 color)
 {
 	rectangle2d r;
@@ -1194,23 +1186,19 @@ void social_extensions_draw_details_overlay(
 	rectangle2d const *bounds)
 {
 	struct firefight_emblem_info emb;
-	struct firefight_mcc_rank_info rk;
 	short box_w, cx, emb_sz, box_x0, box_y0, box_x1, box_y1;
-	short np_x0, np_y0, np_x1, np_y1, rk_sz;
 
-	(void)row_kind;
 	(void)value;
 	if (!bounds)
 		return;
-	if (list_kind != _social_ext_list_emblem)
+	if (list_kind != _social_ext_list_emblem && row_kind != _social_ext_row_emblem)
 		return;
 
 	firefight_stats_get_emblem(NONE, &emb);
-	firefight_stats_get_mcc_rank(NONE, &rk);
 
 	box_w = (short)(bounds->x1 - bounds->x0);
 	cx = (short)(bounds->x0 + box_w / 2);
-	emb_sz = 68;
+	emb_sz = OPENCE_ENABLE_NAMEPLATES ? 68 : 96;
 	box_x0 = (short)(cx - emb_sz / 2 - 4);
 	box_y0 = (short)(bounds->y0 + 2);
 	box_x1 = (short)(cx + emb_sz / 2 + 4);
@@ -1224,29 +1212,55 @@ void social_extensions_draw_details_overlay(
 	draw_rect_quad((short)(box_x1 - 2), box_y0, box_x1, box_y1, 0xFF2896FF);
 	firefight_draw_player_emblem((short)(box_x0 + 4), (short)(box_y0 + 4), emb_sz, &emb, 1.0f);
 
+#if OPENCE_ENABLE_NAMEPLATES
 	/* MCC Nameplate + Service Rank Badge + Mini Emblem below preview */
-	np_x0 = (short)(bounds->x0 + 4);
-	np_x1 = (short)(bounds->x1 - 4);
-	np_y0 = (short)(box_y1 + 6);
-	np_y1 = (short)(np_y0 + 34);
-	rk_sz = 26;
-	firefight_draw_mcc_nameplate(np_x0, np_y0, np_x1, np_y1, emb.nameplate, 0, 1.0f);
-	firefight_draw_mcc_rank_icon(
-		(short)(np_x0 + 6),
-		(short)(np_y0 + 4),
-		rk_sz,
-		rk.tour_number > 0 ? rk.tour_number : 1,
-		rk.rank_in_tour > 0 ? rk.rank_in_tour : 1,
-		1.0f);
-	firefight_draw_player_emblem(
-		(short)(np_x0 + 6 + rk_sz + 4),
-		(short)(np_y0 + 4),
-		rk_sz,
-		&emb,
-		1.0f);
+	{
+		struct firefight_mcc_rank_info rk;
+		short np_x0 = (short)(bounds->x0 + 4);
+		short np_x1 = (short)(bounds->x1 - 4);
+		short np_y0 = (short)(box_y1 + 6);
+		short np_y1 = (short)(np_y0 + 34);
+		short rk_sz = 26;
+
+		firefight_stats_get_mcc_rank(NONE, &rk);
+		firefight_draw_mcc_nameplate(np_x0, np_y0, np_x1, np_y1, emb.nameplate, 0, 1.0f);
+		firefight_draw_mcc_rank_icon(
+			(short)(np_x0 + 6),
+			(short)(np_y0 + 4),
+			rk_sz,
+			rk.tour_number > 0 ? rk.tour_number : 1,
+			rk.rank_in_tour > 0 ? rk.rank_in_tour : 1,
+			1.0f);
+		firefight_draw_player_emblem(
+			(short)(np_x0 + 6 + rk_sz + 4),
+			(short)(np_y0 + 4),
+			rk_sz,
+			&emb,
+			1.0f);
+	}
+#endif
 }
 
-/* ---------- Player Card (_list_card) Header Addition */
+/* ---------- Player Card (_list_card) */
+
+void social_extensions_card_draw_emblem(
+	struct campaign_score_panel const *panel,
+	boolean is_self,
+	char const *person_code,
+	char const *person_name,
+	real x,
+	real y,
+	real size)
+{
+	struct firefight_emblem_info emb;
+
+	if (is_self)
+		firefight_stats_get_emblem(NONE, &emb);
+	else
+		social_extensions_get_person_rank_and_emblem(person_code, person_name, NONE, NULL, &emb);
+	firefight_draw_player_emblem((short)(panel->left + x * panel->scale), (short)(panel->top + y * panel->scale),
+		(short)(size * panel->scale), &emb, 1.0f);
+}
 
 real social_extensions_card_draw_section(
 	struct campaign_score_panel const *panel,
@@ -1259,108 +1273,39 @@ real social_extensions_card_draw_section(
 	real y,
 	real row_height)
 {
-	real_argb_color gold = { 1.0f, { 1.0f, 0.84f, 0.35f } };
-	real_argb_color cyan = { 1.0f, { 0.55f, 0.82f, 1.0f } };
+	real_argb_color white = { 1.0f, 0.95f, 0.95f, 0.95f };
 	struct firefight_mcc_rank_info rk;
-	struct firefight_emblem_info emb;
-	struct firefight_career_stats career;
-	short ach_unlocked = 0, ach_total = 0, ach_score = 0, ach_max = 1000;
-	char line1[128];
-	char line2[128];
-	real icon_pad = 0.0f;
 
 	if (is_self)
-	{
 		firefight_stats_get_mcc_rank(NONE, &rk);
-		firefight_stats_get_emblem(NONE, &emb);
-		firefight_stats_get_career(NONE, &career);
-		firefight_stats_get_achievement_count(NONE, &ach_unlocked, &ach_total);
-		firefight_stats_get_achievement_score(NONE, &ach_score, &ach_max);
-	}
 	else
-	{
-		social_extensions_get_person_rank_and_emblem(person_code, person_name, NONE, &rk, &emb);
-		csmemset(&career, 0, sizeof(career));
-	}
+		social_extensions_get_person_rank_and_emblem(person_code, person_name, NONE, &rk, NULL);
 
+	/* the rank's icon, then the rank and its XP over the bar */
 	if (draw)
 	{
-		short icon_x = (short)(panel->left + left * panel->scale);
-		short icon_y = (short)(panel->top + y * panel->scale);
-		short icon_sz = (short)((row_height * (is_self ? 2.0f : 1.4f) - 2.0f) * panel->scale);
+		short icon_sz = (short)((row_height * 2.0f - 2.0f) * panel->scale);
+		real text_left = left;
+		real bar_top = y + row_height + 1.0f;
+		real bar_bottom = bar_top + row_height * 0.5f;
+		real fraction = rk.xp_for_next_rank > 0 ? (real)rk.xp_in_rank / (real)rk.xp_for_next_rank : 1.0f;
+		char xp[48];
+
 		if (icon_sz < 16)
 			icon_sz = 16;
 #if OPENCE_ENABLE_SERVICE_RANK
-		firefight_draw_mcc_rank_icon(icon_x, icon_y, icon_sz, rk.tour_number, rk.rank_in_tour, 1.0f);
-		firefight_draw_player_emblem((short)(icon_x + icon_sz + 4), icon_y, icon_sz, &emb, 1.0f);
-		icon_pad = (real)(icon_sz * 2 + 10) / panel->scale;
-#else
-		firefight_draw_player_emblem(icon_x, icon_y, icon_sz, &emb, 1.0f);
-		icon_pad = (real)(icon_sz + 6) / panel->scale;
+		firefight_draw_mcc_rank_icon((short)(panel->left + left * panel->scale), (short)(panel->top + y * panel->scale),
+			icon_sz, rk.tour_number, rk.rank_in_tour, 1.0f);
+		text_left += (real)(icon_sz + 6) / panel->scale;
 #endif
-		if (is_self)
-		{
-			snprintf(
-				line1,
-				sizeof(line1),
-				"SERVICE RANK: %s (%s)   XP: %ld / %ld",
-				rk.rank_name,
-				rk.tour_name,
-				rk.xp_in_rank,
-				rk.xp_for_next_rank);
-			campaign_score_panel_text(
-				panel,
-				line1,
-				NULL,
-				left + icon_pad,
-				right,
-				y,
-				1.0f,
-				_campaign_score_text_left,
-				&gold);
-
-			snprintf(
-				line2,
-				sizeof(line2),
-				"GAMERSCORE: %d/%dG (%d/%d)   FF SETS: %ld   FF KILLS: %ld",
-				(int)ach_score,
-				(int)ach_max,
-				(int)ach_unlocked,
-				(int)ach_total,
-				career.total_sets_completed,
-				career.total_kills);
-			campaign_score_panel_text(
-				panel,
-				line2,
-				NULL,
-				left + icon_pad,
-				right,
-				y + row_height,
-				1.0f,
-				_campaign_score_text_left,
-				&cyan);
-		}
-		else
-		{
-			snprintf(
-				line1,
-				sizeof(line1),
-				"SERVICE RANK: %s (%s - Rank %d)",
-				rk.rank_name,
-				rk.tour_name,
-				(int)rk.rank_in_tour);
-			campaign_score_panel_text(
-				panel,
-				line1,
-				NULL,
-				left + icon_pad,
-				right,
-				y + row_height * 0.2f,
-				1.0f,
-				_campaign_score_text_left,
-				&gold);
-		}
+		snprintf(xp, sizeof(xp), "%ld / %ld XP", rk.xp_in_rank, rk.xp_for_next_rank);
+		campaign_score_panel_text(panel, rk.rank_name, NULL, text_left, right, y, 1.0f, _campaign_score_text_left, &white);
+		campaign_score_panel_text(panel, xp, NULL, text_left, right, y, 1.0f, _campaign_score_text_right, &white);
+		campaign_score_panel_quad(panel, text_left, bar_top, right, bar_bottom, 0x60000000);
+		campaign_score_panel_quad(panel, text_left, bar_top, text_left + (right - text_left) * PIN(fraction, 0.0f, 1.0f),
+			bar_bottom, 0xFF2896FF);
+		campaign_score_panel_frame(panel, text_left, bar_top, right, bar_bottom, CAMPAIGN_SCORE_CARD_RULE);
 	}
 
-	return y + row_height * (is_self ? 2.0f : 1.4f) + 4.0f;
+	return y + row_height * 2.0f + 4.0f;
 }

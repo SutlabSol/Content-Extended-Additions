@@ -35,6 +35,7 @@ and web-ready JSON exporter:
 #include "tag_files/tag_groups.h"
 
 #include "opence_features.h"
+#include "social.h"
 #include "halo_firefight.h"
 #include "service_rank.h"
 #include "halo_skulls.h"
@@ -553,7 +554,9 @@ void firefight_stats_notify_terminal_command_used(void)
 	if (!g_terminal_command_used_in_session)
 	{
 		g_terminal_command_used_in_session = TRUE;
+#if OPENCE_ENABLE_ACHIEVEMENTS
 		print_hud_notice_to_all_local_players("Terminal command used - achievements disabled for this session.");
+#endif
 	}
 }
 
@@ -944,6 +947,9 @@ static void advance_challenge_metric(short category, short metric, long delta)
 {
 	short period;
 
+#if !OPENCE_ENABLE_EXT_CHALLENGES
+	return;
+#endif
 	if (delta <= 0)
 		return;
 	check_and_rotate_challenge_periods();
@@ -1013,6 +1019,9 @@ static boolean set_ach_bit_internal(short ach_id, boolean announce_hud)
 {
 	short lp;
 
+#if !OPENCE_ENABLE_ACHIEVEMENTS
+	return FALSE;
+#endif
 	if (ach_id < 0 || ach_id >= HALO_ACHIEVEMENT_COUNT || is_ach_bit_set(ach_id))
 		return FALSE;
 	/* Block earning achievements during a session if terminal commands or infinite ammo/grenade/clip skulls were used */
@@ -1241,6 +1250,19 @@ static void load_profile_records(long profile_index)
 					&g_career_stats.total_deaths,
 					&g_career_stats.total_assists,
 					&g_career_stats.best_kill_spree);
+			}
+			else if (strncmp(line, "FF_STATS:", 9) == 0)
+			{
+				sscanf(
+					line + 9,
+					"%ld:%ld:%ld:%ld:%ld:%ld:%ld",
+					&g_career_stats.ff_matches,
+					&g_career_stats.ff_kills,
+					&g_career_stats.ff_deaths,
+					&g_career_stats.ff_assists,
+					&g_career_stats.ff_score,
+					&g_career_stats.ff_seconds,
+					&g_career_stats.ff_best_spree);
 			}
 			else if (strncmp(line, "MP_STATS:", 9) == 0)
 			{
@@ -1487,6 +1509,17 @@ static void save_profile_records(long profile_index)
 		g_career_stats.total_deaths,
 		g_career_stats.total_assists,
 		g_career_stats.best_kill_spree);
+	pos += (size_t)snprintf(
+		buf + pos,
+		cap - pos,
+		"FF_STATS:%ld:%ld:%ld:%ld:%ld:%ld:%ld\n",
+		g_career_stats.ff_matches,
+		g_career_stats.ff_kills,
+		g_career_stats.ff_deaths,
+		g_career_stats.ff_assists,
+		g_career_stats.ff_score,
+		g_career_stats.ff_seconds,
+		g_career_stats.ff_best_spree);
 	pos += (size_t)snprintf(
 		buf + pos,
 		cap - pos,
@@ -2494,6 +2527,14 @@ void firefight_stats_record_match_end(char const *map_name)
 		g_career_stats.total_waves_cleared += waves_cleared;
 		g_career_stats.total_score += session_score;
 		g_career_stats.total_seconds += session_seconds;
+		g_career_stats.ff_matches++;
+		g_career_stats.ff_kills += total_kills;
+		g_career_stats.ff_deaths += total_deaths;
+		g_career_stats.ff_assists += total_assists;
+		g_career_stats.ff_score += session_score;
+		g_career_stats.ff_seconds += session_seconds;
+		if (best_spree > g_career_stats.ff_best_spree)
+			g_career_stats.ff_best_spree = best_spree;
 
 		firefight_stats_add_xp_counted(500L, "Match complete", 0L);
 		firefight_stats_add_xp_counted(sets_this_match * 4000L, "Sets cleared", sets_this_match);
@@ -2578,6 +2619,7 @@ void firefight_stats_record_match_end(char const *map_name)
 	}
 
 	save_profile_records(NONE);
+	social_firefight_changed();
 
 	csmemset(&session, 0, sizeof(session));
 	snprintf(session.category, sizeof(session.category), "firefight");

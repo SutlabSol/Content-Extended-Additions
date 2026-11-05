@@ -2719,7 +2719,9 @@ void firefight_hud_draw_pgcr_extras(
 	short top_medal_counts[3] = { 0, 0, 0 };
 	short top_medal_num = 0;
 	struct firefight_postgame_xp_summary xp_sum;
+#if OPENCE_ENABLE_NAMEPLATES
 	struct firefight_emblem_info emb;
+#endif
 	real_argb_color gold = { 1.0f, 1.0f, 0.85f, 0.28f };
 	real_argb_color cyan = { 1.0f, 0.62f, 0.85f, 1.0f };
 	real_argb_color white = { 1.0f, 0.95f, 0.95f, 0.95f };
@@ -2754,8 +2756,9 @@ void firefight_hud_draw_pgcr_extras(
 		long medals_bmp = campaign_medals_bitmap();
 		short m;
 
-		firefight_stats_get_emblem(NONE, &emb);
 		ff_draw_box(vx0, vy0, scale, lx0, ly0, lx1, ly1, 18.0f, FF_HUD_PANEL_FILL, FF_HUD_PANEL_EDGE);
+#if OPENCE_ENABLE_NAMEPLATES
+		firefight_stats_get_emblem(NONE, &emb);
 		firefight_draw_mcc_nameplate(
 			(short)(vx0 + lx0 + 2.0f),
 			(short)(vy0 + ly0 + 2.0f),
@@ -2764,6 +2767,7 @@ void firefight_hud_draw_pgcr_extras(
 			emb.nameplate,
 			0,
 			0.85f);
+#endif
 		ff_draw_text(font_index, line_height, vx0, vy0, scale,
 			"TOP MEDALS & MVP SHOWCASE", lx0 + 8.0f, lx1 - 8.0f, ly0 + 3.0f,
 			0.52f, _ff_text_left, &gold);

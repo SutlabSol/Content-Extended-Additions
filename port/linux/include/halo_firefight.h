@@ -601,6 +601,16 @@ struct firefight_career_stats
 	unsigned long achievements_lo;
 	unsigned long achievements_hi;
 	long career_xp;
+	/* (Firefight's alone: total_matches, total_kills and the like are every
+	mode's; total_sets_completed, total_waves_cleared and total_boss_kills
+	are Firefight's already) */
+	long ff_matches;
+	long ff_kills;
+	long ff_deaths;
+	long ff_assists;
+	long ff_score;
+	long ff_seconds;
+	long ff_best_spree;
 };
 
 enum firefight_challenge_category

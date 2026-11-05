@@ -52,6 +52,8 @@ community server's answers.
 #include "platform_icons.h"
 #include "social_extensions.h"
 #include "halo_firefight.h"
+
+long halo_screen_ui_offset_current(void);
 #include "../src/community_net.h"
 #include "../src/p2p.h"
 #include "../src/port_config.h"
@@ -298,6 +300,21 @@ struct social_menu_totals
 	long medals;
 };
 
+/* Firefight's totals: one's own from the career, another's from the server */
+struct social_menu_firefight
+{
+	long matches;
+	long sets;
+	long waves;
+	long kills;
+	long boss_kills;
+	long deaths;
+	long assists;
+	long best_spree;
+	long score;
+	long seconds;
+};
+
 struct social_menu_player
 {
 	char code[SOCIAL_MENU_CODE_SIZE];
@@ -307,6 +324,7 @@ struct social_menu_player
 	char created_at[SOCIAL_MENU_TIME_SIZE];
 	struct social_menu_totals multiplayer;
 	struct social_menu_totals campaign;
+	struct social_menu_firefight firefight;
 	long medal_counts[NUMBER_OF_CAMPAIGN_MEDALS];
 	struct social_menu_presence presence;
 	/* self, friends, incoming, outgoing, none */
@@ -1000,6 +1018,23 @@ static long compute_career_xp_from_totals(
 	return xp;
 }
 
+static void firefight_read(
+	struct server_json_document const *document,
+	int token,
+	struct social_menu_firefight *totals)
+{
+	totals->matches = json_number(document, token, "matches", 0);
+	totals->sets = json_number(document, token, "sets", 0);
+	totals->waves = json_number(document, token, "waves", 0);
+	totals->kills = json_number(document, token, "kills", 0);
+	totals->boss_kills = json_number(document, token, "bossKills", 0);
+	totals->deaths = json_number(document, token, "deaths", 0);
+	totals->assists = json_number(document, token, "assists", 0);
+	totals->best_spree = json_number(document, token, "bestSpree", 0);
+	totals->score = json_number(document, token, "score", 0);
+	totals->seconds = json_number(document, token, "seconds", 0);
+}
+
 static void prefetch_take(
 	boolean answered,
 	int status)
@@ -1090,6 +1125,8 @@ static void player_take(
 				&player->multiplayer);
 			totals_read(&document, stats >= 0 ? server_json_member(&document, stats, "campaign") : -1,
 				&player->campaign);
+			firefight_read(&document, stats >= 0 ? server_json_member(&document, stats, "firefight") : -1,
+				&player->firefight);
 			medals = server_json_member(&document, token, "medals");
 			for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS; index++)
 				player->medal_counts[index] = json_number(&document, medals, campaign_medal_descriptions[index].key, 0);
@@ -2284,12 +2321,13 @@ and every medal's icon, those won with how many times, the others dimmed */
 
 enum
 {
-	/* (the least it is: wider, as its room is when it is made smaller) */
-	SOCIAL_CARD_WIDTH = 600,
+	/* (the least it is, for its three totals: wider, as its room is when it
+	is made smaller; a screen's room narrower than this makes it smaller) */
+	SOCIAL_CARD_WIDTH = 780,
 	SOCIAL_CARD_HEIGHT = 335,
 	SOCIAL_CARD_PADDING = 14,
 	SOCIAL_CARD_GAP = 8,
-	/* (between the two halves, and a half's two columns) */
+	/* (between the three totals, and one's two columns) */
 	SOCIAL_CARD_HALF_GAP = 24,
 	SOCIAL_CARD_COLUMN_GAP = 16,
 	SOCIAL_CARD_MEDAL_SIZE = 22,
@@ -2343,7 +2381,7 @@ static void card_pair(
 	campaign_score_panel_text(panel, value, NULL, x0, x1, y, 1.0f, _campaign_score_text_right, &value_color);
 }
 
-/* a half's totals: two columns of label and value, rows of
+/* a mode's totals: two columns of label and value, rows of
 pairs[row][column][label, value] (the first highlighted's value gold) */
 static void card_totals(
 	struct campaign_score_panel const *panel,
@@ -2399,7 +2437,7 @@ static real card_layout(
 	struct campaign_score_panel const *panel = &fonts->text;
 	real const left = SOCIAL_CARD_PADDING;
 	real const right = panel->width - SOCIAL_CARD_PADDING;
-	real const middle = panel->width / 2.0f;
+	real const third = (right - left - SOCIAL_CARD_HALF_GAP * 2.0f) / 3.0f;
 	real const line = panel->line_height;
 	real const row = line + 4.0f;
 	real_argb_color color;
@@ -2407,14 +2445,20 @@ static real card_layout(
 	char other[64];
 	real y = SOCIAL_CARD_PADDING;
 	boolean self = player->had && !strcmp(player->relation, "self");
+	/* (the emblem left of the head's lines: the name, whose friend, and
+	another's what they are doing) */
+	real const emblem = player->had ? fonts->title.line_height + row * (self ? 1.0f : 2.0f) : 0.0f;
+	real const head_left = player->had ? left + emblem + 8.0f : left;
 	short index;
 
+	if (draw && player->had)
+		social_extensions_card_draw_emblem(panel, self, player->code, player->name, left, y, emblem);
 	/* the name, and (one's own alone: a code is given by its player) the
 	friend code */
 	if (draw)
 	{
 		card_color(&color, 0.95f, 0.95f, 0.95f);
-		campaign_score_panel_text(&fonts->title, player->name, NULL, left, right, y, 1.0f, _campaign_score_text_left,
+		campaign_score_panel_text(&fonts->title, player->name, NULL, head_left, right, y, 1.0f, _campaign_score_text_left,
 			&color);
 		snprintf(other, sizeof(other), "%s%s", self ? "CODE " : "", self ? own_code() : "");
 		card_color(&color, 0.6f, 0.66f, 0.75f);
@@ -2438,7 +2482,7 @@ static real card_layout(
 	if (draw)
 	{
 		card_color(&color, 1.0f, 0.84f, 0.35f);
-		campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+		campaign_score_panel_text(panel, text, NULL, head_left, right, y, 1.0f, _campaign_score_text_left, &color);
 	}
 	y += row;
 	/* (what they are doing, its first line) */
@@ -2453,7 +2497,7 @@ static real card_layout(
 		if (draw)
 		{
 			card_color(&color, 0.6f, 0.66f, 0.75f);
-			campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+			campaign_score_panel_text(panel, text, NULL, head_left, right, y, 1.0f, _campaign_score_text_left, &color);
 		}
 		y += row;
 	}
@@ -2488,10 +2532,13 @@ static real card_layout(
 		return y + row * 3.0f + SOCIAL_CARD_PADDING;
 	}
 
-	/* the totals: multiplayer's on the left, the campaign's on the right */
+	/* the totals: multiplayer's, the campaign's and Firefight's */
 	{
 		struct social_menu_totals const *multiplayer = &player->multiplayer;
 		struct social_menu_totals const *campaign = &player->campaign;
+		struct social_menu_firefight firefight = player->firefight;
+		real const second = left + third + SOCIAL_CARD_HALF_GAP;
+		real const last = second + third + SOCIAL_CARD_HALF_GAP;
 		char pairs[SOCIAL_CARD_TOTALS_ROWS][2][2][24];
 		char duration[24];
 
@@ -2510,7 +2557,7 @@ static real card_layout(
 		card_pair_set(pairs[5][0], "BETRAYALS", "%ld", multiplayer->betrayals);
 		duration_text(multiplayer->seconds, duration, sizeof(duration));
 		card_pair_set(pairs[5][1], "TIME", "%s", duration);
-		card_totals(panel, draw, left, middle - SOCIAL_CARD_HALF_GAP / 2.0f, y, row, "MULTIPLAYER", pairs, 2, 1);
+		card_totals(panel, draw, left, left + third, y, row, "MULTIPLAYER", pairs, 2, 1);
 
 		csmemset(pairs, 0, sizeof(pairs));
 		card_pair_set(pairs[0][0], "LEVELS WON", "%ld", campaign->matches);
@@ -2525,11 +2572,49 @@ static real card_layout(
 		card_pair_set(pairs[4][0], "MEDALS", "%ld", multiplayer->medals + campaign->medals);
 		ago_text(player->created_at, duration, sizeof(duration));
 		card_pair_set(pairs[4][1], "JOINED", "%s", duration[0] ? duration : "-");
-		card_totals(panel, draw, middle + SOCIAL_CARD_HALF_GAP / 2.0f, right, y, row, "CAMPAIGN", pairs, 0, 1);
+		card_totals(panel, draw, second, second + third, y, row, "CAMPAIGN", pairs, 0, 1);
+
+		/* (one's own from the career, up to date offline too) */
+		if (self)
+		{
+			struct firefight_career_stats career;
+
+			if (firefight_stats_get_career(NONE, &career))
+			{
+				firefight.matches = career.ff_matches;
+				firefight.sets = career.total_sets_completed;
+				firefight.waves = career.total_waves_cleared;
+				firefight.kills = career.ff_kills;
+				firefight.boss_kills = career.total_boss_kills;
+				firefight.deaths = career.ff_deaths;
+				firefight.assists = career.ff_assists;
+				firefight.best_spree = career.ff_best_spree;
+				firefight.score = career.ff_score;
+				firefight.seconds = career.ff_seconds;
+			}
+		}
+		csmemset(pairs, 0, sizeof(pairs));
+		card_pair_set(pairs[0][0], "MATCHES", "%ld", firefight.matches);
+		card_pair_set(pairs[0][1], "SCORE", "%ld", firefight.score);
+		card_pair_set(pairs[1][0], "SETS", "%ld", firefight.sets);
+		card_pair_set(pairs[1][1], "WAVES", "%ld", firefight.waves);
+		card_pair_set(pairs[2][0], "KILLS", "%ld", firefight.kills);
+		card_pair_set(pairs[2][1], "DEATHS", "%ld", firefight.deaths);
+		kda_text(firefight.kills, firefight.deaths, firefight.assists, other, sizeof(other));
+		card_pair_set(pairs[3][0], "KDA", "%s", other);
+		card_pair_set(pairs[3][1], "ASSISTS", "%ld", firefight.assists);
+		card_pair_set(pairs[4][0], "BOSSES", "%ld", firefight.boss_kills);
+		card_pair_set(pairs[4][1], "BEST SPREE", "%ld", firefight.best_spree);
+		duration_text(firefight.seconds, duration, sizeof(duration));
+		card_pair_set(pairs[5][0], "TIME", "%s", duration);
+		card_totals(panel, draw, last, right, y, row, "FIREFIGHT", pairs, 0, 1);
 		if (draw)
 		{
-			campaign_score_panel_quad(panel, middle, y, middle + 1.0f, y + row * (SOCIAL_CARD_TOTALS_ROWS + 1),
-				CAMPAIGN_SCORE_CARD_RULE);
+			real const bottom = y + row * (SOCIAL_CARD_TOTALS_ROWS + 1);
+			real const gap = SOCIAL_CARD_HALF_GAP / 2.0f;
+
+			campaign_score_panel_quad(panel, second - gap, y, second - gap + 1.0f, bottom, CAMPAIGN_SCORE_CARD_RULE);
+			campaign_score_panel_quad(panel, last - gap, y, last - gap + 1.0f, bottom, CAMPAIGN_SCORE_CARD_RULE);
 		}
 		y += row * (SOCIAL_CARD_TOTALS_ROWS + 1) + 2.0f;
 	}
@@ -2606,14 +2691,16 @@ static boolean card_font(
 	return panel->line_height > 0;
 }
 
-/* the player's card in its room from x0 to x1, from y0 down: its bottom
-(y0 for none drawn) */
+/* the player's card in its room from x0 to x1, from y0 down, `unit` pixels
+to one of the screen's 480 lines: its bottom (y0 for none drawn) */
 static short card_draw(
 	short x0,
 	short y0,
-	short x1)
+	short x1,
+	real unit)
 {
 	struct social_card_fonts fonts;
+	real room = (real)(x1 - x0);
 	real scale;
 	real height;
 
@@ -2621,17 +2708,19 @@ static short card_draw(
 		return y0;
 	if (!card_font("ui\\small_ui", &fonts.text) || !card_font("ui\\large_ui", &fonts.title))
 		return y0;
-	/* (the widget's bounds are the card's room: SOCIAL_CARD_WIDTH by
-	SOCIAL_CARD_HEIGHT; a card taller than that is made smaller, and as
-	much wider in its units, so that it still fills the room's width) */
-	scale = (real)(x1 - x0) / SOCIAL_CARD_WIDTH;
+	/* (the room's width, at least SOCIAL_CARD_WIDTH in its units, and
+	SOCIAL_CARD_HEIGHT lines at most; a card taller than that is made
+	smaller, and as much wider in its units, so that it still fills the
+	room's width) */
+	fonts.text.width = MAX(room / unit, SOCIAL_CARD_WIDTH);
+	scale = room / fonts.text.width;
 	fonts.text.scale = scale;
-	fonts.text.width = SOCIAL_CARD_WIDTH;
 	height = card_layout(&fonts, FALSE);
-	if (height > SOCIAL_CARD_HEIGHT)
+	if (height * scale > SOCIAL_CARD_HEIGHT * unit)
 	{
-		scale *= SOCIAL_CARD_HEIGHT / height;
-		fonts.text.width = (x1 - x0) / scale;
+		scale = SOCIAL_CARD_HEIGHT * unit / height;
+		fonts.text.scale = scale;
+		fonts.text.width = room / scale;
 		height = card_layout(&fonts, FALSE);
 	}
 	fonts.text.scale = fonts.title.scale = scale;
@@ -2652,18 +2741,26 @@ void social_menu_card_draw(
 {
 	(void)y1;
 	if (social_menu.open && social_menu.list == _list_card)
-		card_draw(x0, y0, x1);
+	{
+		/* (its room is the margins of a wide screen too, either side of the
+		menus' 640 columns) */
+		short half = (short)(MIN(x1 - x0 + halo_screen_ui_offset_current() * 2, SOCIAL_MENU_CARD_MOST_WIDTH) / 2);
+		short middle = (short)((x0 + x1) / 2);
+
+		card_draw((short)(middle - half), y0, (short)(middle + half), 1.0f);
+	}
 }
 
 short social_menu_profile_card_draw(
 	char const *code,
 	short x0,
 	short y0,
-	short x1)
+	short x1,
+	real unit)
 {
 	if (strcmp(social_menu.player.code, code))
 		return y0;
-	return card_draw(x0, y0, x1);
+	return card_draw(x0, y0, x1, unit);
 }
 
 boolean social_menu_card_shown(
@@ -2997,6 +3094,15 @@ short social_menu_row_platform(
 	return presence->online ? platform_icon_for_name(presence->platform) : _platform_icon_none;
 }
 
+boolean social_menu_row_emblem(
+	short row,
+	struct firefight_emblem_info *out_emblem)
+{
+	struct social_menu_row const *entry = row_get(row);
+
+	return entry && social_extensions_row_emblem(social_menu.list, entry->kind, entry->value, out_emblem);
+}
+
 boolean social_menu_row_person_icons(
 	short row,
 	struct firefight_mcc_rank_info *out_rank,
@@ -3323,7 +3429,7 @@ void social_menu_details(
 	if (entry && entry->kind == _row_my_account)
 	{
 		snprintf(title, (size_t)title_size, "MY ACCOUNT");
-		text_add(text, text_size, "Your account summary, service\nrecord, challenges, achievements,\nemblem customisation, and device sync.");
+		text_add(text, text_size, "Your account summary, emblem\ncustomisation, and device sync.");
 		return;
 	}
 	if (!social_enabled())

@@ -17065,6 +17065,14 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 		short size = (short)((bounds->y1 - bounds->y0) * 4 / 5);
 		short y0 = (short)((bounds->y0 + bounds->y1 - size) / 2);
 
+		/* (the emblem in the state's place: CUSTOMISE EMBLEM's rows. Its text
+		is 6 lower than the box, whose bottom is 22 down the 28 of a row) */
+		if (social_menu_row_emblem(place, &emb))
+		{
+			firefight_draw_player_emblem((short)((bounds->x0 + bounds->x1 - 22) / 2), (short)(bounds->y1 - 19), 22, &emb,
+				1.0f);
+			return;
+		}
 		if (social_menu_row_person_icons(place, &rk, &emb))
 		{
 			short badge_sz = (short)MAX(12, size);

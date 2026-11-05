@@ -7,7 +7,7 @@ Compartmentalised extensions for Watanoge's Social Menu (social_menu.c):
 - Unified Challenges: Watanoge's Daily Challenge (community.c) + Daily & Weekly
   Campaign, Firefight, and Multiplayer challenges (firefight_stats.c)
 - 39 Achievements (1000G) browser
-- Player Card (_list_card) Service Rank icon, Emblem, XP, Gamerscore & Firefight summary
+- Player Card (_list_card) Emblem, Service Rank icon, rank and XP bar
 */
 
 #ifndef __SOCIAL_EXTENSIONS_H
@@ -71,14 +71,33 @@ short social_extensions_choose(short list_kind, short row_kind, short value);
 /* Left/Right step on an extension row (e.g. Customise Emblem options) */
 boolean social_extensions_step_row(short list_kind, short row_kind, short value, short delta);
 
-/* Draws live emblem preview & nameplate in the Social details pane when in Customise Emblem */
+/* The emblem a row shows in its state's place (the CUSTOMISE EMBLEM row, and
+its list's emblem and background): TRUE and out_emblem for such a row */
+boolean social_extensions_row_emblem(
+	short list_kind,
+	short row_kind,
+	short value,
+	struct firefight_emblem_info *out_emblem);
+
+/* Draws the live emblem preview in the Social details pane, on the CUSTOMISE
+EMBLEM row and in its list */
 void social_extensions_draw_details_overlay(
 	short list_kind,
 	short row_kind,
 	short value,
 	rectangle2d const *bounds);
 
-/* Draws Service Rank emblem, Custom Emblem, Tour/Rank, Gamerscore, and Firefight summary on the Player Card */
+/* Draws the player's emblem on the Player Card, `size` wide from x, y in the panel's units */
+void social_extensions_card_draw_emblem(
+	struct campaign_score_panel const *panel,
+	boolean is_self,
+	char const *person_code,
+	char const *person_name,
+	real x,
+	real y,
+	real size);
+
+/* Draws the Service Rank icon, rank, XP bar and XP on the Player Card */
 real social_extensions_card_draw_section(
 	struct campaign_score_panel const *panel,
 	boolean draw,
