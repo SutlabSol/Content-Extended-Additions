@@ -1757,7 +1757,8 @@ static void campaign_score_win_compose(
 		cooperative game) */
 		run.medals = campaign_score_count_of(campaign_score_competitive ? absolute_index : NONE,
 			_campaign_score_entry_medal);
-		records = community_daily_run() ? 0 : campaign_score_record_level(profile_index, &run);
+		records = community_daily_run() || firefight_stats_session_withheld() ? 0 :
+			campaign_score_record_level(profile_index, &run);
 		if (campaign_score_pending_count == 0 && global_scenario_index != NONE && !firefight_active())
 		{
 			long mission_kills = player_index != NONE ? campaign_score_player_kills(player_index) : 0;
@@ -1773,7 +1774,8 @@ static void campaign_score_win_compose(
 				run.medals);
 		}
 		/* (the online leaderboard's, the level's or the daily challenge's) */
-		if (profile_index != NONE && global_scenario_index != NONE && player_profile_get(profile_index, &profile))
+		if (profile_index != NONE && global_scenario_index != NONE && !firefight_stats_session_withheld() &&
+			player_profile_get(profile_index, &profile))
 		{
 			struct community_run online;
 

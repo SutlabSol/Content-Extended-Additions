@@ -31,6 +31,7 @@ Halo 1 CE-styled Firefight HUD module:
 #include "render/render_camera_projection.h"
 #include "render/render_cameras.h"
 #include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 #include "text/draw_string.h"
@@ -2263,6 +2264,17 @@ enum
 
 static struct firefight_postgame_xp_summary ff_xp_summary;
 static unsigned long ff_xp_start_ms;
+/* the postgame's XP screen was opened in this game, so leaving it needs no card */
+static boolean ff_xp_screen_seen;
+/* the card over the menus for a game left without that screen: waiting to be
+closed, when it was last drawn, and when it was closed (the press that closed
+it stays the card's a moment, held or let go) */
+static struct
+{
+	boolean pending;
+	unsigned long drawn_at;
+	unsigned long closed_at;
+} ff_xp_exit;
 
 boolean firefight_hud_xp_screen_wanted(void)
 {
@@ -2280,6 +2292,7 @@ void firefight_hud_xp_screen_begin(void)
 {
 	firefight_stats_get_postgame_xp_summary(&ff_xp_summary);
 	ff_xp_start_ms = system_milliseconds();
+	ff_xp_screen_seen = TRUE;
 }
 
 /* how long the lines take to count up */
@@ -2483,14 +2496,32 @@ static real ff_xp_card_layout(
 	return y + FF_XP_CARD_PADDING - 4.0f;
 }
 
+/* the card in the 640 by 480 from (left, top), `scale` pixels to its unit,
+above FF_XP_CARD_BOTTOM */
+static void ff_xp_card_draw(
+	struct campaign_score_panel *panel,
+	real left,
+	real top,
+	real scale,
+	unsigned long elapsed)
+{
+	real height = ff_xp_card_layout(panel, elapsed, FALSE);
+
+	panel->scale = scale;
+	panel->width = FF_XP_CARD_WIDTH;
+	panel->left = left + (640.0f - FF_XP_CARD_WIDTH) / 2.0f * scale;
+	panel->top = top + MAX(6.0f, (FF_XP_CARD_BOTTOM - height) / 2.0f) * scale;
+	campaign_score_panel_quad(panel, 0.0f, 0.0f, FF_XP_CARD_WIDTH, height, CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(panel, 0.0f, 0.0f, FF_XP_CARD_WIDTH, height, CAMPAIGN_SCORE_PANEL_EDGE);
+	ff_xp_card_layout(panel, elapsed, TRUE);
+}
+
 void firefight_hud_xp_screen_draw(void)
 {
 	struct campaign_score_panel panel;
 	struct font_header *font;
 	real vx0 = (real)(-render.camera.viewport_bounds.x0);
 	real vy0 = (real)(-render.camera.viewport_bounds.y0);
-	unsigned long elapsed = system_milliseconds() - ff_xp_start_ms;
-	real height;
 
 	panel.font_index = hud_get_font_index();
 	if (panel.font_index == NONE)
@@ -2506,10 +2537,103 @@ void firefight_hud_xp_screen_draw(void)
 	panel.left = vx0;
 	panel.top = vy0;
 	campaign_score_panel_quad(&panel, 0.0f, 0.0f, 640.0f, 480.0f, 0xFF000000);
-	height = ff_xp_card_layout(&panel, elapsed, FALSE);
-	panel.left = vx0 + (640.0f - FF_XP_CARD_WIDTH) / 2.0f;
-	panel.top = vy0 + MAX(6.0f, (FF_XP_CARD_BOTTOM - height) / 2.0f);
-	campaign_score_panel_quad(&panel, 0.0f, 0.0f, FF_XP_CARD_WIDTH, height, CAMPAIGN_SCORE_CARD_FILL);
-	campaign_score_panel_frame(&panel, 0.0f, 0.0f, FF_XP_CARD_WIDTH, height, CAMPAIGN_SCORE_PANEL_EDGE);
-	ff_xp_card_layout(&panel, elapsed, TRUE);
+	ff_xp_card_draw(&panel, vx0, vy0, 1.0f, system_milliseconds() - ff_xp_start_ms);
+}
+
+/* ---------- the same card after a game left without that screen (quit from
+the pause menu, B on the report, the host going on first, a campaign left):
+over the main menu or the lobby, until A, B or a click closes it */
+
+enum
+{
+	/* (no draw this long: not up, so the menus keep their input) */
+	FF_XP_EXIT_SHOWN_MS = 500,
+	FF_XP_EXIT_CLOSING_MS = 250,
+	FF_XP_EXIT_PROMPT_TOP = 424
+};
+
+void firefight_hud_xp_exit_note(void)
+{
+#if OPENCE_ENABLE_SERVICE_RANK
+	boolean seen = ff_xp_screen_seen;
+
+	ff_xp_screen_seen = FALSE;
+	ff_xp_exit.pending = FALSE;
+	ff_xp_exit.drawn_at = 0;
+	if (seen)
+		return;
+	firefight_stats_get_postgame_xp_summary(&ff_xp_summary);
+	ff_xp_exit.pending = ff_xp_summary.total_gained_xp > 0;
+#endif
+}
+
+boolean firefight_hud_xp_exit_shown(void)
+{
+	unsigned long now = system_milliseconds();
+
+	/* (signed: each stamp, made odd, may be a millisecond ahead of now) */
+	if (ff_xp_exit.closed_at && (long)(now - ff_xp_exit.closed_at) < FF_XP_EXIT_CLOSING_MS)
+		return TRUE;
+	ff_xp_exit.closed_at = 0;
+	return ff_xp_exit.pending && ff_xp_exit.drawn_at && (long)(now - ff_xp_exit.drawn_at) < FF_XP_EXIT_SHOWN_MS;
+}
+
+void firefight_hud_xp_exit_press(boolean close)
+{
+	if (!ff_xp_exit.pending || (!close && firefight_hud_xp_screen_finish()))
+		return;
+	ff_xp_exit.pending = FALSE;
+	ff_xp_exit.closed_at = system_milliseconds() | 1;
+}
+
+void firefight_hud_xp_exit_draw(short screen_width, short screen_height)
+{
+	struct campaign_score_panel panel;
+	struct font_header *font;
+	struct scenario *scenario;
+	real_argb_color color;
+	real scale;
+	real left;
+
+	if (!ff_xp_exit.pending || screen_width <= 0 || screen_height <= 0)
+		return;
+	scenario = global_scenario_index != NONE ? global_scenario_try_and_get() : NULL;
+	if (!scenario)
+		return;
+	/* (another game started instead of the menus: that one has its own) */
+	if (scenario->type != _scenario_type_main_menu)
+	{
+		ff_xp_exit.pending = FALSE;
+		return;
+	}
+	/* (the HUD's font is not on the menus' map) */
+	panel.font_index = tag_loaded('font', "ui\\small_ui");
+	if (panel.font_index == NONE)
+		panel.font_index = interface_get_tag_index(_interface_font_terminal);
+	if (panel.font_index == NONE)
+		return;
+	font = font_definition_get(panel.font_index);
+	if (!font)
+		return;
+	panel.line_height = (short)(font->ascending_height + font->descending_height);
+	if (panel.line_height <= 0)
+		return;
+	/* (the count starts as it is first seen, not behind the map's loading) */
+	if (!ff_xp_exit.drawn_at)
+		ff_xp_start_ms = system_milliseconds();
+	ff_xp_exit.drawn_at = system_milliseconds() | 1;
+	/* (the menus dimmed behind it) */
+	panel.scale = 1.0f;
+	panel.width = screen_width;
+	panel.left = panel.top = 0.0f;
+	campaign_score_panel_quad(&panel, 0.0f, 0.0f, screen_width, screen_height, 0xB0000000);
+	scale = (real)screen_height / 480.0f;
+	left = (screen_width - 640.0f * scale) / 2.0f;
+	ff_xp_card_draw(&panel, left, 0.0f, scale, system_milliseconds() - ff_xp_start_ms);
+	panel.left = left;
+	panel.top = 0.0f;
+	panel.width = 640.0f;
+	ff_xp_color(&color, 0.55f, 0.72f, 1.0f);
+	campaign_score_panel_text(&panel, "A or click: continue", NULL, 0.0f, 640.0f, FF_XP_EXIT_PROMPT_TOP, 1.0f,
+		_campaign_score_text_center, &color);
 }

@@ -200,7 +200,7 @@ static struct
 	char presence_said[SOCIAL_PRESENCE_SIZE];
 	long friends_online;
 	long requests_waiting;
-	/* a multiplayer game being played (one a replay plays is not), and
+	/* a multiplayer game being played (one a replay plays or Forge is not), and
 	whether its end was recorded; when it started */
 	boolean match_running;
 	boolean match_recorded;
@@ -1146,7 +1146,7 @@ static void social_match_left(
 static void social_match_update(
 	void)
 {
-	boolean playing = game_in_progress() && game_engine_running() && !network_replay_playing();
+	boolean playing = game_in_progress() && game_engine_running() && !firefight_stats_session_withheld();
 	unsigned long now = system_milliseconds();
 
 	if (!social.match_file_looked && social_enabled())

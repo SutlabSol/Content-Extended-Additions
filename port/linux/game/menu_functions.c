@@ -16584,7 +16584,8 @@ static void social_home_chat_stick(struct widget_instance *widget, struct event_
 /* ---------- the lobby's docked chat (tools/port_settings.py's LOBBY_CHAT,
 under the game's map and data at the right): the fork's chat box, as the
 main menu's. The D-pad's (or the left stick's) Right goes into it from a
-player's row or from LEAVE (the last button), and Left (or B) back out; in
+player's row or from LEAVE (the last button; BACK before joining a game
+under way), and Left (or B) back out; in
 it, up and down go through its lines, and A writes in it, or, on a line
 chosen, opens its player's menu. The right stick does the same from
 anywhere (up and down the lines, right the player's menu), and R3 (or a
@@ -16641,8 +16642,9 @@ static char const *lobby_focused_name(struct widget_instance *screen)
 focused, the one chosen there last (off SWITCH TEAM when it is hidden) */
 static void lobby_chat_to_buttons(struct widget_instance *screen)
 {
-	struct widget_instance *list = named(screen, "lobby_list", 0);
-	struct widget_instance *bar = named(list, "lobby_button_bar", 0);
+	boolean preview = !strcmp(screen->name, "preview_screen");
+	struct widget_instance *list = named(screen, preview ? "preview_list" : "lobby_list", 0);
+	struct widget_instance *bar = named(list, preview ? "preview_button_bar" : "lobby_button_bar", 0);
 
 	lobby_chat.focused = FALSE;
 	ui_play_audio_feedback_sound(SOUND_CURSOR);
@@ -16661,7 +16663,8 @@ unsigned char menu_port_list_unfocused(void *instance)
 	struct widget_instance *widget = instance;
 
 	return lobby_chat.focused && lobby_chat_shown() && widget && widget->name &&
-		(!strcmp(widget->name, "lobby_list") || !strcmp(widget->name, "lobby_button_bar"));
+		(!strcmp(widget->name, "lobby_list") || !strcmp(widget->name, "lobby_button_bar") ||
+		!strcmp(widget->name, "preview_list") || !strcmp(widget->name, "preview_button_bar"));
 }
 
 /* (lobby_chat_event_taken) A in the chat: its player's menu on a line
@@ -16713,8 +16716,11 @@ static boolean lobby_chat_event_taken(struct widget_instance *widget, struct eve
 
 		/* (from a player's row, or from the last button: the others'
 		Right is the next button's) */
-		if (strncmp(name, "list_item_", 10) && strcmp(name, "lobby_button_leave"))
+		if (strncmp(name, "list_item_", 10) && strcmp(name, "lobby_button_leave") &&
+			strcmp(name, "preview_button_back"))
+		{
 			return FALSE;
+		}
 		lobby_chat.focused = TRUE;
 		ui_play_audio_feedback_sound(SOUND_CURSOR);
 		return TRUE;
@@ -16855,14 +16861,32 @@ unsigned char menu_port_event_taken(void *instance, void *record)
 	{
 		return FALSE;
 	}
+	/* (the XP card of a game just left: A finishes its count, then closes
+	it, as B does) */
+	if (firefight_hud_xp_exit_shown())
+	{
+		if (event->type == MENU_EVENT_BUTTON && event->data.button.value == 1)
+		{
+			button = event->data.button.index;
+			if (button == _gamepad_analog_button_a || button == _gamepad_binary_button_start ||
+				button == _gamepad_analog_button_b || button == _gamepad_binary_button_back)
+			{
+				ui_play_audio_feedback_sound(SOUND_FORWARD);
+				firefight_hud_xp_exit_press(button == _gamepad_analog_button_b ||
+					button == _gamepad_binary_button_back);
+			}
+		}
+		return TRUE;
+	}
 	if (social_chat_busy())
 		return TRUE;
 	/* (the tag packs' checklist up: nothing until they are written,
 	tag_pack.c) */
 	if (tag_pack_checklist_shown())
 		return TRUE;
-	/* (the lobby's docked chat: lobby_chat_event_taken) */
-	if (widget && widget->name && !strcmp(widget->name, "lobby_screen"))
+	/* (the lobby's docked chat, and the one before joining a game under way:
+	lobby_chat_event_taken) */
+	if (widget && widget->name && (!strcmp(widget->name, "lobby_screen") || !strcmp(widget->name, "preview_screen")))
 	{
 		social_home.focused = FALSE;
 		return lobby_chat_event_taken(widget, event);
@@ -16938,6 +16962,13 @@ unsigned char menu_port_pointer_taken(struct halo_ui_pointer const *pointer)
 {
 	short row;
 
+	/* (the XP card of a game just left: a click as A) */
+	if (firefight_hud_xp_exit_shown())
+	{
+		if (pointer->left_clicks)
+			firefight_hud_xp_exit_press(FALSE);
+		return TRUE;
+	}
 	if (pointer->left_clicks && tag_pack_checklist_shown())
 		return TRUE;
 	/* (the lobby's docked chat: a tap the on-screen keyboard, a click the

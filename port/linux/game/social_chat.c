@@ -110,6 +110,7 @@ are kept in memory alone, gone with the game.
 #include "text/font_group.h"
 #include "text/unicode.h"
 
+#include "halo_firefight.h"
 #include "halo_keyboard.h"
 #include "network_chat.h"
 #include "network_replay.h"
@@ -3336,6 +3337,9 @@ void social_chat_draw(
 	void)
 {
 	social_chat_draw_in(FALSE);
+	/* (the XP of a game just left, over the menus and the box) */
+	firefight_hud_xp_exit_draw((short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0),
+		(short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0));
 	/* (a friend's game being joined: its panel, over the box too) */
 	social_menu_join_draw((short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0),
 		(short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0));

@@ -31,6 +31,7 @@ and web-ready JSON exporter:
 #include "saved games/player_profile.h"
 #include "scenario/scenario.h"
 #include "scenario/scenario_definitions.h"
+#include "network_replay.h"
 #include "tag_files/tag_files.h"
 #include "tag_files/tag_groups.h"
 
@@ -854,7 +855,7 @@ static void advance_challenge_metric(short category, short metric, long delta)
 #if !OPENCE_ENABLE_EXT_CHALLENGES
 	return;
 #endif
-	if (delta <= 0)
+	if (delta <= 0 || firefight_stats_session_withheld())
 		return;
 	check_and_rotate_challenge_periods();
 
@@ -2088,9 +2089,27 @@ boolean firefight_stats_copy_player_id(
 }
 
 static boolean g_session_stats_recorded = FALSE;
+/* (noted as the map starts: a replay's playback may end before its map does) */
+static boolean s_session_gives_no_xp = FALSE;
+
+/* a replay watched or a Forge session counts for nothing: no XP (so neither
+the postgame's XP screen nor the card after leaving has anything to show), no
+career stats, medals or map records, nothing sent to the servers */
+boolean firefight_stats_session_withheld(void)
+{
+	extern int g_forge_session_enabled; /* port/forge/src/forge_runtime_tags.c */
+
+	return s_session_gives_no_xp || g_forge_session_enabled || network_replay_playing();
+}
 
 void firefight_stats_on_map_initialize(void)
 {
+	struct scenario *scen = global_scenario_index != NONE ? global_scenario_try_and_get() : NULL;
+
+	/* (not the menus' map: what they give stays theirs) */
+	s_session_gives_no_xp = FALSE;
+	if (scen && scen->type != _scenario_type_main_menu)
+		s_session_gives_no_xp = firefight_stats_session_withheld();
 	g_session_stats_recorded = FALSE;
 	g_terminal_command_used_in_session = FALSE;
 	csmemset(s_session_player_medals, 0, sizeof(s_session_player_medals));
@@ -2151,6 +2170,8 @@ void firefight_stats_record_medal(long player_index, short medal_index)
 	}
 
 	if (player_index != NONE && (!player || player->local_player_index == NONE))
+		return;
+	if (firefight_stats_session_withheld())
 		return;
 
 	load_profile_records(NONE);
@@ -2251,7 +2272,7 @@ void firefight_stats_record_campaign_mission_end(
 	struct firefight_telemetry_session session;
 	short i;
 
-	if (firefight_active() || g_session_stats_recorded)
+	if (firefight_active() || g_session_stats_recorded || firefight_stats_session_withheld())
 		return;
 	g_session_stats_recorded = TRUE;
 
@@ -2370,7 +2391,7 @@ void firefight_stats_record_match_end(char const *map_name)
 	struct firefight_telemetry_session session;
 	short i;
 
-	if (g_session_stats_recorded)
+	if (g_session_stats_recorded || firefight_stats_session_withheld())
 		return;
 	g_session_stats_recorded = TRUE;
 
@@ -2556,7 +2577,7 @@ void firefight_stats_record_multiplayer_match_end(char const *map_name)
 	short local_player_idx;
 	struct firefight_telemetry_session session;
 
-	if (firefight_active() || g_session_stats_recorded)
+	if (firefight_active() || g_session_stats_recorded || firefight_stats_session_withheld())
 		return;
 	g_session_stats_recorded = TRUE;
 
@@ -2621,12 +2642,12 @@ void firefight_stats_record_multiplayer_match_end(char const *map_name)
 	dispatch_telemetry_post_async(NONE, &session);
 }
 
-void firefight_stats_on_map_dispose(void)
+static void firefight_stats_record_left_map(void)
 {
 	struct scenario *scen;
 	char const *map_name;
 
-	if (g_session_stats_recorded || global_scenario_index == NONE)
+	if (g_session_stats_recorded || global_scenario_index == NONE || firefight_stats_session_withheld())
 	{
 		if (g_profile_records_dirty)
 			save_profile_records(NONE);
@@ -2706,6 +2727,17 @@ void firefight_stats_on_map_dispose(void)
 		session.skulls_unlocked_count = count_unlocked_skulls();
 		dispatch_telemetry_post_async(NONE, &session);
 	}
+}
+
+void firefight_stats_on_map_dispose(void)
+{
+	struct scenario *scen = global_scenario_index != NONE ? global_scenario_try_and_get() : NULL;
+	boolean played = scen && scen->type != _scenario_type_main_menu;
+
+	firefight_stats_record_left_map();
+	/* (what the game gave, for the card over the menus) */
+	if (played)
+		firefight_hud_xp_exit_note();
 }
 
 boolean firefight_stats_get_map_record(
@@ -3180,7 +3212,7 @@ number) */
 void firefight_stats_add_xp_counted(long xp_amount, char const *reason, long count)
 {
 #if OPENCE_ENABLE_SERVICE_RANK
-	if (xp_amount <= 0)
+	if (xp_amount <= 0 || firefight_stats_session_withheld())
 		return;
 	load_profile_records(NONE);
 	if (s_session_start_xp < 0)

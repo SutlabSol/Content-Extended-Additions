@@ -871,6 +871,14 @@ void firefight_hud_xp_screen_begin(void);
 void firefight_hud_xp_screen_draw(void);
 /* the count shown at its end at once: TRUE if it was still counting */
 boolean firefight_hud_xp_screen_finish(void);
+/* the same card over the menus after a game left without that screen: noted
+as a played map is left (with the XP it gave), drawn from social_chat_draw;
+while shown the menus' input is its own (menu_functions.c). A press finishes
+the count, then closes it; `close` closes it at once */
+void firefight_hud_xp_exit_note(void);
+boolean firefight_hud_xp_exit_shown(void);
+void firefight_hud_xp_exit_press(boolean close);
+void firefight_hud_xp_exit_draw(short screen_width, short screen_height);
 void firefight_draw_mcc_rank_icon(short x0, short y0, short size, short tour_number, short rank_in_tour, real alpha);
 void firefight_draw_h3_ranked_icon(short x0, short y0, short size, short ranked_index, real alpha);
 void firefight_draw_player_emblem(short x0, short y0, short size, struct firefight_emblem_info const *emblem, real alpha);
@@ -969,6 +977,8 @@ boolean firefight_stats_poll_pending_link_popup(
 void firefight_stats_notify_terminal_command_used(void);
 void firefight_stats_reset_session_terminal_flag(void);
 boolean firefight_stats_achievements_disabled(void);
+/* a replay or Forge session: it gives no XP and records nothing */
+boolean firefight_stats_session_withheld(void);
 void firefight_stats_add_xp(long xp_amount, char const *reason);
 void firefight_stats_add_xp_counted(long xp_amount, char const *reason, long count);
 void firefight_stats_get_mcc_rank(long profile_index, struct firefight_mcc_rank_info *out_rank);

@@ -4164,7 +4164,8 @@ def _lobby() -> list:
                       '<on event="back" run="port lobby preview leave" back="true"/>',
                       '<on event="start" run="port lobby preview add"/>',
                       f'<on event="y" run="port lobby add player" open="{base}/join4_screen"/>',
-                      '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
+                      # (no description backdrop: as the lobby's, the docked
+                      # chat has its own box)
                       f'<child widget="{base}/preview_list"/>',
                       f'<child widget="{base}/header_lobby"/>',
                       f'<child widget="{base}/lobby_join_help"/>'])
