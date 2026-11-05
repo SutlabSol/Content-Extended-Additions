@@ -331,6 +331,16 @@ static int translate_elsewhere(const char *cursor, char *resolved, unsigned long
 	return 0;
 }
 
+/* whether path is a host path inside root (an absolute one, as the POSIX
+builds' roots are), root itself or below it */
+static BOOL host_path_under(const char *path, const char *root)
+{
+	size_t length = root ? strlen(root) : 0;
+
+	return length && root[0] == '/' && !strncmp(path, root, length) &&
+		(path[length] == '\0' || path[length] == '/' || root[length - 1] == '/');
+}
+
 void platform_translate_path(const char *xbox_path, char *host_path, unsigned long host_path_size)
 {
 	char resolved[1024];
@@ -338,6 +348,16 @@ void platform_translate_path(const char *xbox_path, char *host_path, unsigned lo
 	unsigned long length;
 	BOOL on_data_root = TRUE;
 
+	/* (a path this has already translated, under one of its roots: as it
+	is, so that translating it again changes nothing. Content Extended's
+	Forge translates its Xbox paths and then opens them, and the game's
+	fopen translates again: msvc_crt.c) */
+	if (host_path_under(xbox_path, platform_data_root()) || host_path_under(xbox_path, platform_save_root()) ||
+		host_path_under(xbox_path, platform_custom_edition_root()))
+	{
+		snprintf(host_path, host_path_size, "%s", xbox_path);
+		return;
+	}
 	snprintf(resolved, sizeof(resolved), "%s", platform_data_root());
 	if (((cursor[0] >= 'a' && cursor[0] <= 'z') || (cursor[0] >= 'A' && cursor[0] <= 'Z')) && cursor[1] == ':')
 	{

@@ -27,6 +27,8 @@ from .linux_build import (GAME_DATA_FILES, LINUX_PROFILE, MINIUPNPC_DIR, OPTIMIS
                           lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources, opus_cflags,
                           opus_sources, pgo_profile, profile_use_flags, xdk_headers)
+# (Content Extended's Forge, renamed with llvm-objcopy here: tools/forge_build.py)
+from .forge_build import FORGE_DIR, FORGE_OBJCOPY_REDEFINES
 from .embed_assets import hud_assets_build, hud_configure_inputs, server_ui_build
 from .macos_toolchain import default_clang, lld_link
 from .ninja_syntax import Writer
@@ -34,115 +36,9 @@ from .windows_cross_build import cross_toolchain_prefix
 
 LINUX_DIR = Path("port/linux")
 PORT_DIR = Path("port/windows")
-FORGE_DIR = Path("port/forge")
 PORT_CONFIG = PORT_DIR / "port.json"
 BUILD = Path("build/windows")
 
-FORGE_OBJCOPY_REDEFINES: Dict[str, List[str]] = {
-    "port/linux/game/menu_functions.c": [
-        "--redefine-sym", "_pc_menu_event_function_invoke=_orig_pc_menu_event_function_invoke",
-        "--redefine-sym", "_pc_menu_game_data_function_invoke=_orig_pc_menu_game_data_function_invoke",
-        "--redefine-sym", "_custom_edition_maps_count=_forge_menu_custom_edition_maps_count",
-        "--redefine-sym", "_custom_edition_maps_display_index_of=_forge_menu_custom_edition_maps_display_index_of",
-        "--redefine-sym", "_custom_edition_maps_look_again=_forge_menu_custom_edition_maps_look_again",
-        "--redefine-sym", "_ui_widget_port_multiplayer_maps=_forge_menu_multiplayer_maps",
-        "--redefine-sym", "_ui_widget_port_multiplayer_map_choose=_forge_menu_multiplayer_map_choose",
-        "--redefine-sym", "_player_profile_get=_forge_player_profile_get",
-    ],
-    "port/linux/game/network_chat.c": [
-        "--redefine-sym", "_network_chat_update=_orig_network_chat_update",
-        "--redefine-sym", "_network_chat_draw=_orig_network_chat_draw",
-        "--redefine-sym", "_network_chat_typing=_orig_network_chat_typing",
-        "--redefine-sym", "_network_chat_handle_up=_orig_network_chat_handle_up",
-        "--redefine-sym", "_network_chat_handle_down=_orig_network_chat_handle_down",
-    ],
-    "port/linux/game/network_objects.c": [
-        "--redefine-sym", "_network_objects_handle_changes=_orig_network_objects_handle_changes",
-    ],
-    "source/camera/director.c": [
-        "--redefine-sym", "_director_update=_orig_director_update",
-        "--redefine-sym", "_director_get_perspective=_orig_director_get_perspective",
-    ],
-    "port/linux/game/render_interpolation.c": [
-        "--redefine-sym", "_render_interpolation_camera=_orig_render_interpolation_camera",
-    ],
-    "source/interface/first_person_weapons.c": [
-        "--redefine-sym", "_first_person_weapon_draw=_orig_first_person_weapon_draw",
-    ],
-    "source/interface/hud_draw.c": [
-        "--redefine-sym", "_hud_draw_bitmap_direct=_orig_hud_draw_bitmap_direct",
-        "--redefine-sym", "_hud_draw_numbers=_orig_hud_draw_numbers",
-        "--redefine-sym", "_real_argb_color_to_pixel32=_orig_real_argb_color_to_pixel32",
-    ],
-    "source/interface/hud_weapon.c": [
-        "--redefine-sym", "_hud_render_weapon_interface=_orig_hud_render_weapon_interface",
-    ],
-    "source/hs/hs.c": [
-        "--redefine-sym", "_hs_compile_and_evaluate=_orig_hs_compile_and_evaluate",
-    ],
-    "source/hs/hs_runtime.c": [
-        "--redefine-sym", "_hs_runtime_update=_orig_hs_runtime_update",
-    ],
-    "port/linux/game/mod_sounds.c": [
-        "--redefine-sym", "_mod_sounds_read=_orig_mod_sounds_read",
-    ],
-    "port/linux/src/sdl_platform.c": [
-        "--redefine-sym", "_platform_next_keystroke=_orig_platform_next_keystroke",
-        "--redefine-sym", "_platform_ui_pointer_read=_orig_platform_ui_pointer_read",
-        "--redefine-sym", "_platform_input_read=_orig_platform_input_read",
-    ],
-    "port/linux/src/xinput_sdl.c": [
-        "--redefine-sym", "_XInputGetState@8=_orig_XInputGetState@8",
-    ],
-    "source/cutscene/cinematics.c": [
-        "--redefine-sym", "_cinematic_start=_orig_cinematic_start",
-    ],
-    "source/scenario/scenario.c": [
-        "--redefine-sym", "_scenario_trigger_volume_test_object=_orig_scenario_trigger_volume_test_object",
-    ],
-    "source/models/models.c": [
-        "--redefine-sym", "_render_model=_orig_render_model",
-    ],
-    "source/game/game_engine.c": [
-        "--redefine-sym", "_game_engine_post_rasterize_objects=_orig_game_engine_post_rasterize_objects",
-        "--redefine-sym", "_game_engine_remap_object_definition=_orig_game_engine_remap_object_definition",
-    ],
-    "port/linux/game/menu_tags.c": [
-        "--redefine-sym", "_menu_tags_loaded=_orig_menu_tags_loaded",
-        "--redefine-sym", "_menu_tags_unloaded=_orig_menu_tags_unloaded",
-    ],
-    "port/linux/game/custom_edition_cache.c": [
-        "--redefine-sym", "_file_reference_create_from_path=_forge_ce_file_reference_create_from_path",
-        "--redefine-sym", "_halo_windows_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_halo_xbox_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_halo_xbox_FindFirstFileA@8=_forge_ce_FindFirstFileA@8",
-        "--redefine-sym", "_halo_xbox_FindNextFileA@8=_forge_ce_FindNextFileA@8",
-        "--redefine-sym", "_halo_xbox_CloseHandle@4=_forge_ce_CloseHandle@4",
-    ],
-    "port/linux/game/custom_edition_maps.c": [
-        "--redefine-sym", "_file_reference_create_from_path=_forge_ce_file_reference_create_from_path",
-        "--redefine-sym", "_halo_windows_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_halo_xbox_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_halo_xbox_FindFirstFileA@8=_forge_ce_FindFirstFileA@8",
-        "--redefine-sym", "_halo_xbox_FindNextFileA@8=_forge_ce_FindNextFileA@8",
-        "--redefine-sym", "_halo_xbox_CloseHandle@4=_forge_ce_CloseHandle@4",
-        "--redefine-sym", "_fread=_forge_ce_fread",
-        "--redefine-sym", "_fseek=_forge_ce_fseek",
-        "--redefine-sym", "_ftell=_forge_ce_ftell",
-        "--redefine-sym", "_fclose=_forge_ce_fclose",
-    ],
-    "port/linux/game/map_share_files.c": [
-        "--redefine-sym", "_file_reference_create_from_path=_forge_ce_file_reference_create_from_path",
-        "--redefine-sym", "_halo_windows_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_halo_xbox_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_fopen=_forge_ce_fopen",
-        "--redefine-sym", "_halo_xbox_FindFirstFileA@8=_forge_ce_FindFirstFileA@8",
-        "--redefine-sym", "_halo_xbox_FindNextFileA@8=_forge_ce_FindNextFileA@8",
-        "--redefine-sym", "_halo_xbox_CloseHandle@4=_forge_ce_CloseHandle@4",
-    ],
-}
 
 # (as tools/android_build.py's SDL_TAG and tools/linux_sysroot.py's SDL_VERSION)
 SDL_VERSION = "3.4.16"

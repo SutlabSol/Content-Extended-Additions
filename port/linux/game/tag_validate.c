@@ -47,6 +47,7 @@ data and which the game takes as models (tag_schema_custom_edition_groups).
 #include "halo_port_window.h"
 
 #include <stdarg.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -230,8 +231,24 @@ static struct
 } tag_validate_globals;
 
 /* a bit for each byte of the tag cache that a tag's root, block or data
-holds */
-static unsigned long tag_validate_claims[CLAIM_WORDS];
+holds: on the heap, made when a map is first checked (tag_validate_begin's
+caller below), not in the game's image (Android's room for it is full) */
+static unsigned long *tag_validate_claims;
+
+/* the claims made, once: the C library's calloc, (calloc), kept for the
+whole run */
+static void tag_validate_claims_make(void)
+{
+	if (tag_validate_claims)
+		return;
+	tag_validate_claims = (unsigned long *)(calloc)(CLAIM_WORDS, sizeof(unsigned long));
+	if (!tag_validate_claims)
+	{
+		/* (no log: this is the tag tools' too, tools/ce_tags.c, which have
+		no platform layer) */
+		(abort)();
+	}
+}
 
 static char const tag_validate_empty_name[] = "";
 
@@ -1428,6 +1445,7 @@ void tag_validate_custom_edition_note_structure_bsp(
 
 	if (bsp_index == 0)
 		tag_validate_pending_groups.count = 0;
+	tag_validate_claims_make();
 	memset(&tag_validate_globals, 0, sizeof(tag_validate_globals));
 	tag_validate_globals.header = tag_header;
 	tag_validate_globals.tag_data_size = (long)tag_data_bytes;
@@ -1573,13 +1591,14 @@ static void validation_begin(
 	boolean custom_edition,
 	char const *map_name)
 {
+	tag_validate_claims_make();
 	memset(&tag_validate_globals, 0, sizeof(tag_validate_globals));
 	tag_validate_globals.header = tag_header;
 	tag_validate_globals.tag_data_size = tag_data_size;
 	tag_validate_globals.tag_cache_size = tag_cache_size;
 	tag_validate_globals.custom_edition = custom_edition;
 	snprintf(tag_validate_globals.map_name, sizeof(tag_validate_globals.map_name), "%s", map_name);
-	memset(tag_validate_claims, 0, sizeof(tag_validate_claims));
+	memset(tag_validate_claims, 0, CLAIM_WORDS * sizeof(unsigned long));
 	validation_new(validation, tag_header, (unsigned long)tag_data_size);
 
 	return;

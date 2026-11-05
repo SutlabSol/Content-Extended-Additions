@@ -31,6 +31,7 @@ from .android_build import (ANDROID_API, ANDROID_DEFINES, GUEST_CODE_FLAGS, MUSL
                             ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES,
                             _musl_sources, _find_ndk, fetch_third_party, guest_abi_flags)
 from .guest_arch import ARM64_32
+from .forge_build import forge_cflags, forge_source_flags, forge_sources
 from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
                           compile_launcher, game_defines_and_includes, game_sources, miniupnpc_sources,
                           musl_math_sources, opus_cflags, opus_sources, pgo_mode, pgo_profile,
@@ -538,9 +539,12 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
             cflags += " " + updater_defines(getattr(sln, "port_release", False))
         if source.as_posix() in VARIADIC_PROTOTYPE_FILES:
             cflags += f" -include {ANDROID_PORT_DIR}/include/halo_android_variadic_prototypes.h"
-        objects.append(guest_object(source, cflags))
+        objects.append(guest_object(source, f"{cflags} {forge_source_flags(source)}"))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
-        objects.append(guest_object(source, game_cflags))
+        objects.append(guest_object(source, f"{game_cflags} {forge_source_flags(source)}"))
+    # (Content Extended's Forge: tools/forge_build.py)
+    for source in forge_sources():
+        objects.append(guest_object(source, forge_cflags(game_cflags, ZLIB_DIR)))
     objects.append(guest_object(STB_VORBIS_SOURCE, game_cflags))
 
     platform_cflags = " ".join([
@@ -557,7 +561,7 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     for source in sorted((LINUX_DIR / "src").glob("*.c")):
         if source.name.startswith("posix_") or source.name in guest_host_only or source.name in opengl_only:
             continue
-        objects.append(guest_object(source, platform_cflags))
+        objects.append(guest_object(source, f"{platform_cflags} {forge_source_flags(source)}"))
     for source in hud_assets_build(n, "switch", gen_dir / "hud_hires_assets.c"):
         objects.append(guest_object(source, platform_cflags))
     objects.append(guest_object(TOML_DIR / "tomlc17.c", platform_cflags))

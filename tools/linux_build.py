@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from .forge_build import forge_cflags, forge_source_flags, forge_sources
 from .embed_assets import hud_assets_build, hud_configure_inputs, server_ui_build
 from .ninja_syntax import Writer
 
@@ -132,11 +133,14 @@ ZLIB_DEFINES = ("-DZ_PREFIX", "-Dz_errmsg=z_port_errmsg")
 MBEDTLS_DIR = Path("port/third_party/mbedtls")
 # the game's data files that every build puts beside config.toml, read at
 # run time rather than built into the game (rank_icons.bin:
-# port/linux/game/firefight_hud.c). Desktop builds copy them beside the
+# port/linux/game/firefight_hud.c; forge_markers.bin: Forge's,
+# port/forge/src/forge_runtime_tags.c). Desktop builds copy them beside the
 # game, Android's and the PS5's hosts copy theirs there at each start,
 # the Switch's deploy and updater do, and the web page writes them into its
 # private storage (port/web/site/app.js's GAME_FILES)
-GAME_DATA_FILES = [Path("port/assets/firefight/rank_icons.bin")]
+GAME_DATA_FILES = [Path("port/assets/firefight/rank_icons.bin"),
+                   # (Forge's objective markers' meshes: port/forge/src/forge_runtime_tags.c)
+                   Path("port/assets/forge/forge_markers.bin")]
 # internet play's UPnP (port/linux/src/posix_upnp.c)
 MINIUPNPC_DIR = Path("port/third_party/miniupnpc")
 # the Custom Edition maps' Ogg Vorbis decoder (custom_edition_sounds.c),
@@ -603,11 +607,14 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             flags = game_cflags
             if source.as_posix() == "source/main/main.c":
                 flags += " " + updater_defines(getattr(sln, "port_release", False))
-            add_object(source, flags)
+            add_object(source, f"{flags} {forge_source_flags(source)}")
         # Port-specific units that must see the game exactly as its own
         # sources do (port/linux/game).
         for source in sorted(Path(config["game_sources"]).glob("*.c")):
-            add_object(source, game_cflags)
+            add_object(source, f"{game_cflags} {forge_source_flags(source)}")
+        # (Content Extended's Forge: tools/forge_build.py)
+        for source in forge_sources():
+            add_object(source, forge_cflags(game_cflags, ZLIB_DIR))
         add_object(STB_VORBIS_SOURCE, game_cflags)
 
         platform_dir = Path(config["platform_sources"])
@@ -643,7 +650,7 @@ def generate_linux_build(n: Writer, sln: Any) -> None:
             elif source.name in ("updater.c", "server_mode.c"):
                 add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
             else:
-                add_object(source, platform_cflags)
+                add_object(source, f"{platform_cflags} {forge_source_flags(source)}")
         for source in embedded_assets:
             add_object(source, platform_cflags)
         # the self-updater's TLS and internet play's DTLS with browsers

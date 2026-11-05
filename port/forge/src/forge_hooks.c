@@ -830,7 +830,7 @@ struct forge_tag_opt_tag_entry
 	uint32_t size_bytes;
 };
 
-static struct
+struct forge_tag_opt_state
 {
 	/* Step A: Map Picker */
 	int map_kind;
@@ -880,7 +880,37 @@ static struct
 	int snap_prev_left;
 	int snap_prev_right;
 	int snap_prev_del;
-} s_forge_tag_opt = { -1, 0, 0, 0, -1, { { { 0 } } }, "", -1, 0, 0, 0, -1, { { 0 } }, "", 0, 0, { 0 }, -1, 0, 0, 0, -1, { { 0 } }, -1, 0, 0, 0, -1, { { 0 } }, 0, 0, 0, 0, 38.0f, 22.0f, 1.0f, 0, 0, 0 };
+};
+
+/* TAG OPTIONS' state: on the heap, made when first wanted with its first
+values (no map, category or row chosen: -1; the snap point editor's camera),
+not in the game's image, which on Android has no room for its 1.3 MB */
+static struct forge_tag_opt_state *s_forge_tag_opt_state;
+
+static struct forge_tag_opt_state *forge_tag_opt_get(void)
+{
+	struct forge_tag_opt_state *state = (struct forge_tag_opt_state *)calloc(1, sizeof(*state));
+
+	if (!state)
+	{
+		platform_log("Forge: out of memory for TAG OPTIONS (%lu bytes)", (unsigned long)sizeof(*state));
+		abort();
+	}
+	state->map_kind = -1;
+	state->map_prev_row_focus = -1;
+	state->browser_cat = -1;
+	state->browser_prev_row_focus = -1;
+	state->inst_cat = -1;
+	state->inst_prev_row_focus = -1;
+	state->snap_cat = -1;
+	state->snap_prev_row_focus = -1;
+	state->snap_cam_yaw_deg = 38.0f;
+	state->snap_cam_pitch_deg = 22.0f;
+	state->snap_cam_zoom = 1.0f;
+	s_forge_tag_opt_state = state;
+	return state;
+}
+#define s_forge_tag_opt (*(s_forge_tag_opt_state ? s_forge_tag_opt_state : forge_tag_opt_get()))
 
 static void forge_format_tag_type_label(uint32_t grp, char *out, size_t out_sz)
 {
@@ -4235,7 +4265,14 @@ void menu_tags_loaded(char const *map_name)
 /* ---------- Point 11: Redirect custom_maps\<name>.(map|bmp|txt) to forge_maps\<name>\<name>.(map|bmp|txt) */
 
 extern void *file_reference_create_from_path(void *reference, char const *full_path, boolean is_directory);
+/* (the C runtime's fopen, the game's paths translated: the port's) */
+#ifdef _WIN32
 extern FILE *halo_windows_fopen(char const *filename, char const *mode);
+#define forge_game_fopen halo_windows_fopen
+#else
+extern FILE *halo_linux_fopen(char const *filename, char const *mode);
+#define forge_game_fopen halo_linux_fopen
+#endif
 
 static char const *resolve_forge_maps_redirect_path(char const *path, char *out_buf, size_t out_sz)
 {
@@ -4487,7 +4524,7 @@ FILE *forge_ce_fopen(char const *filename, char const *mode)
 {
 	char redirected[512];
 	char const *actual = resolve_forge_maps_redirect_path(filename, redirected, sizeof(redirected));
-	FILE *fp = halo_windows_fopen(actual, mode);
+	FILE *fp = forge_game_fopen(actual, mode);
 	if (!fp)
 		fp = try_open_embedded_map_sidecar(filename);
 	return fp;
@@ -4790,14 +4827,108 @@ int forge_window_is_focused(void)
 #endif
 }
 
+#ifdef _WIN32
 #undef GetAsyncKeyState
 __declspec(dllimport) SHORT WINAPI GetAsyncKeyState(int vKey);
+#else
+/* the keys and mouse buttons down, as the platform layer last read them
+(platform_input_read, below): GetAsyncKeyState's answer on the builds that
+have no Windows to ask (forge_key_state) */
+static unsigned char s_forge_keys_down[512];
+static unsigned char s_forge_mouse_down[8];
+
+/* the SDL scancode of a Windows virtual key Forge asks for, else 0 (and a
+second, the right-hand modifier's, in *other) */
+static int forge_vk_scancode(int vk, int *other)
+{
+	*other = 0;
+	if (vk >= 'A' && vk <= 'Z')
+		return 4 + (vk - 'A');
+	if (vk >= '1' && vk <= '9')
+		return 30 + (vk - '1');
+	if (vk == '0')
+		return 39;
+	if (vk >= 0x70 && vk <= 0x7B) /* VK_F1..VK_F12 */
+		return 58 + (vk - 0x70);
+	if (vk >= 0x61 && vk <= 0x69) /* VK_NUMPAD1..9 */
+		return 89 + (vk - 0x61);
+	switch (vk)
+	{
+	case 0x60: return 98; /* VK_NUMPAD0 */
+	case 0x08: return 42; /* VK_BACK */
+	case 0x09: return 43; /* VK_TAB */
+	case 0x0D: return 40; /* VK_RETURN */
+	case 0x1B: return 41; /* VK_ESCAPE */
+	case 0x20: return 44; /* VK_SPACE */
+	case 0x10: *other = 229; return 225; /* VK_SHIFT */
+	case 0x11: *other = 228; return 224; /* VK_CONTROL */
+	case 0x12: *other = 230; return 226; /* VK_MENU */
+	case 0xA0: return 225; /* VK_LSHIFT */
+	case 0xA1: return 229; /* VK_RSHIFT */
+	case 0xA2: return 224; /* VK_LCONTROL */
+	case 0xA3: return 228; /* VK_RCONTROL */
+	case 0xA4: return 226; /* VK_LMENU */
+	case 0xA5: return 230; /* VK_RMENU */
+	case 0x21: return 75; /* VK_PRIOR */
+	case 0x22: return 78; /* VK_NEXT */
+	case 0x23: return 77; /* VK_END */
+	case 0x24: return 74; /* VK_HOME */
+	case 0x25: return 80; /* VK_LEFT */
+	case 0x26: return 82; /* VK_UP */
+	case 0x27: return 79; /* VK_RIGHT */
+	case 0x28: return 81; /* VK_DOWN */
+	case 0x2D: return 73; /* VK_INSERT */
+	case 0x2E: return 76; /* VK_DELETE */
+	case 0x6A: return 85; /* VK_MULTIPLY */
+	case 0x6B: return 87; /* VK_ADD */
+	case 0x6D: return 86; /* VK_SUBTRACT */
+	case 0x6E: return 99; /* VK_DECIMAL */
+	case 0x6F: return 84; /* VK_DIVIDE */
+	case 0xBA: return 51; /* VK_OEM_1 ; */
+	case 0xBB: return 46; /* VK_OEM_PLUS = */
+	case 0xBC: return 54; /* VK_OEM_COMMA */
+	case 0xBD: return 45; /* VK_OEM_MINUS */
+	case 0xBE: return 55; /* VK_OEM_PERIOD */
+	case 0xBF: return 56; /* VK_OEM_2 / */
+	case 0xC0: return 53; /* VK_OEM_3 ` */
+	case 0xDB: return 47; /* VK_OEM_4 [ */
+	case 0xDC: return 49; /* VK_OEM_5 \ */
+	case 0xDD: return 48; /* VK_OEM_6 ] */
+	case 0xDE: return 52; /* VK_OEM_7 ' */
+	}
+	return 0;
+}
+#endif
+
+/* whether a chat box is being typed in (the match's, network_chat.c, or
+the fork's, social_chat.c): Forge then leaves the keys and the controller to
+it */
+extern boolean social_chat_typing(void);
+
+int forge_chat_typing(void)
+{
+	return orig_network_chat_typing() || social_chat_typing();
+}
 
 short forge_key_state(int vk)
 {
-	if (!forge_window_is_focused())
+	if (!forge_window_is_focused() || forge_chat_typing())
 		return 0;
+#ifdef _WIN32
 	return GetAsyncKeyState(vk);
+#else
+	{
+		int other, scancode;
+
+		/* (VK_LBUTTON, VK_RBUTTON, VK_MBUTTON: SDL's buttons 1, 3, 2) */
+		if (vk == 0x01 || vk == 0x02 || vk == 0x04)
+			return s_forge_mouse_down[vk == 0x01 ? 1 : vk == 0x02 ? 3 : 2] ? (short)0x8000 : 0;
+		scancode = forge_vk_scancode(vk, &other);
+		if (!scancode)
+			return 0;
+		return (s_forge_keys_down[scancode] || (other && s_forge_keys_down[other])) ? (short)0x8000 : 0;
+	}
+#endif
 }
 
 BOOL platform_ui_pointer_read(struct forge_sdl_ui_pointer *pointer)
@@ -4821,6 +4952,13 @@ BOOL platform_ui_pointer_read(struct forge_sdl_ui_pointer *pointer)
 void platform_input_read(struct forge_sdl_input_state *state, BOOL consume_motion)
 {
 	orig_platform_input_read(state, consume_motion);
+#ifndef _WIN32
+	if (state)
+	{
+		memcpy(s_forge_keys_down, state->keys, sizeof(s_forge_keys_down));
+		memcpy(s_forge_mouse_down, state->mouse_buttons, sizeof(s_forge_mouse_down));
+	}
+#endif
 	if (state && (!forge_window_is_focused() || !state->focused))
 	{
 		memset(state->keys, 0, sizeof(state->keys));
@@ -4889,6 +5027,13 @@ BOOL platform_next_keystroke(struct forge_sdl_keystroke *keystroke)
 	return FALSE;
 }
 
+/* the first controller's state as the game last got it (XInputGetState,
+below): the port's, its buttons remapped and the touch controls' in it, for
+Forge's controls (forge_pad_read) */
+extern int xinput_device_port(HANDLE device);
+static XINPUT_GAMEPAD s_forge_pad;
+static BOOL s_forge_pad_valid;
+
 DWORD WINAPI XInputGetState(HANDLE hDevice, PXINPUT_STATE pState)
 {
 	DWORD rc = orig_XInputGetState(hDevice, pState);
@@ -4896,7 +5041,29 @@ DWORD WINAPI XInputGetState(HANDLE hDevice, PXINPUT_STATE pState)
 	{
 		memset(&pState->Gamepad, 0, sizeof(pState->Gamepad));
 	}
+	if (pState && xinput_device_port(hDevice) == 0)
+	{
+		s_forge_pad_valid = rc == ERROR_SUCCESS;
+		s_forge_pad = pState->Gamepad;
+	}
 	return rc;
+}
+
+int forge_pad_read(struct forge_pad *pad)
+{
+	int index;
+
+	memset(pad, 0, sizeof(*pad));
+	if (!s_forge_pad_valid || forge_chat_typing())
+		return 0;
+	pad->buttons = s_forge_pad.wButtons;
+	for (index = 0; index < 8; index++)
+		pad->analog[index] = s_forge_pad.bAnalogButtons[index];
+	pad->lx = s_forge_pad.sThumbLX;
+	pad->ly = s_forge_pad.sThumbLY;
+	pad->rx = s_forge_pad.sThumbRX;
+	pad->ry = s_forge_pad.sThumbRY;
+	return 1;
 }
 
 

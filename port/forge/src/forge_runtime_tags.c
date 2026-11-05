@@ -334,7 +334,7 @@ static void forge_ensure_xbox_loading_tga(void)
 	int x, y, slot;
 
 	platform_translate_path("z:\\maps\\loading.tga", z_tga_host, sizeof(z_tga_host));
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	{
 		char z_maps_dir[1024];
 		platform_translate_path("z:\\maps", z_maps_dir, sizeof(z_maps_dir));
@@ -603,7 +603,21 @@ struct forge_cache_file_tag_instance
 	unsigned long unused[2];
 };
 
-struct forge_runtime_state g_forge;
+struct forge_runtime_state *g_forge_state;
+
+struct forge_runtime_state *forge_runtime_state_get(void)
+{
+	if (!g_forge_state)
+	{
+		g_forge_state = (struct forge_runtime_state *)calloc(1, sizeof(*g_forge_state));
+		if (!g_forge_state)
+		{
+			platform_log("Forge: out of memory for its state (%lu bytes)", (unsigned long)sizeof(*g_forge_state));
+			abort();
+		}
+	}
+	return g_forge_state;
+}
 int g_forge_session_enabled = 0;
 
 long forge_get_network_version(void)
@@ -1318,6 +1332,23 @@ static int forge_browse_for_folder(char const *title, char const *default_dir, c
 	return 0;
 }
 
+#else
+/* (no folder dialog off Windows: the maps are the data root's, which the
+cache is ripped from first) */
+static int forge_browse_for_folder(char const *title, char const *default_dir, char *out_dir, size_t out_sz)
+{
+	(void)title;
+	(void)default_dir;
+	(void)out_dir;
+	(void)out_sz;
+	return 0;
+}
+
+int forge_message_box_log(char const *text, char const *caption)
+{
+	platform_log("%s: %s", caption, text);
+	return 7; /* IDNO */
+}
 #endif
 
 static int is_xbox_version5_map_file(char const *map_path)
@@ -1466,7 +1497,7 @@ static int ensure_xbox_map_decompressed_cache(
 	}
 
 	/* 3. Stream-decompress Xbox v5 map into persistent per-map cache Faber_data/cached_tags/xbox_cache/<map_internal_name>.map */
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	CreateDirectoryA("Faber_data", NULL);
 	CreateDirectoryA("Faber_data/cached_tags", NULL);
 	CreateDirectoryA("Faber_data/cached_tags/xbox_cache", NULL);
@@ -1707,7 +1738,7 @@ static int forge_index_xbox_map_file_to_catalog(
 
 static int forge_rip_maps_folder_to_cached_tags(char const *maps_dir)
 {
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	char pattern[512];
 	WIN32_FIND_DATAA fd;
 	HANDLE h;
@@ -1800,7 +1831,7 @@ static int forge_rip_maps_folder_to_cached_tags(char const *maps_dir)
 
 static void forge_delete_files_matching(char const *dir_path, char const *pattern)
 {
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	char search_pat[512];
 	WIN32_FIND_DATAA fd;
 	HANDLE h;
@@ -1846,7 +1877,7 @@ static void forge_ensure_local_tag_cache_built(void)
 		}
 	}
 
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	CreateDirectoryA("Faber_data", NULL);
 	CreateDirectoryA("Faber_data/custom_tags", NULL);
 	CreateDirectoryA("Faber_data/cached_tags", NULL);
@@ -1912,7 +1943,7 @@ void forge_runtime_init(void)
 	snprintf(g_forge.save_map_name, sizeof(g_forge.save_map_name), "forge_custom_arena");
 	g_forge.save_map_name_len = (int)strlen(g_forge.save_map_name);
 
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	CreateDirectoryA("Faber_data", NULL);
 	CreateDirectoryA("Faber_data/custom_tags", NULL);
 #endif
@@ -1952,14 +1983,16 @@ struct forge_dynamic_tag_entry
 	struct forge_hw_part parts[FORGE_MAX_HW_PARTS];
 };
 
-static struct
+struct forge_dyn_tags_state
 {
 	void *saved_base_instances;
 	long saved_base_count;
 	void *allocated_instances;
 	int count;
 	struct forge_dynamic_tag_entry entries[FORGE_MAX_DYNAMIC_TAGS];
-} s_dyn_tags;
+};
+FORGE_HEAP_STATIC(struct forge_dyn_tags_state, s_dyn_tags)
+#define s_dyn_tags FORGE_HEAP(s_dyn_tags)
 
 static struct
 {
@@ -3705,7 +3738,7 @@ static long load_native_xbox_tag_runtime(
 	char const *req_path,
 	uint32_t *out_actual_group)
 {
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	static char const *const s_xbox_map_dirs[] = {
 		"maps",
 		"FORGE CODE/GAME MAPS/XBOX MAPS",
@@ -5573,7 +5606,7 @@ static long load_native_ocetags_package_runtime(
 	char const *req_path,
 	uint32_t *out_actual_group)
 {
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	static char const *const s_ocetags_dirs[] = {
 		"OpenCE Forge/custom_tags",
 		"OpenCE Forge/cached_tags",
@@ -6018,7 +6051,7 @@ static int forge_rip_ocetags_file_to_cached_tags(
 static int forge_scan_and_rip_ocetags_folders(int force_reload)
 {
 	int extracted = 0;
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	static char const *const s_ocetags_dirs[] = {
 		"OpenCE Forge/custom_tags",
 		"Faber_data/custom_tags",
@@ -6337,7 +6370,7 @@ int forge_ui_save_copy_as(char const *new_map_name)
 
 	resolve_current_base_map_path(base_map_path, sizeof(base_map_path));
 
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	CreateDirectoryA("d:\\custom_maps", NULL);
 	CreateDirectoryA("custom_maps", NULL);
 #endif
@@ -7576,7 +7609,92 @@ static long get_or_create_translucent_marker_shader(int color_preset, int is_hig
 	return append_runtime_tag_instance('soso', 'shdr', NONE, shdr_name, soso_def);
 }
 
-#include "forge_marker_ftags_embed.h"
+/* the objective markers' meshes (.ftag), zlib-compressed: forge_markers.bin
+(port/assets/forge/forge_markers.bin, beside config.toml, where every build
+puts it: tools/linux_build.py's GAME_DATA_FILES), read when they are first
+wanted and written out to Faber_data/cached_tags/markers for the loader. Its
+layout, little-endian: "FGMK", 32-bit version (1) and count; each marker its
+name and its alias (a byte's length, then the name), its size, its packed
+size and its packed bytes */
+#define FORGE_MARKERS_FILE "forge_markers.bin"
+void config_folder(char *path, size_t size);
+char *config_file_read(const char *path, size_t *size);
+void platform_log(char const *format, ...);
+
+static uint32_t forge_markers_u32(unsigned char const *bytes)
+{
+	return (uint32_t)bytes[0] | ((uint32_t)bytes[1] << 8) | ((uint32_t)bytes[2] << 16) | ((uint32_t)bytes[3] << 24);
+}
+
+/* writes out each marker of forge_markers.bin that markers_dir has not */
+static void forge_markers_write_missing(char const *markers_dir)
+{
+	char path[1024];
+	size_t size = 0, offset;
+	unsigned char *file;
+	uint32_t count, index;
+
+	config_folder(path, sizeof(path));
+	snprintf(path + strlen(path), sizeof(path) - strlen(path), "%s", FORGE_MARKERS_FILE);
+	file = (unsigned char *)config_file_read(path, &size);
+	if (!file || size < 12 || memcmp(file, "FGMK", 4) || forge_markers_u32(file + 4) != 1)
+	{
+		platform_log("Forge: the markers' file %s %s, so objectives have no meshes", path,
+			!file ? "cannot be read" : "is not one this game reads");
+		free(file);
+		return;
+	}
+	count = forge_markers_u32(file + 8);
+	offset = 12;
+	for (index = 0; index < count; index++)
+	{
+		char name[256], mpath[512];
+		size_t length;
+		uint32_t unpacked_size, packed_size;
+		FILE *chk;
+
+		if (offset + 1 > size || offset + 1 + file[offset] + 1 > size)
+			break;
+		length = file[offset];
+		memcpy(name, file + offset + 1, length);
+		name[length] = 0;
+		offset += 1 + length;
+		offset += 1 + file[offset];
+		if (offset + 8 > size)
+			break;
+		unpacked_size = forge_markers_u32(file + offset);
+		packed_size = forge_markers_u32(file + offset + 4);
+		offset += 8;
+		if (offset + packed_size > size)
+			break;
+		snprintf(mpath, sizeof(mpath), "%s/%s", markers_dir, name);
+		chk = fopen(mpath, "rb");
+		if (chk)
+			fclose(chk);
+		else
+		{
+			uLongf out_len = (uLongf)unpacked_size;
+			uint8_t *raw = (uint8_t *)malloc(out_len);
+
+			if (raw)
+			{
+				if (uncompress(raw, &out_len, file + offset, (uLong)packed_size) == Z_OK &&
+					out_len == (uLongf)unpacked_size)
+				{
+					FILE *wf = fopen(mpath, "wb");
+					if (wf)
+					{
+						fwrite(raw, 1, (size_t)out_len, wf);
+						fclose(wf);
+					}
+				}
+				free(raw);
+			}
+		}
+		offset += packed_size;
+	}
+	free(file);
+}
 
 static void ensure_objective_marker_meshes_loaded(void)
 {
@@ -7598,41 +7716,12 @@ static void ensure_objective_marker_meshes_loaded(void)
 	s_marker_meshes.loaded = 1;
 	s_marker_meshes_loaded_flag = 1;
 
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	CreateDirectoryA("Faber_data", NULL);
 	CreateDirectoryA("Faber_data/cached_tags", NULL);
 	CreateDirectoryA("Faber_data/cached_tags/markers", NULL);
 #endif
-	for (k = 0; k < (int)(sizeof(g_embedded_marker_ftags) / sizeof(g_embedded_marker_ftags[0])); k++)
-	{
-		char mpath[256];
-		FILE *chk;
-		snprintf(mpath, sizeof(mpath), "Faber_data/cached_tags/markers/%s", g_embedded_marker_ftags[k].primary_name);
-		chk = fopen(mpath, "rb");
-		if (chk)
-		{
-			fclose(chk);
-		}
-		else
-		{
-			uLongf out_len = (uLongf)g_embedded_marker_ftags[k].uncompressed_size;
-			uint8_t *raw = (uint8_t *)malloc(out_len);
-			if (raw)
-			{
-				if (uncompress(raw, &out_len, g_embedded_marker_ftags[k].compressed_data, (uLong)g_embedded_marker_ftags[k].compressed_size) == Z_OK &&
-					out_len == (uLongf)g_embedded_marker_ftags[k].uncompressed_size)
-				{
-					FILE *wf = fopen(mpath, "wb");
-					if (wf)
-					{
-						fwrite(raw, 1, (size_t)out_len, wf);
-						fclose(wf);
-					}
-				}
-				free(raw);
-			}
-		}
-	}
+	forge_markers_write_missing("Faber_data/cached_tags/markers");
 
 	for (k = 0; k < NUMBER_OF_MARKER_MESH_KINDS; k++)
 	{
@@ -8447,7 +8536,7 @@ static void forge_make_safe_ocetags_stem(uint32_t grp, char const *tag_path, cha
 
 static void forge_sync_manifest_bin(void)
 {
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	static char const *const s_manifest_paths[] = {
 		"OpenCE Forge/cached_tags/manifest.bin",
 		"Faber_data/cached_tags/manifest.bin"
@@ -10159,7 +10248,7 @@ static void forge_ensure_vault_bundle_ocetags_cached(
 
 	if (sb.buf && sb.len >= 32u)
 	{
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 		CreateDirectoryA("OpenCE Forge", NULL);
 		CreateDirectoryA("OpenCE Forge/custom_tags", NULL);
 		CreateDirectoryA("OpenCE Forge/cached_tags", NULL);
@@ -10244,7 +10333,7 @@ int forge_delete_installed_tag_entry(uint32_t group_tag, char const *tag_path, i
 	}
 
 	/* Also scan custom_tags/cached_tags for any differently named .ocetags whose root matches (group_tag, tag_path) */
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	for (d = 0; d < 5; d++)
 	{
 		char pattern[512];
@@ -10325,7 +10414,7 @@ int forge_reset_stock_tags_only(void)
 	remove("Faber_data/cached_tags/custom_catalog.txt");
 
 	/* Re-sync custom tags from custom_tags/ into cached_tags/ with OCEZ compression */
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	{
 		static char const *const s_cust_dirs[] = {
 			"OpenCE Forge/custom_tags",
@@ -10421,7 +10510,7 @@ struct forge_preview_texture
 	uint32_t *pixels;
 };
 
-static struct
+struct forge_preview_state
 {
 	int active;
 	char key[512];
@@ -10453,14 +10542,18 @@ static struct
 	float snap_cam_yaw_deg;
 	float snap_cam_pitch_deg;
 	float snap_cam_zoom;
-} s_forge_preview;
+};
+FORGE_HEAP_STATIC(struct forge_preview_state, s_forge_preview)
+#define s_forge_preview FORGE_HEAP(s_forge_preview)
 
-static struct
+struct forge_snap_db_state
 {
 	int loaded;
 	int count;
 	struct forge_tag_snap_config configs[FORGE_MAX_SNAP_TAG_CONFIGS];
-} s_snap_db;
+};
+FORGE_HEAP_STATIC(struct forge_snap_db_state, s_snap_db)
+#define s_snap_db FORGE_HEAP(s_snap_db)
 
 void forge_snap_points_fill_normal_from_dir(struct forge_snap_point *pt, int normal_dir)
 {
@@ -10555,7 +10648,7 @@ int forge_snap_points_save_all(void)
 	FILE *fp;
 	int i, p;
 
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	CreateDirectoryA("Faber_data", NULL);
 	CreateDirectoryA("Faber_data/cached_tags", NULL);
 #endif
@@ -12877,7 +12970,7 @@ void forge_tag_preview_set_installed_tag(uint32_t group_tag, char const *tag_pat
 				free(ubuf);
 			}
 		}
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 		for (d = 0; d < 5 && !loaded; d++)
 		{
 			char pattern[512];
@@ -12949,7 +13042,7 @@ void forge_tag_preview_set_installed_tag(uint32_t group_tag, char const *tag_pat
 				loaded = 1;
 		}
 	}
-#ifdef _WIN32
+#if FORGE_HOST_FILES
 	if (!loaded)
 	{
 		WIN32_FIND_DATAA fd;

@@ -54,8 +54,9 @@
 
 extern tag tag_get_group_tag(long tag_index);
 extern unsigned long system_milliseconds(void);
-extern void halo_linux_mouse_look(short controller_index, float *yaw_delta, float *pitch_delta);
-extern int platform_scoreboard_scroll(int active, int *wheel_notches, float *touch_dy);
+/* (the platform layer's: port/linux/src/xinput_sdl.c, sdl_platform.h) */
+extern int halo_linux_mouse_look(short controller_index, float *yaw_delta, float *pitch_delta);
+extern void platform_scoreboard_scroll(int open, long *notches, long *pages);
 extern boolean render_camera_world_to_screen(
 	const struct render_camera *camera,
 	const struct render_frustum *frustum,
@@ -68,12 +69,6 @@ extern char const *hud_hires_asset_tag(long asset);
 extern void hud_hires_register_placeholder(long asset, unsigned long const *texture);
 extern int config_boolean(char const *name);
 
-typedef uint32_t forge_sdl_joystick_id;
-typedef struct SDL_Gamepad forge_sdl_gamepad;
-extern forge_sdl_joystick_id *SDL_GetGamepads(int *count);
-extern forge_sdl_gamepad *SDL_GetGamepadFromID(forge_sdl_joystick_id instance_id);
-extern unsigned char SDL_GetGamepadButton(forge_sdl_gamepad *gamepad, int button);
-extern int16_t SDL_GetGamepadAxis(forge_sdl_gamepad *gamepad, int axis);
 extern void SDL_free(void *mem);
 
 struct forge_font_char_metric
@@ -107,7 +102,8 @@ void forge_controls_init_defaults(void)
 	g_forge.bind_vk[FORGE_BIND_DELETE_OBJECT]  = 0x2E; /* VK_DELETE */
 	g_forge.bind_vk[FORGE_BIND_COPY_OBJECT]    = 'C';
 
-	g_forge.bind_gp[FORGE_BIND_TOGGLE_MODE]    = FORGE_GP_DPAD_UP;
+	/* (D-pad Up is the chat's: network_chat.c, social_chat.c) */
+	g_forge.bind_gp[FORGE_BIND_TOGGLE_MODE]    = FORGE_GP_DPAD_RIGHT;
 	g_forge.bind_gp[FORGE_BIND_PALETTE]        = FORGE_GP_X;
 	g_forge.bind_gp[FORGE_BIND_THIRD_PERSON]   = FORGE_GP_BACK;
 	g_forge.bind_gp[FORGE_BIND_QUICK_SAVE]     = FORGE_GP_DPAD_DOWN;
@@ -117,7 +113,9 @@ void forge_controls_init_defaults(void)
 	g_forge.bind_gp[FORGE_BIND_ROT_SNAP]       = FORGE_GP_LTHUMB;
 	g_forge.bind_gp[FORGE_BIND_OBJECT_OPTIONS] = FORGE_GP_X;
 	g_forge.bind_gp[FORGE_BIND_DELETE_OBJECT]  = FORGE_GP_Y;
-	g_forge.bind_gp[FORGE_BIND_COPY_OBJECT]    = FORGE_GP_DPAD_RIGHT;
+	/* (with SNAP TO FLOOR: that one while an object is held, this one while
+	none is) */
+	g_forge.bind_gp[FORGE_BIND_COPY_OBJECT]    = FORGE_GP_DPAD_LEFT;
 
 	g_forge.controller_look_sens = 1.0f;
 	g_forge.controller_fly_speed = 1.0f;
@@ -184,6 +182,16 @@ void forge_controls_load(void)
 		g_forge.bind_gp[FORGE_BIND_OBJECT_OPTIONS] = FORGE_GP_X;
 		g_forge.bind_gp[FORGE_BIND_DELETE_OBJECT]  = FORGE_GP_Y;
 		g_forge.bind_gp[FORGE_BIND_COPY_OBJECT]    = FORGE_GP_DPAD_RIGHT;
+		migrated_options_vk = 1;
+	}
+	/* Migrate the toggle off D-pad Up, which opens the chat: D-pad Right,
+	and COPY, which had it, to D-pad Left (SNAP TO FLOOR's, which acts only
+	while an object is held, COPY only while none is) */
+	if (g_forge.bind_gp[FORGE_BIND_TOGGLE_MODE] == FORGE_GP_DPAD_UP)
+	{
+		g_forge.bind_gp[FORGE_BIND_TOGGLE_MODE] = FORGE_GP_DPAD_RIGHT;
+		if (g_forge.bind_gp[FORGE_BIND_COPY_OBJECT] == FORGE_GP_DPAD_RIGHT)
+			g_forge.bind_gp[FORGE_BIND_COPY_OBJECT] = FORGE_GP_DPAD_LEFT;
 		migrated_options_vk = 1;
 	}
 	if (migrated_options_vk)
@@ -313,9 +321,7 @@ char const *forge_action_prompt(int action)
 
 void forge_poll_controller_state(float *out_lx, float *out_ly, float *out_rx, float *out_ry, float *out_lt, float *out_rt)
 {
-	int count = 0;
-	forge_sdl_joystick_id *ids;
-	forge_sdl_gamepad *pad = NULL;
+	struct forge_pad pad;
 	int any_gp_activity = 0;
 	int i;
 
@@ -325,41 +331,34 @@ void forge_poll_controller_state(float *out_lx, float *out_ly, float *out_rx, fl
 	memset(s_gp_btn_down, 0, sizeof(s_gp_btn_down));
 	s_gp_lx = s_gp_ly = s_gp_rx = s_gp_ry = s_gp_lt = s_gp_rt = 0.0f;
 
-	if (forge_window_is_focused())
+	/* (the first controller as the game gets it, through the port's
+	controls: forge_pad_read; its sticks' up made SDL's negative, its
+	triggers' 0-255 SDL's 0-32767, as the rest of this reads them) */
+	if (forge_pad_read(&pad))
 	{
-		ids = SDL_GetGamepads(&count);
-		if (ids)
-		{
-			if (count > 0)
-				pad = SDL_GetGamepadFromID(ids[0]);
-			SDL_free(ids);
-		}
-	}
-
-	if (pad)
-	{
-		int16_t raw_lx = SDL_GetGamepadAxis(pad, 0);
-		int16_t raw_ly = SDL_GetGamepadAxis(pad, 1);
-		int16_t raw_rx = SDL_GetGamepadAxis(pad, 2);
-		int16_t raw_ry = SDL_GetGamepadAxis(pad, 3);
-		int16_t raw_lt = SDL_GetGamepadAxis(pad, 4);
-		int16_t raw_rt = SDL_GetGamepadAxis(pad, 5);
+		int16_t raw_lx = pad.lx;
+		int16_t raw_ly = (int16_t)(pad.ly == -32768 ? 32767 : -pad.ly);
+		int16_t raw_rx = pad.rx;
+		int16_t raw_ry = (int16_t)(pad.ry == -32768 ? 32767 : -pad.ry);
+		int16_t raw_lt = (int16_t)(pad.analog[6] * 128);
+		int16_t raw_rt = (int16_t)(pad.analog[7] * 128);
 		int const deadzone = 6200;
+		int const pressed = 30;
 
-		s_gp_btn_down[FORGE_GP_A]          = SDL_GetGamepadButton(pad, 0) != 0;
-		s_gp_btn_down[FORGE_GP_B]          = SDL_GetGamepadButton(pad, 1) != 0;
-		s_gp_btn_down[FORGE_GP_X]          = SDL_GetGamepadButton(pad, 2) != 0;
-		s_gp_btn_down[FORGE_GP_Y]          = SDL_GetGamepadButton(pad, 3) != 0;
-		s_gp_btn_down[FORGE_GP_BACK]       = SDL_GetGamepadButton(pad, 4) != 0;
-		s_gp_btn_down[FORGE_GP_START]      = SDL_GetGamepadButton(pad, 6) != 0;
-		s_gp_btn_down[FORGE_GP_LTHUMB]     = SDL_GetGamepadButton(pad, 7) != 0;
-		s_gp_btn_down[FORGE_GP_RTHUMB]     = SDL_GetGamepadButton(pad, 8) != 0;
-		s_gp_btn_down[FORGE_GP_WHITE]      = SDL_GetGamepadButton(pad, 9) != 0;
-		s_gp_btn_down[FORGE_GP_BLACK]      = SDL_GetGamepadButton(pad, 10) != 0;
-		s_gp_btn_down[FORGE_GP_DPAD_UP]    = SDL_GetGamepadButton(pad, 11) != 0;
-		s_gp_btn_down[FORGE_GP_DPAD_DOWN]  = SDL_GetGamepadButton(pad, 12) != 0;
-		s_gp_btn_down[FORGE_GP_DPAD_LEFT]  = SDL_GetGamepadButton(pad, 13) != 0;
-		s_gp_btn_down[FORGE_GP_DPAD_RIGHT] = SDL_GetGamepadButton(pad, 14) != 0;
+		s_gp_btn_down[FORGE_GP_A]          = pad.analog[0] >= pressed;
+		s_gp_btn_down[FORGE_GP_B]          = pad.analog[1] >= pressed;
+		s_gp_btn_down[FORGE_GP_X]          = pad.analog[2] >= pressed;
+		s_gp_btn_down[FORGE_GP_Y]          = pad.analog[3] >= pressed;
+		s_gp_btn_down[FORGE_GP_BACK]       = (pad.buttons & 0x0020) != 0;
+		s_gp_btn_down[FORGE_GP_START]      = (pad.buttons & 0x0010) != 0;
+		s_gp_btn_down[FORGE_GP_LTHUMB]     = (pad.buttons & 0x0040) != 0;
+		s_gp_btn_down[FORGE_GP_RTHUMB]     = (pad.buttons & 0x0080) != 0;
+		s_gp_btn_down[FORGE_GP_WHITE]      = pad.analog[5] >= pressed;
+		s_gp_btn_down[FORGE_GP_BLACK]      = pad.analog[4] >= pressed;
+		s_gp_btn_down[FORGE_GP_DPAD_UP]    = (pad.buttons & 0x0001) != 0;
+		s_gp_btn_down[FORGE_GP_DPAD_DOWN]  = (pad.buttons & 0x0002) != 0;
+		s_gp_btn_down[FORGE_GP_DPAD_LEFT]  = (pad.buttons & 0x0004) != 0;
+		s_gp_btn_down[FORGE_GP_DPAD_RIGHT] = (pad.buttons & 0x0008) != 0;
 
 		if (raw_lt > 8000) s_gp_btn_down[FORGE_GP_LTRIGGER] = 1;
 		if (raw_rt > 8000) s_gp_btn_down[FORGE_GP_RTRIGGER] = 1;
@@ -6356,7 +6355,7 @@ void forge_3d_update(float dt)
 		if (g_forge.grabbed_live_index >= 0 && g_forge.grabbed_live_index < g_forge.live_instance_count)
 		{
 			float tx, ty, tz, syaw, spitch, sroll;
-			int wheel_notches = 0;
+			long wheel_notches = 0;
 			int radius_mod_held = ((GetAsyncKeyState('C') & 0x8000) || (GetAsyncKeyState(VK_SHIFT) & 0x8000)) != 0;
 
 			/* Scroll wheel moves held item away/towards camera, OR scales KOTH Hill radius */

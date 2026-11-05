@@ -43,6 +43,7 @@ from typing import Any, Dict, List, Optional
 
 from .android_build import VARIADIC_PROTOTYPE_FILES
 from .embed_assets import hud_assets_build, hud_configure_inputs
+from .forge_build import forge_cflags, forge_source_flags, forge_sources
 from .linux_build import (GAME_DATA_FILES, EXPAT_DIR, EXPAT_SOURCES, KCP_DIR, MONOCYPHER_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, TOML_DIR,
                           XDK_INCLUDE, ZLIB_DEFINES, ZLIB_DIR, ZLIB_SOURCES, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources,
@@ -249,9 +250,12 @@ def generate_web_build(n: Writer, sln: Any) -> None:
             # the game starts once the browser's storage is mounted
             # (port/web/src/web_main.c)
             cflags += " -Dmain=halo_game_main"
-        add_object(source, cflags)
+        add_object(source, f"{cflags} {forge_source_flags(source)}")
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
-        add_object(source, game_cflags)
+        add_object(source, f"{game_cflags} {forge_source_flags(source)}")
+    # (Content Extended's Forge: tools/forge_build.py)
+    for source in forge_sources():
+        add_object(source, forge_cflags(game_cflags, ZLIB_DIR))
     add_object(STB_VORBIS_SOURCE, game_cflags)
 
     # ---------- the platform layer and the web runtime
@@ -271,7 +275,8 @@ def generate_web_build(n: Writer, sln: Any) -> None:
     for source in sorted(platform_dir.glob("*.c")):
         if source.name in WEB_EXCLUDE:
             continue
-        add_object(source, posix_cflags if source.name.startswith("posix_") else platform_cflags)
+        add_object(source, posix_cflags if source.name.startswith("posix_") else
+                   f"{platform_cflags} {forge_source_flags(source)}")
     for source in hud_assets_build(n, "web", build_dir / "generated" / "hud_hires_assets.c"):
         add_object(source, platform_cflags)
     for source in sorted((PORT_DIR / "src").glob("*.c")):

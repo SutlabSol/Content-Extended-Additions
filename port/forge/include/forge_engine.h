@@ -31,12 +31,59 @@ char *main_get_map_name(void);
 char const *forge_get_active_map_name(void);
 void *forge_host_fopen(char const *path, char const *mode);
 int forge_host_remove(char const *path);
+/* Forge's own files and folders (Faber_data: beside the game on Windows,
+under the data root on the other builds) through the Win32 calls the port's
+file layer has on every build (port/linux/src/xbox_files.c): its
+#if FORGE_HOST_FILES blocks, Windows' alone before Content Extended reached
+the other builds */
+#define FORGE_HOST_FILES 1
+#ifndef _WIN32
+/* (a question Windows asks in a dialog: logged, and answered no) */
+int forge_message_box_log(char const *text, char const *caption);
+#define MessageBoxA(window, text, caption, type) forge_message_box_log((text), (caption))
+#endif
+/* (the platform layer's log: halo.log, and the console) */
+void platform_log(char const *format, ...);
+/* a static of Forge's kept on the heap, made (zeroed) when first wanted, not
+in the game's image, which on Android has no room for Forge's big tables:
+FORGE_HEAP_STATIC(type, name) where it was defined, then
+#define name FORGE_HEAP(name), and it is used as before */
+#define FORGE_HEAP_STATIC(type, name) \
+	static type *name##_storage; \
+	static type *name##_get(void) \
+	{ \
+		if (!name##_storage && !(name##_storage = (type *)calloc(1, sizeof(type)))) \
+		{ \
+			platform_log("Forge: out of memory for " #name " (%lu bytes)", (unsigned long)sizeof(type)); \
+			abort(); \
+		} \
+		return name##_storage; \
+	}
+#define FORGE_HEAP(name) (*(name##_storage ? name##_storage : name##_get()))
+/* the Tag Injector's tag bundles (port/linux/src/port_tag_profiles.h), which
+Forge reads custom tags from */
+long port_tag_profiles_bundle_open(long profile, long tag, unsigned long *size);
+int port_tag_profiles_bundle_read_at(long handle, unsigned long offset, void *buffer, unsigned long size);
+void port_tag_profiles_bundle_close(long handle);
 
 #ifdef _WIN32
 __declspec(dllimport) short __stdcall GetAsyncKeyState(int vKey);
-#else
-static inline short GetAsyncKeyState(int vKey) { (void)vKey; return 0; }
 #endif
+/* a key's state as GetAsyncKeyState answers (0x8000 down), Windows' or, on
+the other builds, the platform layer's last read of the keys (forge_hooks.c);
+none while a chat box is typed in (forge_chat_typing) */
+short forge_key_state(int vk);
+int forge_chat_typing(void);
+/* the first controller's state as the game gets it (the Xbox's: its
+buttons, its analog buttons A B X Y BLACK WHITE LT RT, its sticks with up
+positive); 0 with none, or while a chat box is typed in */
+struct forge_pad
+{
+	unsigned short buttons;
+	unsigned char analog[8];
+	short lx, ly, rx, ry;
+};
+int forge_pad_read(struct forge_pad *pad);
 
 #ifndef VK_LBUTTON
 #define VK_LBUTTON   0x01
@@ -378,7 +425,12 @@ enum forge_gamepad_button
 #define FORGE_GP_LSTICK FORGE_GP_LTHUMB
 #define FORGE_GP_RSTICK FORGE_GP_RTHUMB
 
-extern struct forge_runtime_state g_forge;
+/* Forge's state: on the heap, made (zeroed) when first wanted, not in the
+game's image, which on Android has no room for its 1.5 MB
+(forge_runtime_state_get) */
+extern struct forge_runtime_state *g_forge_state;
+struct forge_runtime_state *forge_runtime_state_get(void);
+#define g_forge (*(g_forge_state ? g_forge_state : forge_runtime_state_get()))
 
 void forge_controls_init_defaults(void);
 void forge_controls_load(void);
@@ -521,10 +573,8 @@ void forge_snap_points_auto_generate(uint32_t group_tag, char const *tag_path, i
 void forge_snap_points_apply_preset_to_point(struct forge_snap_point *pt, int preset_id, int normal_dir);
 void forge_snap_points_fill_normal_from_dir(struct forge_snap_point *pt, int normal_dir);
 
-#ifdef _WIN32
 #undef GetAsyncKeyState
 #define GetAsyncKeyState(vk) forge_key_state(vk)
-#endif
 
 #ifdef __cplusplus
 }

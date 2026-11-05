@@ -34,6 +34,7 @@ from .linux_build import (GAME_DATA_FILES, LINUX_PROFILE, MINIUPNPC_DEFINES, MIN
                           profile_use_flags, updater_defines, xdk_headers)
 from . import check_host_imports
 from .embed_assets import hud_assets_build, hud_configure_inputs
+from .forge_build import forge_cflags, forge_source_flags, forge_sources
 from .linux_sysroot import download
 from .macos_toolchain import android_sdk, default_clang, java_home
 from .ninja_syntax import Writer
@@ -565,9 +566,12 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
             cflags += " " + updater_defines(getattr(sln, "port_release", False))
         if source.as_posix() in VARIADIC_PROTOTYPE_FILES:
             cflags += f" -include {PORT_DIR}/include/halo_android_variadic_prototypes.h"
-        objects.append(guest_object(source, cflags))
+        objects.append(guest_object(source, f"{cflags} {forge_source_flags(source)}"))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
-        objects.append(guest_object(source, game_cflags))
+        objects.append(guest_object(source, f"{game_cflags} {forge_source_flags(source)}"))
+    # (Content Extended's Forge: tools/forge_build.py)
+    for source in forge_sources():
+        objects.append(guest_object(source, forge_cflags(game_cflags, ZLIB_DIR)))
     objects.append(guest_object(STB_VORBIS_SOURCE, game_cflags))
 
     # the platform layer shared with Linux, and the guest runtime
@@ -589,7 +593,7 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
         if source.name == "updater.c" and updater_cflags:
             objects.append(guest_object(source, f"{platform_cflags} {updater_cflags}"))
         else:
-            objects.append(guest_object(source, platform_cflags))
+            objects.append(guest_object(source, f"{platform_cflags} {forge_source_flags(source)}"))
         if source.name == "d3d8_gl.c":
             gl_renderer_object = objects[-1]
         # (display.anti_aliasing's passes: the OpenGL renderer's)
