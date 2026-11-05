@@ -3744,6 +3744,14 @@ static void format_clean_uppercase_item_name(char const *display_name, char *out
 	out_buf[i] = '\0';
 }
 
+/* whether the object held has Object Properties' SNAP POINTS row: a stock
+scenery's or door's tag (a profile's has its page in the Tag Injector) */
+static int forge_props_snap_row(struct forge_live_instance const *inst)
+{
+	return (inst->group_tag == 'scen' || inst->group_tag == 'mach' || inst->group_tag == 'ctrl') &&
+		forge_snap_points_stock_tag(inst->group_tag, inst->tag_path, NULL, 0);
+}
+
 static char const *gametype_flags_label(uint16_t flags)
 {
 	if (flags == 0x0001u) return "CTF Only";
@@ -5426,7 +5434,8 @@ void forge_3d_update(float dt)
 	{
 		struct forge_live_instance *inst = &g_forge.live_instances[g_forge.grabbed_live_index];
 		int is_ff_spawn = (inst->group_tag == 'ffsp');
-		int max_props_row = is_ff_spawn ? 5 : 4;
+		int snap_row = forge_props_snap_row(inst);
+		int max_props_row = (is_ff_spawn || snap_row) ? 5 : 4;
 		int dir = (cur_left && !prev_left) ? -1 : ((cur_right && !prev_right) || (cur_enter && !prev_enter) ? 1 : 0);
 		if (g_forge.props_cursor > max_props_row)
 			g_forge.props_cursor = max_props_row;
@@ -5553,6 +5562,10 @@ void forge_3d_update(float dt)
 				g_forge.grabbed_object_index = NONE;
 				g_forge.active_modal = _forge_modal_none;
 				goto update_prev_keys;
+			}
+			else if (g_forge.props_cursor == 5 && snap_row)
+			{
+				forge_snap_tag_layout_step(inst->group_tag, inst->tag_path, dir);
 			}
 		}
 	}
@@ -7321,9 +7334,10 @@ void forge_3d_draw_hud(
 		{
 			struct forge_live_instance const *inst = &g_forge.live_instances[g_forge.grabbed_live_index];
 			int is_ff_spawn = (inst->group_tag == 'ffsp');
-			int row_count = is_ff_spawn ? 6 : 5;
+			int snap_row = forge_props_snap_row(inst);
+			int row_count = (is_ff_spawn || snap_row) ? 6 : 5;
 			short box_w = 312;
-			short box_h = (short)(is_ff_spawn ? 252 : 224);
+			short box_h = (short)(row_count == 6 ? 252 : 224);
 			short px0 = (short)(window_x0 + 16);
 			short py0 = (short)(window_y0 + 34);
 			short px1 = (short)(px0 + box_w);
@@ -7391,8 +7405,10 @@ void forge_3d_draw_hud(
 				values[3][0] = 0;
 				snprintf(labels[4], sizeof(labels[4]), "%s DELETE OBJECT", p_del);
 				values[4][0] = 0;
-				snprintf(labels[5], sizeof(labels[5]), "SAVE TO FORGE CACHE");
+				snprintf(labels[5], sizeof(labels[5]), "SNAP POINTS:");
 				values[5][0] = 0;
+				if (snap_row)
+					forge_snap_tag_layout_text(inst->group_tag, inst->tag_path, values[5], sizeof(values[5]));
 			}
 
 			for (r = 0; r < row_count; r++)

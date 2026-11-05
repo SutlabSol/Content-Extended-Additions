@@ -7374,7 +7374,6 @@ static void ui_widgets_process_mouse(
 	return;
 }
 
-extern struct bitmap_data *forge_tag_preview_get_bitmap(void);
 
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
@@ -7426,9 +7425,7 @@ static void widget_instance_render_recursive(
 	tag_preview_picture_shown = NULL;
 	if (!custom_edition_picture && widget->name && !strcmp(widget->name, "tag_preview"))
 	{
-		tag_preview_picture_shown = forge_tag_preview_get_bitmap();
-		if (!tag_preview_picture_shown)
-			tag_preview_picture_shown = tag_preview_picture();
+		tag_preview_picture_shown = tag_preview_picture();
 	}
 	/* port: (and the Map Manager's picture of the row chosen, over its
 	map_picture widget, the same way: port/linux/game/map_manager.c) */

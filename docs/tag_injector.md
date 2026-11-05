@@ -801,7 +801,7 @@ group this build cannot bundle), or a bundle is left out.
 ## In Forge
 
 The Tag Injector is Forge's source of custom tags, and its only one: Forge's
-menu opens it (TAG INJECTOR), and TAG OPTIONS keeps the resets and SNAP POINTS.
+menu opens it (TAG INJECTOR).
 
 - **The palette** is Forge's default tags, the profile chosen, and the tags
   saved in the map. The default tags are a tag pack, `watanoge_forge` (about
@@ -826,6 +826,13 @@ menu opens it (TAG INJECTOR), and TAG OPTIONS keeps the resets and SNAP POINTS.
   tag stays as it was saved, even over a tag of the same path in the profile.
   A Custom Edition base has its tags in the file already. An old save's tag
   no one has any more stays in the map, and the HUD says it cannot be shown.
+- **Snap points** are each tag's own, kept by its path in
+  `Faber_data/cached_tags/snap_points.txt`. A scenery or door tag's page in a
+  profile has **SNAP POINTS**, which lists its points over its turning model
+  (the white one is chosen): LAYOUT sets them by the model's box, and each is
+  moved by its rows. A stock tag has no page: **SNAP POINTS** in Object
+  Properties, on an object of it, chooses none or a layout. That replaces any
+  points the tag had.
 - **Spawns, teleporters and objectives** of a stock map are saved in the same
   state (`PLAYER_SPAWN|`, `NETGAME_FLAG|`, with `PLAYER_SPAWNS_SAVED` and
   `NETGAME_FLAGS_SAVED` to say they stand in place of the map's) and put in the

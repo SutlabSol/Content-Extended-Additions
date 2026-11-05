@@ -27,17 +27,51 @@ def test_the_menus_are_as_the_generators_write_them():
     assert written.rstrip("\n") == forge_menu().rstrip("\n")
 
 
-def test_forge_lists_the_tag_injector_and_tag_options_lost_their_tag_rows():
+def test_forge_lists_the_tag_injector_and_has_no_tag_options():
     menu = forge_menu()
     rows = re.findall(r'forge_select/(forge_item_[a-z_]+)" y="(\d+)"', menu)
-    assert [name for name, _ in rows][:5] == ["forge_item_single_player", "forge_item_multiplayer",
-                                              "forge_item_edit_maps", "forge_item_tag_injector",
-                                              "forge_item_tag_options"]
-    assert [name for name, _ in rows][5:] == ["forge_item_reset_stock_tags", "forge_item_reset_custom_tags",
-                                              "forge_item_snap_points"]
+    assert [name for name, _ in rows] == ["forge_item_single_player", "forge_item_multiplayer",
+                                          "forge_item_edit_maps", "forge_item_tag_injector"]
     hooks = HOOKS.read_text()
-    for gone in ("forge_add_tags", "forge_installed_tag", "forge_name_tag_screen"):
+    for gone in ("forge_add_tags", "forge_installed_tag", "forge_name_tag_screen", "forge_tag_options",
+                 "forge_snap_points_list", "forge_reset_stock", "forge_reset_custom", "forge_tag_browser_desc"):
         assert gone not in hooks and gone not in menu
+
+
+def test_a_tag_keeps_its_own_snap_points():
+    """Each tag's page has the row, and its list runs on the Tag Injector's
+    screen: a screen of its own would reset the Tag Injector's lists on going back."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    rows = functions[functions.index("static short tags_setting_rows(short *rows)"):]
+    rows = rows[:rows.index("\n}\n")]
+    assert "group == 'scen' || group == 'mach' || group == 'ctrl'" in rows
+    assert "rows[count++] = _tags_setting_snap_points;" in rows
+    assert "case _tags_list_snap_points: up = _tags_list_tag; break;" in functions
+    assert "forge_snap_editor_open(port_tag_profiles_tag_group(" in functions
+    assert "forge_snap_editor_measured(minimum, maximum);" in functions
+    assert "ui_widget_port_open" not in functions[functions.index("static boolean tags_choose("):
+                                                  functions.index("static boolean tags_step(")]
+
+
+def test_a_stock_tag_s_snap_points_are_set_in_object_properties():
+    """A stock tag has no Tag Injector page: Object Properties has its row."""
+    mode = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
+    assert "forge_snap_points_stock_tag(inst->group_tag, inst->tag_path, NULL, 0)" in mode
+    assert "forge_snap_tag_layout_step(inst->group_tag, inst->tag_path, dir);" in mode
+    assert '"SNAP POINTS:"' in mode
+    assert "forge_snap_tag_layout_text(" in mode
+
+
+def test_a_solo_session_on_a_multiplayer_map_asks_for_its_profile():
+    """level_choose started a multiplayer map itself and returned FALSE, so
+    the hook after it never opened the TAG PROFILE screen."""
+    functions = (ROOT / "port/linux/game/menu_functions.c").read_text()
+    choose = functions[functions.index("static boolean level_choose("):]
+    choose = choose[:choose.index("\n}\n")]
+    forge = choose.index("if (g_forge_session_enabled)")
+    start = choose.index("campaign_start(map_name, main_get_difficulty(), controller, FALSE);")
+    assert forge < start
+    assert "return TRUE;" in choose[forge:start]
 
 
 def test_the_palette_is_the_pack_s():
@@ -50,8 +84,7 @@ def test_the_palette_is_the_pack_s():
     for gone in ("forge_ensure_local_tag_cache_built", "forge_browse_for_folder", "MessageBoxA",
                  "cached_tags/xbox_cache", "scan_faber_tag_vault_into_catalog"):
         assert gone not in runtime
-    # (only what reset cleans up names the old catalog)
-    assert runtime.count("xbox_catalog.txt") == 1
+    assert "xbox_catalog.txt" not in runtime
 
 
 def test_a_reader_of_a_pack_is_its_own():

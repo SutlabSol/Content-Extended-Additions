@@ -535,24 +535,24 @@ int forge_window_is_focused(void);
 short forge_key_state(int vk);
 
 int forge_get_readable_donor_map_path(char const *map_path, char *out_path, size_t out_sz);
-struct bitmap_data *forge_tag_preview_get_bitmap(void);
-void forge_tag_preview_clear(void);
-void forge_tag_preview_set_installed_tag(uint32_t group_tag, char const *tag_path, int is_custom);
-uint32_t forge_tag_preview_get_current_size_bytes(void);
-int forge_reset_stock_tags_only(void);
-int forge_reset_custom_tags_only(void);
 
-/* ---------- 3D Snap Point Persistence & Preview Editor API */
+/* ---------- 3D Snap Point Persistence */
 
 void forge_snap_points_load_all(void);
 int forge_snap_points_save_all(void);
 struct forge_tag_snap_config *forge_snap_points_get_for_tag(uint32_t group_tag, char const *tag_path, int create_if_missing);
 int forge_snap_points_count_for_tag(uint32_t group_tag, char const *tag_path);
-void forge_snap_points_get_preview_bounds(float out_min[3], float out_max[3]);
-void forge_snap_points_set_editor_overlay(int active, uint32_t group_tag, char const *tag_path, int active_pt_idx, float cam_yaw_deg, float cam_pitch_deg, float cam_zoom);
 void forge_snap_points_auto_generate(uint32_t group_tag, char const *tag_path, int mode);
 void forge_snap_points_apply_preset_to_point(struct forge_snap_point *pt, int preset_id, int normal_dir);
 void forge_snap_points_fill_normal_from_dir(struct forge_snap_point *pt, int normal_dir);
+/* the box the presets and layouts measure: set by the Tag Injector's preview,
+or read from a stock tag's map (0: not one, or it cannot be read) */
+void forge_snap_points_bounds_set(float const bounds_min[3], float const bounds_max[3]);
+int forge_snap_points_stock_tag(uint32_t group_tag, char const *tag_path, char *map_path, size_t map_path_size);
+int forge_snap_points_read_stock_bounds(uint32_t group_tag, char const *tag_path);
+/* Object Properties' SNAP POINTS row (forge_hooks.c) */
+int forge_snap_tag_layout_step(uint32_t group_tag, char const *tag_path, int dir);
+void forge_snap_tag_layout_text(uint32_t group_tag, char const *tag_path, char *text, size_t text_size);
 
 #undef GetAsyncKeyState
 #define GetAsyncKeyState(vk) forge_key_state(vk)

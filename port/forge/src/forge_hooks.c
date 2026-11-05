@@ -68,6 +68,7 @@ extern void display_error_text_deferred(wchar_t const *error_text, short text_st
 extern short ui_widget_port_gametypes(long *indices, short maximum, short *last_used);
 extern boolean ui_widget_port_gametype_choose(long profile_index);
 extern boolean ui_widget_port_open(void *widget, char const *name, boolean *widget_deleted);
+extern void main_disallow_persistent_storage(void);
 extern void ui_widget_port_go_back(void *widget);
 extern boolean ui_widget_port_game_variant_set(struct game_variant *variant, struct game_variant_options const *options);
 extern struct game_variant *build_game_variant_slayer(struct game_variant *variant);
@@ -800,140 +801,29 @@ static void update_forge_edit_maps_widget(struct forge_widget_instance *list)
 	}
 }
 
-/* =========================================================================
- * FORGE TAG OPTIONS: SUBMENU HANDLERS
- *   1. RESET STOCK TAGS (Confirm -> Clear Stock Cache, Keep Custom Tags)
- *   2. RESET CUSTOM TAGS (Confirm -> Clear Custom Tags)
- *   3. SNAP POINTS
- * Custom tags come from Tag Injector profiles alone (Forge > TAG INJECTOR).
- * ========================================================================= */
+/* NONE, then each profile with a tag on (MAXIMUM_TAG_PROFILES at most) */
+#define FORGE_PROFILE_SCREEN_ROWS 65
 
-#define FORGE_TAG_OPT_MAX_TAGS 1024
-
-struct forge_tag_opt_tag_entry
+struct forge_profile_row
 {
-	uint32_t group_tag;
-	uint8_t is_custom;
-	char short_name[64];
 	char display_row[64];
-	char tag_path[256];
-	uint32_t size_bytes;
 };
 
-/* NONE, then each profile with a tag on (MAXIMUM_TAG_PROFILES at most) */
-#define FORGE_TAG_OPT_MAX_PROFILES 65
-
-struct forge_tag_opt_state
+/* The TAG PROFILE screen, after the map */
+struct forge_profile_screen_state
 {
-	/* The TAG PROFILE screen, after the map */
 	int profile_count;
 	int profile_first;
 	int profile_chosen;
 	int profile_prev_row_focus;
-	long profile_ids[FORGE_TAG_OPT_MAX_PROFILES];
-	struct forge_tag_opt_tag_entry profile_rows[FORGE_TAG_OPT_MAX_PROFILES];
-
-	/* Snap Points Browser & Interactive 3D Snap Point Editor */
-	int snap_cat; /* 0 = SCENERY, 1 = DOORS, 2 = CUSTOM SCENERY, 3 = CUSTOM DOORS */
-	int snap_count;
-	int snap_first;
-	int snap_chosen;
-	int snap_prev_row_focus;
-	struct forge_tag_opt_tag_entry snap_tags[FORGE_TAG_OPT_MAX_TAGS];
-	int snap_editor_active;
-	int snap_editor_row;
-	int snap_active_pt_idx;
-	int snap_autogen_mode;
-	float snap_cam_yaw_deg;
-	float snap_cam_pitch_deg;
-	float snap_cam_zoom;
-	int snap_prev_left;
-	int snap_prev_right;
-	int snap_prev_del;
+	long profile_ids[FORGE_PROFILE_SCREEN_ROWS];
+	struct forge_profile_row profile_rows[FORGE_PROFILE_SCREEN_ROWS];
 };
 
-/* TAG OPTIONS' state: on the heap, made when first wanted with its first
-values (no category or row chosen: -1; the snap point editor's camera),
-not in the game's image, which on Android has no room for its size */
-static struct forge_tag_opt_state *s_forge_tag_opt_state;
-
-static struct forge_tag_opt_state *forge_tag_opt_get(void)
-{
-	struct forge_tag_opt_state *state = (struct forge_tag_opt_state *)calloc(1, sizeof(*state));
-
-	if (!state)
-	{
-		platform_log("Forge: out of memory for TAG OPTIONS (%lu bytes)", (unsigned long)sizeof(*state));
-		abort();
-	}
-	state->profile_prev_row_focus = -1;
-	state->snap_cat = -1;
-	state->snap_prev_row_focus = -1;
-	state->snap_cam_yaw_deg = 38.0f;
-	state->snap_cam_pitch_deg = 22.0f;
-	state->snap_cam_zoom = 1.0f;
-	s_forge_tag_opt_state = state;
-	return state;
-}
-#define s_forge_tag_opt (*(s_forge_tag_opt_state ? s_forge_tag_opt_state : forge_tag_opt_get()))
-
-static void forge_format_tag_type_label(uint32_t grp, char *out, size_t out_sz)
-{
-	if (grp == 'scen') snprintf(out, out_sz, "Scenery (scen)");
-	else if (grp == 'vehi') snprintf(out, out_sz, "Vehicle (vehi)");
-	else if (grp == 'mach') snprintf(out, out_sz, "Device Machine (mach)");
-	else if (grp == 'ctrl') snprintf(out, out_sz, "Device Control (ctrl)");
-	else if (grp == 'lifi') snprintf(out, out_sz, "Light Fixture (lifi)");
-	else if (grp == 'weap') snprintf(out, out_sz, "Weapon (weap)");
-	else if (grp == 'eqip') snprintf(out, out_sz, "Equipment (eqip)");
-	else if (grp == 'garb') snprintf(out, out_sz, "Garbage (garb)");
-	else if (grp == 'bipd') snprintf(out, out_sz, "Biped (bipd)");
-	else
-	{
-		char gs[5];
-		gs[0] = (char)((grp >> 24) & 0xFF);
-		gs[1] = (char)((grp >> 16) & 0xFF);
-		gs[2] = (char)((grp >> 8) & 0xFF);
-		gs[3] = (char)(grp & 0xFF);
-		gs[4] = '\0';
-		snprintf(out, out_sz, "Tag (%s)", gs);
-	}
-}
-
-static void forge_wrap_title_two_lines(char const *src, char *out, size_t out_sz)
-{
-	size_t len;
-	if (!src || !src[0])
-	{
-		snprintf(out, out_sz, "-");
-		return;
-	}
-	len = strlen(src);
-	if (len <= 13u)
-	{
-		snprintf(out, out_sz, "%s", src);
-		return;
-	}
-	{
-		size_t split = 13u;
-		size_t i;
-		char line1[20], line2[20];
-		for (i = 13u; i >= 5u; i--)
-		{
-			if (src[i] == ' ' || src[i] == '_' || src[i] == '-')
-			{
-				split = i;
-				break;
-			}
-		}
-		memcpy(line1, src, split);
-		line1[split] = '\0';
-		while (src[split] == ' ' || src[split] == '_')
-			split++;
-		snprintf(line2, sizeof(line2), "%.14s", src + split);
-		snprintf(out, out_sz, "%s\r\n%s", line1, line2);
-	}
-}
+/* (on the heap, made when first wanted: the game's image on Android has no
+room for its size) */
+FORGE_HEAP_STATIC(struct forge_profile_screen_state, s_forge_profile_screen)
+#define s_forge_profile_screen FORGE_HEAP(s_forge_profile_screen)
 
 static int forge_FocusRowIndexOfList(struct forge_widget_instance *list, struct forge_widget_instance **out_rows)
 {
@@ -1011,15 +901,6 @@ static void forge_handle_10row_edge_scroll(
 		}
 		*io_chosen = *io_first + focused_r;
 	}
-	else if (*io_prev_focus == 0 && list->focused_child && list->focused_child->name &&
-			 strcmp(list->focused_child->name, "forge_snap_cat_row") == 0 &&
-			 *io_first > 0)
-	{
-		(*io_first)--;
-		list->focused_child = rows[0];
-		focused_r = 0;
-		*io_chosen = *io_first;
-	}
 	else if (*io_prev_focus == 9 && list->focused_child && list->focused_child->name &&
 			 strcmp(list->focused_child->name, "forge_browser_button_bar") == 0 &&
 			 (*io_first + 10) < total_count)
@@ -1053,28 +934,28 @@ static int forge_tag_profiles_scan(void)
 {
 	long count, profile;
 
-	s_forge_tag_opt.profile_count = 1;
-	s_forge_tag_opt.profile_ids[0] = NONE;
-	snprintf(s_forge_tag_opt.profile_rows[0].display_row, sizeof(s_forge_tag_opt.profile_rows[0].display_row), "NONE");
+	s_forge_profile_screen.profile_count = 1;
+	s_forge_profile_screen.profile_ids[0] = NONE;
+	snprintf(s_forge_profile_screen.profile_rows[0].display_row, sizeof(s_forge_profile_screen.profile_rows[0].display_row), "NONE");
 	if (!halo_custom_edition_tag_cache())
 		return 0;
 	port_tag_profiles_scan();
 	count = port_tag_profiles_count();
-	for (profile = 0; profile < count && s_forge_tag_opt.profile_count < FORGE_TAG_OPT_MAX_PROFILES; profile++)
+	for (profile = 0; profile < count && s_forge_profile_screen.profile_count < FORGE_PROFILE_SCREEN_ROWS; profile++)
 	{
 		long tag, tags = port_tag_profiles_tag_count(profile);
-		struct forge_tag_opt_tag_entry *row;
+		struct forge_profile_row *row;
 
 		for (tag = 0; tag < tags && !port_tag_profiles_tag_enabled(profile, tag); tag++)
 		{
 		}
 		if (tag == tags)
 			continue;
-		row = &s_forge_tag_opt.profile_rows[s_forge_tag_opt.profile_count];
-		s_forge_tag_opt.profile_ids[s_forge_tag_opt.profile_count++] = profile;
+		row = &s_forge_profile_screen.profile_rows[s_forge_profile_screen.profile_count];
+		s_forge_profile_screen.profile_ids[s_forge_profile_screen.profile_count++] = profile;
 		snprintf(row->display_row, sizeof(row->display_row), "%s", port_tag_profiles_name(profile));
 	}
-	return s_forge_tag_opt.profile_count - 1;
+	return s_forge_profile_screen.profile_count - 1;
 }
 
 /* whether Forge's tags are there to start with: the pack's written (the
@@ -1130,6 +1011,7 @@ static boolean forge_start(void **widget_ptr, boolean *widget_deleted)
 	custom_edition_maps_look_again();
 	player_ui_set_single_player_local_player_controller(0, 0);
 	main_set_map_name(s_forge_start_map);
+	main_disallow_persistent_storage();
 	main_set_difficulty(1);
 	game_connection_set(0);
 	main_menu_switch_to_single_player();
@@ -1159,7 +1041,7 @@ static boolean forge_start_ask(void **widget_ptr, boolean *widget_deleted, int k
 
 static void forge_populate_10row_tag_list(
 	struct forge_widget_instance *const rows[10],
-	struct forge_tag_opt_tag_entry const *entries,
+	struct forge_profile_row const *entries,
 	int count,
 	int first,
 	int chosen,
@@ -1224,243 +1106,313 @@ static char const *const s_snap_dir_names[NUMBER_OF_FORGE_SNAP_DIRS] = {
 	"DOWN (-Z)"
 };
 
-static void forge_refresh_snap_tag_row_label(struct forge_tag_opt_tag_entry *te)
+/* A tag's snap points, each tag's own: the Tag Injector's SNAP POINTS list
+(menu_functions.c) edits the tag shown, all of what is here saved at once.
+Its rows are these, in this order. */
+enum
 {
-	int pt_cnt;
-	if (!te)
-		return;
-	pt_cnt = forge_snap_points_count_for_tag(te->group_tag, te->tag_path);
-	if (pt_cnt > 0)
-		snprintf(te->display_row, sizeof(te->display_row), "%.46s [%d]", te->short_name, pt_cnt);
-	else
-		snprintf(te->display_row, sizeof(te->display_row), "%s", te->short_name);
+	_forge_snap_row_layout,
+	_forge_snap_row_add,
+	_forge_snap_row_point,
+	_forge_snap_row_preset,
+	_forge_snap_row_x,
+	_forge_snap_row_y,
+	_forge_snap_row_z,
+	_forge_snap_row_normal,
+	_forge_snap_row_delete,
+	_forge_snap_row_delete_all,
+	NUMBER_OF_FORGE_SNAP_ROWS
+};
+
+static struct
+{
+	uint32_t group_tag;
+	char tag_path[FORGE_TAG_PATH_MAX];
+	int point;
+	int layout;
+	/* the box of its model is known (forge_snap_points_bounds_set) */
+	int measured;
+} s_snap_editor;
+
+/* the tag whose box Object Properties' SNAP POINTS row read last, and the
+layout it has been given */
+static char s_snap_layout_tag[FORGE_TAG_PATH_MAX];
+static int s_snap_layout = -1;
+
+short forge_snap_editor_row_count(void)
+{
+	return NUMBER_OF_FORGE_SNAP_ROWS;
 }
 
-static void forge_scan_snap_tags_by_cat(int cat)
+void forge_snap_editor_open(unsigned long group_tag, char const *tag_path)
 {
-	int i;
-	if (cat < 0) cat = 0;
-	if (cat > 3) cat = 3;
-	s_forge_tag_opt.snap_cat = cat;
-	s_forge_tag_opt.snap_count = 0;
-
-	forge_runtime_init();
-	forge_runtime_reload_catalogs();
-	forge_snap_points_load_all();
-
-	for (i = 0; i < g_forge.catalog_count && s_forge_tag_opt.snap_count < FORGE_TAG_OPT_MAX_TAGS; i++)
-	{
-		struct forge_catalog_entry const *ce = &g_forge.catalog[i];
-		struct forge_tag_opt_tag_entry *te;
-		int match = 0;
-
-		if (ce->source_cache_id == 0)
-			continue;
-		if (ce->group_tag == 'spwn' || ce->group_tag == 'tele' || ce->group_tag == 'flag' || ce->group_tag == 'ffsp')
-			continue;
-		if (!forge_catalog_entry_allowed(ce))
-			continue;
-
-		if (cat == 0) /* SCENERY (stock) */
-			match = (ce->category == _forge_cat_scenery && ce->source_cache_id != 2);
-		else if (cat == 1) /* DOORS (stock) */
-			match = (ce->category == _forge_cat_barriers_devices && ce->source_cache_id != 2);
-		else if (cat == 2) /* CUSTOM SCENERY */
-			match = (ce->category == _forge_cat_scenery && ce->source_cache_id == 2);
-		else if (cat == 3) /* CUSTOM DOORS */
-			match = (ce->category == _forge_cat_barriers_devices && ce->source_cache_id == 2);
-
-		if (!match)
-			continue;
-
-		te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_count++];
-		te->group_tag = ce->group_tag;
-		te->is_custom = (ce->source_cache_id == 2) ? 1u : 0u;
-		snprintf(te->short_name, sizeof(te->short_name), "%s", ce->display_name);
-		snprintf(te->tag_path, sizeof(te->tag_path), "%s", ce->tag_path);
-		te->size_bytes = 0;
-		forge_refresh_snap_tag_row_label(te);
-	}
-
-	if (s_forge_tag_opt.snap_chosen >= s_forge_tag_opt.snap_count)
-		s_forge_tag_opt.snap_chosen = (s_forge_tag_opt.snap_count > 0) ? (s_forge_tag_opt.snap_count - 1) : 0;
-	if (s_forge_tag_opt.snap_first > s_forge_tag_opt.snap_chosen)
-		s_forge_tag_opt.snap_first = s_forge_tag_opt.snap_chosen;
+	s_snap_editor.group_tag = (uint32_t)group_tag;
+	snprintf(s_snap_editor.tag_path, sizeof(s_snap_editor.tag_path), "%s", tag_path ? tag_path : "");
+	s_snap_editor.point = 0;
+	s_snap_editor.layout = 0;
+	s_snap_editor.measured = 0;
+	s_snap_layout_tag[0] = 0;
 }
 
-static void forge_snap_editor_step_row(int row, int dir)
+/* the box of the tag's model, once its preview has read it */
+void forge_snap_editor_measured(float const bounds_min[3], float const bounds_max[3])
 {
-	struct forge_tag_opt_tag_entry *te;
-	struct forge_tag_snap_config *cfg;
-	struct forge_snap_point *pt = NULL;
-	float step;
-
-	if (s_forge_tag_opt.snap_count <= 0 ||
-		s_forge_tag_opt.snap_chosen < 0 ||
-		s_forge_tag_opt.snap_chosen >= s_forge_tag_opt.snap_count)
-		return;
-
-	te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_chosen];
-	cfg = forge_snap_points_get_for_tag(te->group_tag, te->tag_path, 1);
-	if (!cfg)
-		return;
-
-	if (cfg->point_count > 0)
-	{
-		if (s_forge_tag_opt.snap_active_pt_idx < 0)
-			s_forge_tag_opt.snap_active_pt_idx = 0;
-		if (s_forge_tag_opt.snap_active_pt_idx >= cfg->point_count)
-			s_forge_tag_opt.snap_active_pt_idx = cfg->point_count - 1;
-		pt = &cfg->points[s_forge_tag_opt.snap_active_pt_idx];
-	}
-
-	step = ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0) ? 0.02f : 0.08f;
-
-	if (row == 0) /* AUTO-GEN MODE */
-	{
-		s_forge_tag_opt.snap_autogen_mode = (s_forge_tag_opt.snap_autogen_mode + dir + 4) % 4;
-		forge_snap_points_auto_generate(te->group_tag, te->tag_path, s_forge_tag_opt.snap_autogen_mode);
-		s_forge_tag_opt.snap_active_pt_idx = 0;
-		forge_refresh_snap_tag_row_label(te);
-		ui_play_audio_feedback_sound(6);
-	}
-	else if (row == 2 && cfg->point_count > 0) /* ACTIVE POINT */
-	{
-		s_forge_tag_opt.snap_active_pt_idx =
-			(s_forge_tag_opt.snap_active_pt_idx + dir + cfg->point_count) % cfg->point_count;
-		ui_play_audio_feedback_sound(6);
-	}
-	else if (row == 3 && pt) /* FACE/EDGE PRESET */
-	{
-		int pr = (int)pt->preset_id + dir;
-		if (pr < 1) pr = NUMBER_OF_FORGE_SNAP_PRESETS - 1;
-		if (pr >= NUMBER_OF_FORGE_SNAP_PRESETS) pr = 1;
-		forge_snap_points_apply_preset_to_point(pt, pr, -1);
-		forge_snap_points_save_all();
-		ui_play_audio_feedback_sound(6);
-	}
-	else if (row == 4 && pt) /* OFFSET X */
-	{
-		pt->x += (float)dir * step;
-		pt->preset_id = _forge_snap_preset_custom;
-		forge_snap_points_save_all();
-		ui_play_audio_feedback_sound(6);
-	}
-	else if (row == 5 && pt) /* OFFSET Y */
-	{
-		pt->y += (float)dir * step;
-		pt->preset_id = _forge_snap_preset_custom;
-		forge_snap_points_save_all();
-		ui_play_audio_feedback_sound(6);
-	}
-	else if (row == 6 && pt) /* OFFSET Z */
-	{
-		pt->z += (float)dir * step;
-		pt->preset_id = _forge_snap_preset_custom;
-		forge_snap_points_save_all();
-		ui_play_audio_feedback_sound(6);
-	}
-	else if (row == 7 && pt) /* NORMAL DIR */
-	{
-		int nd = ((int)pt->normal_dir + dir + NUMBER_OF_FORGE_SNAP_DIRS) % NUMBER_OF_FORGE_SNAP_DIRS;
-		forge_snap_points_fill_normal_from_dir(pt, nd);
-		forge_snap_points_save_all();
-		ui_play_audio_feedback_sound(6);
-	}
+	forge_snap_points_bounds_set(bounds_min, bounds_max);
+	s_snap_editor.measured = 1;
 }
 
-static void forge_snap_editor_activate_row(struct forge_widget_instance *list, int row)
+static struct forge_tag_snap_config *forge_snap_editor_config(int create)
 {
-	struct forge_tag_opt_tag_entry *te;
-	struct forge_tag_snap_config *cfg;
+	struct forge_tag_snap_config *cfg =
+		forge_snap_points_get_for_tag(s_snap_editor.group_tag, s_snap_editor.tag_path, create);
 
-	if (s_forge_tag_opt.snap_count <= 0 ||
-		s_forge_tag_opt.snap_chosen < 0 ||
-		s_forge_tag_opt.snap_chosen >= s_forge_tag_opt.snap_count)
-		return;
+	if (cfg && s_snap_editor.point >= cfg->point_count)
+		s_snap_editor.point = cfg->point_count > 0 ? cfg->point_count - 1 : 0;
+	return cfg;
+}
 
-	te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_chosen];
-	cfg = forge_snap_points_get_for_tag(te->group_tag, te->tag_path, 1);
-	if (!cfg)
-		return;
+static struct forge_snap_point *forge_snap_editor_point(void)
+{
+	struct forge_tag_snap_config *cfg = forge_snap_editor_config(0);
 
-	if (row == 0) /* AUTO-GEN: apply current mode */
+	return cfg && cfg->point_count > 0 ? &cfg->points[s_snap_editor.point] : NULL;
+}
+
+int forge_snap_editor_count(void)
+{
+	struct forge_tag_snap_config const *cfg = forge_snap_editor_config(0);
+
+	return cfg ? cfg->point_count : 0;
+}
+
+/* a row's name and its value */
+void forge_snap_editor_row(short row, char *name, size_t name_size, char *state, size_t state_size)
+{
+	struct forge_snap_point const *pt = forge_snap_editor_point();
+	int count = forge_snap_editor_count();
+
+	state[0] = 0;
+	switch (row)
 	{
-		forge_snap_points_auto_generate(te->group_tag, te->tag_path, s_forge_tag_opt.snap_autogen_mode);
-		s_forge_tag_opt.snap_active_pt_idx = 0;
-		forge_refresh_snap_tag_row_label(te);
-		ui_play_audio_feedback_sound(2);
-	}
-	else if (row == 1) /* ADD SNAP POINT */
-	{
-		if (cfg->point_count < FORGE_MAX_SNAP_POINTS_PER_TAG)
-		{
-			int idx = cfg->point_count++;
-			int preset = (idx % 6) + 1;
-			forge_snap_points_apply_preset_to_point(&cfg->points[idx], preset, -1);
-			s_forge_tag_opt.snap_active_pt_idx = idx;
-			forge_snap_points_save_all();
-			forge_refresh_snap_tag_row_label(te);
-			ui_play_audio_feedback_sound(2);
-		}
+	case _forge_snap_row_layout:
+		snprintf(name, name_size, "LAYOUT");
+		snprintf(state, state_size, "%s", s_snap_autogen_names[s_snap_editor.layout & 3]);
+		break;
+	case _forge_snap_row_add:
+		snprintf(name, name_size, "ADD POINT");
+		snprintf(state, state_size, "%d OF %d", count, FORGE_MAX_SNAP_POINTS_PER_TAG);
+		break;
+	case _forge_snap_row_point:
+		snprintf(name, name_size, "POINT");
+		if (pt)
+			snprintf(state, state_size, "%d OF %d", s_snap_editor.point + 1, count);
 		else
-		{
-			ui_play_audio_feedback_sound(4);
-		}
+			snprintf(state, state_size, "NONE");
+		break;
+	case _forge_snap_row_preset:
+		snprintf(name, name_size, "PRESET");
+		if (pt)
+			snprintf(state, state_size, "%s",
+				s_snap_preset_names[pt->preset_id < NUMBER_OF_FORGE_SNAP_PRESETS ? pt->preset_id : 0]);
+		break;
+	case _forge_snap_row_x:
+		snprintf(name, name_size, "OFFSET FORWARD");
+		if (pt)
+			snprintf(state, state_size, "%+.2f", (double)pt->x);
+		break;
+	case _forge_snap_row_y:
+		snprintf(name, name_size, "OFFSET SIDE");
+		if (pt)
+			snprintf(state, state_size, "%+.2f", (double)pt->y);
+		break;
+	case _forge_snap_row_z:
+		snprintf(name, name_size, "OFFSET UP");
+		if (pt)
+			snprintf(state, state_size, "%+.2f", (double)pt->z);
+		break;
+	case _forge_snap_row_normal:
+		snprintf(name, name_size, "FACING");
+		if (pt)
+			snprintf(state, state_size, "%s",
+				s_snap_dir_names[pt->normal_dir < NUMBER_OF_FORGE_SNAP_DIRS ? pt->normal_dir : 0]);
+		break;
+	case _forge_snap_row_delete:
+		snprintf(name, name_size, "DELETE POINT");
+		break;
+	default:
+		snprintf(name, name_size, "DELETE ALL POINTS");
+		break;
 	}
-	else if (row >= 2 && row <= 7)
+}
+
+/* left or right on a row (0: it has nothing to change, or needs the model's
+box, which is still being read) */
+int forge_snap_editor_step(short row, short dir)
+{
+	struct forge_tag_snap_config *cfg = forge_snap_editor_config(1);
+	struct forge_snap_point *pt = forge_snap_editor_point();
+	float step = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 ? 0.02f : 0.08f;
+
+	if (!cfg)
+		return 0;
+	switch (row)
 	{
-		forge_snap_editor_step_row(row, 1);
+	case _forge_snap_row_layout:
+		if (!s_snap_editor.measured)
+			return 0;
+		s_snap_editor.layout = (s_snap_editor.layout + dir + 4) % 4;
+		forge_snap_points_auto_generate(s_snap_editor.group_tag, s_snap_editor.tag_path, s_snap_editor.layout);
+		s_snap_editor.point = 0;
+		return 1;
+	case _forge_snap_row_point:
+		if (cfg->point_count <= 0)
+			return 0;
+		s_snap_editor.point = (s_snap_editor.point + dir + cfg->point_count) % cfg->point_count;
+		return 1;
+	case _forge_snap_row_preset:
+	{
+		int preset;
+
+		if (!pt || !s_snap_editor.measured)
+			return 0;
+		preset = (int)pt->preset_id + dir;
+		if (preset < 1) preset = NUMBER_OF_FORGE_SNAP_PRESETS - 1;
+		if (preset >= NUMBER_OF_FORGE_SNAP_PRESETS) preset = 1;
+		forge_snap_points_apply_preset_to_point(pt, preset, -1);
+		break;
 	}
-	else if (row == 8) /* DELETE POINT (or Shift = CLEAR ALL) */
+	case _forge_snap_row_x:
+	case _forge_snap_row_y:
+	case _forge_snap_row_z:
+		if (!pt)
+			return 0;
+		if (row == _forge_snap_row_x)
+			pt->x += (float)dir * step;
+		else if (row == _forge_snap_row_y)
+			pt->y += (float)dir * step;
+		else
+			pt->z += (float)dir * step;
+		pt->preset_id = _forge_snap_preset_custom;
+		break;
+	case _forge_snap_row_normal:
+		if (!pt)
+			return 0;
+		forge_snap_points_fill_normal_from_dir(pt, ((int)pt->normal_dir + dir + NUMBER_OF_FORGE_SNAP_DIRS) % NUMBER_OF_FORGE_SNAP_DIRS);
+		break;
+	default:
+		return 0;
+	}
+	forge_snap_points_save_all();
+	return 1;
+}
+
+/* A on a row: the layout made again, a point added or deleted, else as right */
+int forge_snap_editor_activate(short row)
+{
+	struct forge_tag_snap_config *cfg = forge_snap_editor_config(1);
+
+	if (!cfg)
+		return 0;
+	switch (row)
 	{
-		if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0)
+	case _forge_snap_row_layout:
+		if (!s_snap_editor.measured)
+			return 0;
+		forge_snap_points_auto_generate(s_snap_editor.group_tag, s_snap_editor.tag_path, s_snap_editor.layout);
+		s_snap_editor.point = 0;
+		return 1;
+	case _forge_snap_row_add:
+	{
+		int added = cfg->point_count;
+
+		if (!s_snap_editor.measured || added >= FORGE_MAX_SNAP_POINTS_PER_TAG)
+			return 0;
+		cfg->point_count++;
+		forge_snap_points_apply_preset_to_point(&cfg->points[added], (added % 6) + 1, -1);
+		s_snap_editor.point = added;
+		break;
+	}
+	case _forge_snap_row_delete:
+	{
+		int index;
+
+		if (cfg->point_count <= 0)
+			return 0;
+		for (index = s_snap_editor.point; index + 1 < cfg->point_count; index++)
+			cfg->points[index] = cfg->points[index + 1];
+		cfg->point_count--;
+		forge_snap_editor_config(0);
+		break;
+	}
+	case _forge_snap_row_delete_all:
+		if (cfg->point_count <= 0)
+			return 0;
+		cfg->point_count = 0;
+		s_snap_editor.point = 0;
+		break;
+	default:
+		return forge_snap_editor_step(row, 1);
+	}
+	forge_snap_points_save_all();
+	return 1;
+}
+
+/* the points, for the preview to mark, and which is the one chosen */
+short forge_snap_editor_points(float (*points)[3], short maximum, short *chosen)
+{
+	struct forge_tag_snap_config const *cfg = forge_snap_editor_config(0);
+	short count = 0;
+
+	*chosen = (short)s_snap_editor.point;
+	for (; cfg && count < cfg->point_count && count < maximum; count++)
+	{
+		points[count][0] = cfg->points[count].x;
+		points[count][1] = cfg->points[count].y;
+		points[count][2] = cfg->points[count].z;
+	}
+	return count;
+}
+
+/* Object Properties' SNAP POINTS row, for the stock tags, which have no page
+in the Tag Injector: left and right choose among none and the layouts, for the
+tag of the object held. The box is read from its map once (0: it cannot be). */
+int forge_snap_tag_layout_step(uint32_t group_tag, char const *tag_path, int dir)
+{
+	if (_stricmp(s_snap_layout_tag, tag_path) != 0)
+	{
+		if (!forge_snap_points_read_stock_bounds(group_tag, tag_path))
+			return 0;
+		snprintf(s_snap_layout_tag, sizeof(s_snap_layout_tag), "%s", tag_path);
+		s_snap_layout = -1;
+	}
+	s_snap_layout = ((s_snap_layout + 1 + dir + 5) % 5) - 1;
+	if (s_snap_layout >= 0)
+	{
+		forge_snap_points_auto_generate(group_tag, tag_path, s_snap_layout);
+	}
+	else
+	{
+		struct forge_tag_snap_config *cfg = forge_snap_points_get_for_tag(group_tag, tag_path, 0);
+
+		if (cfg)
 		{
 			cfg->point_count = 0;
-			s_forge_tag_opt.snap_active_pt_idx = 0;
 			forge_snap_points_save_all();
-			forge_refresh_snap_tag_row_label(te);
-			ui_play_audio_feedback_sound(2);
-		}
-		else if (cfg->point_count > 0)
-		{
-			int del_i = s_forge_tag_opt.snap_active_pt_idx;
-			int k;
-			if (del_i < 0) del_i = 0;
-			if (del_i >= cfg->point_count) del_i = cfg->point_count - 1;
-			for (k = del_i; k + 1 < cfg->point_count; k++)
-				cfg->points[k] = cfg->points[k + 1];
-			cfg->point_count--;
-			if (s_forge_tag_opt.snap_active_pt_idx >= cfg->point_count)
-				s_forge_tag_opt.snap_active_pt_idx = (cfg->point_count > 0) ? (cfg->point_count - 1) : 0;
-			forge_snap_points_save_all();
-			forge_refresh_snap_tag_row_label(te);
-			ui_play_audio_feedback_sound(2);
-		}
-		else
-		{
-			ui_play_audio_feedback_sound(4);
 		}
 	}
-	else if (row == 9) /* SAVE & RETURN TO LIST */
-	{
-		struct forge_widget_instance *cat_row = fw_named(list, "forge_snap_cat_row", 0);
-		struct forge_widget_instance *rows[10] = { NULL };
-		int vis_r;
-		forge_snap_points_save_all();
-		forge_refresh_snap_tag_row_label(te);
-		s_forge_tag_opt.snap_editor_active = 0;
-		forge_snap_points_set_editor_overlay(0, te->group_tag, te->tag_path, -1, 0.0f, 0.0f, 1.0f);
-		if (cat_row)
-			cat_row->visible = TRUE;
-		forge_FocusRowIndexOfList(list, rows);
-		vis_r = s_forge_tag_opt.snap_chosen - s_forge_tag_opt.snap_first;
-		if (vis_r < 0) vis_r = 0;
-		if (vis_r > 9) vis_r = 9;
-		if (rows[vis_r])
-			list->focused_child = rows[vis_r];
-		ui_play_audio_feedback_sound(2);
-	}
+	return 1;
+}
+
+void forge_snap_tag_layout_text(uint32_t group_tag, char const *tag_path, char *text, size_t text_size)
+{
+	int count = forge_snap_points_count_for_tag(group_tag, tag_path);
+
+	if (count <= 0)
+		snprintf(text, text_size, "NONE");
+	else if (s_snap_layout >= 0 && _stricmp(s_snap_layout_tag, tag_path) == 0)
+		snprintf(text, text_size, "%s", s_snap_autogen_names[s_snap_layout]);
+	else
+		snprintf(text, text_size, "%d POINTS", count);
 }
 
 static void update_forge_tag_profile_widget(struct forge_widget_instance *list)
@@ -1470,327 +1422,17 @@ static void update_forge_tag_profile_widget(struct forge_widget_instance *list)
 
 	forge_handle_10row_edge_scroll(
 		list, rows, focused_r,
-		&s_forge_tag_opt.profile_prev_row_focus,
-		&s_forge_tag_opt.profile_first,
-		&s_forge_tag_opt.profile_chosen,
-		s_forge_tag_opt.profile_count);
+		&s_forge_profile_screen.profile_prev_row_focus,
+		&s_forge_profile_screen.profile_first,
+		&s_forge_profile_screen.profile_chosen,
+		s_forge_profile_screen.profile_count);
 	forge_populate_10row_tag_list(
 		rows,
-		s_forge_tag_opt.profile_rows,
-		s_forge_tag_opt.profile_count,
-		s_forge_tag_opt.profile_first,
-		s_forge_tag_opt.profile_chosen,
+		s_forge_profile_screen.profile_rows,
+		s_forge_profile_screen.profile_count,
+		s_forge_profile_screen.profile_first,
+		s_forge_profile_screen.profile_chosen,
 		"NONE");
-}
-
-static void update_forge_snap_points_widget(struct forge_widget_instance *list)
-{
-	struct forge_widget_instance *cat_row = fw_named(list, "forge_snap_cat_row", 0);
-	struct forge_widget_instance *spinner = fw_named(list, "forge_snap_cat_spinner", 0);
-	struct forge_widget_instance *desc = list->parameters.list.extended_description;
-	struct forge_widget_instance *rows[10] = { NULL };
-	int cat = spinner ? (int)spinner->parameters.list.selected_index : 0;
-	int focused_r, r;
-
-	if (cat < 0) cat = 0;
-	if (cat > 3) cat = 3;
-	if (cat != s_forge_tag_opt.snap_cat)
-	{
-		s_forge_tag_opt.snap_first = 0;
-		s_forge_tag_opt.snap_chosen = 0;
-		s_forge_tag_opt.snap_prev_row_focus = -1;
-		forge_scan_snap_tags_by_cat(cat);
-	}
-
-	focused_r = forge_FocusRowIndexOfList(list, rows);
-
-	if (s_forge_tag_opt.snap_editor_active)
-	{
-		struct forge_tag_opt_tag_entry *te = NULL;
-		struct forge_tag_snap_config *cfg = NULL;
-		struct forge_snap_point const *pt = NULL;
-		int left_down, right_down, del_down;
-		float lx = 0.0f, ly = 0.0f, rx = 0.0f, ry = 0.0f, lt = 0.0f, rt = 0.0f;
-
-		if (cat_row)
-			cat_row->visible = FALSE;
-		if (list->focused_child == cat_row && rows[0])
-		{
-			list->focused_child = rows[0];
-			focused_r = 0;
-		}
-		if (focused_r >= 0 && focused_r < 10)
-			s_forge_tag_opt.snap_editor_row = focused_r;
-
-		if (s_forge_tag_opt.snap_count > 0 &&
-			s_forge_tag_opt.snap_chosen >= 0 &&
-			s_forge_tag_opt.snap_chosen < s_forge_tag_opt.snap_count)
-		{
-			te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_chosen];
-			cfg = forge_snap_points_get_for_tag(te->group_tag, te->tag_path, 1);
-		}
-
-		/* Poll Left/Right for stepping active row & Q/E/Right-Stick for 3D camera orbit */
-		forge_poll_controller_state(&lx, &ly, &rx, &ry, &lt, &rt);
-		left_down = ((GetAsyncKeyState(VK_LEFT) & 0x8000) != 0) ||
-			((GetAsyncKeyState('A') & 0x8000) != 0) ||
-			forge_gp_button_down(FORGE_GP_DPAD_LEFT) ||
-			(lx < -0.55f);
-		right_down = ((GetAsyncKeyState(VK_RIGHT) & 0x8000) != 0) ||
-			((GetAsyncKeyState('D') & 0x8000) != 0) ||
-			forge_gp_button_down(FORGE_GP_DPAD_RIGHT) ||
-			(lx > 0.55f);
-		del_down = ((GetAsyncKeyState(VK_DELETE) & 0x8000) != 0) ||
-			((GetAsyncKeyState(VK_BACK) & 0x8000) != 0);
-
-		if (focused_r >= 0 && focused_r < 10)
-		{
-			if (left_down && !s_forge_tag_opt.snap_prev_left)
-				forge_snap_editor_step_row(focused_r, -1);
-			if (right_down && !s_forge_tag_opt.snap_prev_right)
-				forge_snap_editor_step_row(focused_r, 1);
-		}
-		if (del_down && !s_forge_tag_opt.snap_prev_del)
-			forge_snap_editor_activate_row(list, 8);
-
-		s_forge_tag_opt.snap_prev_left = left_down;
-		s_forge_tag_opt.snap_prev_right = right_down;
-		s_forge_tag_opt.snap_prev_del = del_down;
-
-		/* Orbit 3D preview camera with Q/E or Right Stick, zoom with +/- */
-		if ((GetAsyncKeyState('Q') & 0x8000) != 0)
-			s_forge_tag_opt.snap_cam_yaw_deg -= 2.8f;
-		if ((GetAsyncKeyState('E') & 0x8000) != 0)
-			s_forge_tag_opt.snap_cam_yaw_deg += 2.8f;
-		if (rx < -0.2f || rx > 0.2f)
-			s_forge_tag_opt.snap_cam_yaw_deg += rx * 3.2f;
-		if (ry < -0.2f || ry > 0.2f)
-		{
-			s_forge_tag_opt.snap_cam_pitch_deg += ry * 2.2f;
-			if (s_forge_tag_opt.snap_cam_pitch_deg < -65.0f) s_forge_tag_opt.snap_cam_pitch_deg = -65.0f;
-			if (s_forge_tag_opt.snap_cam_pitch_deg >  65.0f) s_forge_tag_opt.snap_cam_pitch_deg =  65.0f;
-		}
-		if ((GetAsyncKeyState(VK_OEM_PLUS) & 0x8000) != 0)
-		{
-			s_forge_tag_opt.snap_cam_zoom += 0.03f;
-			if (s_forge_tag_opt.snap_cam_zoom > 2.2f) s_forge_tag_opt.snap_cam_zoom = 2.2f;
-		}
-		if ((GetAsyncKeyState(VK_OEM_MINUS) & 0x8000) != 0)
-		{
-			s_forge_tag_opt.snap_cam_zoom -= 0.03f;
-			if (s_forge_tag_opt.snap_cam_zoom < 0.5f) s_forge_tag_opt.snap_cam_zoom = 0.5f;
-		}
-
-		if (cfg && cfg->point_count > 0)
-		{
-			if (s_forge_tag_opt.snap_active_pt_idx < 0)
-				s_forge_tag_opt.snap_active_pt_idx = 0;
-			if (s_forge_tag_opt.snap_active_pt_idx >= cfg->point_count)
-				s_forge_tag_opt.snap_active_pt_idx = cfg->point_count - 1;
-			pt = &cfg->points[s_forge_tag_opt.snap_active_pt_idx];
-		}
-
-		for (r = 0; r < 10; r++)
-		{
-			struct forge_widget_instance *child = rows[r];
-			char row_buf[80];
-			if (!child)
-				continue;
-			child->visible = TRUE;
-			if (fw_named(child, "scroll_up_button", 0))
-				fw_named(child, "scroll_up_button", 0)->visible = FALSE;
-			if (fw_named(child, "scroll_down_button", 0))
-				fw_named(child, "scroll_down_button", 0)->visible = FALSE;
-			if (fw_named(child, "list_item_arrows", 0))
-				fw_named(child, "list_item_arrows", 0)->visible = (r == s_forge_tag_opt.snap_editor_row);
-
-			switch (r)
-			{
-			case 0:
-				snprintf(row_buf, sizeof(row_buf), "AUTO-GEN: <%s>",
-					s_snap_autogen_names[s_forge_tag_opt.snap_autogen_mode & 3]);
-				break;
-			case 1:
-				snprintf(row_buf, sizeof(row_buf), "[+] ADD SNAP POINT (%d/%d)",
-					cfg ? cfg->point_count : 0, FORGE_MAX_SNAP_POINTS_PER_TAG);
-				break;
-			case 2:
-				if (cfg && cfg->point_count > 0)
-					snprintf(row_buf, sizeof(row_buf), "ACTIVE PT: <#%d / %d>",
-						s_forge_tag_opt.snap_active_pt_idx + 1, cfg->point_count);
-				else
-					snprintf(row_buf, sizeof(row_buf), "ACTIVE PT: <NONE>");
-				break;
-			case 3:
-				if (pt)
-				{
-					int pr = (pt->preset_id < NUMBER_OF_FORGE_SNAP_PRESETS) ? (int)pt->preset_id : 0;
-					snprintf(row_buf, sizeof(row_buf), "PRESET: <%s>", s_snap_preset_names[pr]);
-				}
-				else
-				{
-					snprintf(row_buf, sizeof(row_buf), "PRESET: <->");
-				}
-				break;
-			case 4:
-				if (pt)
-					snprintf(row_buf, sizeof(row_buf), "OFFSET X (FWD): <%+.2f>", (double)pt->x);
-				else
-					snprintf(row_buf, sizeof(row_buf), "OFFSET X (FWD): <->");
-				break;
-			case 5:
-				if (pt)
-					snprintf(row_buf, sizeof(row_buf), "OFFSET Y (SIDE): <%+.2f>", (double)pt->y);
-				else
-					snprintf(row_buf, sizeof(row_buf), "OFFSET Y (SIDE): <->");
-				break;
-			case 6:
-				if (pt)
-					snprintf(row_buf, sizeof(row_buf), "OFFSET Z (VERT): <%+.2f>", (double)pt->z);
-				else
-					snprintf(row_buf, sizeof(row_buf), "OFFSET Z (VERT): <->");
-				break;
-			case 7:
-				if (pt)
-				{
-					int nd = (pt->normal_dir < NUMBER_OF_FORGE_SNAP_DIRS) ? (int)pt->normal_dir : 0;
-					snprintf(row_buf, sizeof(row_buf), "NORMAL: <%s>", s_snap_dir_names[nd]);
-				}
-				else
-				{
-					snprintf(row_buf, sizeof(row_buf), "NORMAL: <->");
-				}
-				break;
-			case 8:
-				snprintf(row_buf, sizeof(row_buf), "[-] DELETE POINT (SHIFT=ALL)");
-				break;
-			case 9:
-			default:
-				snprintf(row_buf, sizeof(row_buf), "[SAVE & RETURN TO TAG LIST]");
-				break;
-			}
-			fw_text_set_ascii(fw_named(child, "list_item_text", 0), row_buf);
-		}
-
-		if (desc && te)
-		{
-			struct forge_widget_instance *r_name = fw_named(desc, "forge_tag_right_name", 0);
-			struct forge_widget_instance *r_data = fw_named(desc, "forge_tag_right_data", 0);
-			float bmin[3], bmax[3];
-			char wrapped_title[64];
-			char info_buf[256];
-
-			forge_tag_preview_set_installed_tag(te->group_tag, te->tag_path, te->is_custom);
-			forge_snap_points_set_editor_overlay(
-				1,
-				te->group_tag,
-				te->tag_path,
-				s_forge_tag_opt.snap_active_pt_idx,
-				s_forge_tag_opt.snap_cam_yaw_deg,
-				s_forge_tag_opt.snap_cam_pitch_deg,
-				s_forge_tag_opt.snap_cam_zoom);
-			forge_snap_points_get_preview_bounds(bmin, bmax);
-
-			forge_wrap_title_two_lines(te->short_name, wrapped_title, sizeof(wrapped_title));
-			if (pt)
-			{
-				int nd = (pt->normal_dir < NUMBER_OF_FORGE_SNAP_DIRS) ? (int)pt->normal_dir : 0;
-				snprintf(info_buf, sizeof(info_buf),
-					"- Pt #%d of %d\r\n"
-					"- Pos: %.2f, %.2f, %.2f\r\n"
-					"- Dir: %s\r\n"
-					"- Box: %.1fx%.1fx%.1f\r\n"
-					"- [Q/E] Orbit [+/-] Zoom\r\n"
-					"- [L/R] Adjust [B] Done",
-					s_forge_tag_opt.snap_active_pt_idx + 1,
-					cfg ? cfg->point_count : 0,
-					(double)pt->x, (double)pt->y, (double)pt->z,
-					s_snap_dir_names[nd],
-					(double)(bmax[0] - bmin[0]),
-					(double)(bmax[1] - bmin[1]),
-					(double)(bmax[2] - bmin[2]));
-			}
-			else
-			{
-				snprintf(info_buf, sizeof(info_buf),
-					"- No Snap Points\r\n"
-					"- Box: %.1fx%.1fx%.1f\r\n"
-					"- Press A on AUTO-GEN\r\n"
-					"  or ADD SNAP POINT\r\n"
-					"- [Q/E] Orbit [+/-] Zoom\r\n"
-					"- [B/ESC] Save & Back",
-					(double)(bmax[0] - bmin[0]),
-					(double)(bmax[1] - bmin[1]),
-					(double)(bmax[2] - bmin[2]));
-			}
-			fw_text_set_ascii(r_name, wrapped_title);
-			fw_text_set_ascii(r_data, info_buf);
-		}
-		return;
-	}
-
-	/* Browse Mode: Tag List with 4-Category Spinner (SCENERY | DOORS | CUSTOM SCENERY | CUSTOM DOORS) */
-	if (cat_row)
-		cat_row->visible = TRUE;
-
-	forge_handle_10row_edge_scroll(
-		list, rows, focused_r,
-		&s_forge_tag_opt.snap_prev_row_focus,
-		&s_forge_tag_opt.snap_first,
-		&s_forge_tag_opt.snap_chosen,
-		s_forge_tag_opt.snap_count);
-
-	forge_populate_10row_tag_list(
-		rows,
-		s_forge_tag_opt.snap_tags,
-		s_forge_tag_opt.snap_count,
-		s_forge_tag_opt.snap_first,
-		s_forge_tag_opt.snap_chosen,
-		"(No Tags In Category)");
-
-	if (desc)
-	{
-		struct forge_widget_instance *r_name = fw_named(desc, "forge_tag_right_name", 0);
-		struct forge_widget_instance *r_data = fw_named(desc, "forge_tag_right_data", 0);
-		if (s_forge_tag_opt.snap_count > 0 &&
-			s_forge_tag_opt.snap_chosen >= 0 &&
-			s_forge_tag_opt.snap_chosen < s_forge_tag_opt.snap_count)
-		{
-			struct forge_tag_opt_tag_entry *te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_chosen];
-			float bmin[3], bmax[3];
-			int pt_cnt;
-			char wrapped_title[64];
-			char type_str[48];
-			char info_buf[240];
-
-			forge_tag_preview_set_installed_tag(te->group_tag, te->tag_path, te->is_custom);
-			forge_snap_points_set_editor_overlay(0, te->group_tag, te->tag_path, -1, 0.0f, 0.0f, 1.0f);
-			forge_snap_points_get_preview_bounds(bmin, bmax);
-			pt_cnt = forge_snap_points_count_for_tag(te->group_tag, te->tag_path);
-
-			forge_wrap_title_two_lines(te->short_name, wrapped_title, sizeof(wrapped_title));
-			forge_format_tag_type_label(te->group_tag, type_str, sizeof(type_str));
-			snprintf(info_buf, sizeof(info_buf),
-				"- %s\r\n"
-				"- Snap Points: %d\r\n"
-				"- Size: %.1fx%.1fx%.1f\r\n"
-				"- [A/CHOOSE] Edit 3D\r\n"
-				"  Snap Points",
-				type_str,
-				pt_cnt,
-				(double)(bmax[0] - bmin[0]),
-				(double)(bmax[1] - bmin[1]),
-				(double)(bmax[2] - bmin[2]));
-			fw_text_set_ascii(r_name, wrapped_title);
-			fw_text_set_ascii(r_data, info_buf);
-		}
-		else
-		{
-			forge_tag_preview_clear();
-			fw_text_set_ascii(r_name, "NO TAG");
-			fw_text_set_ascii(r_data, "- None\r\n- Snap Points: 0");
-		}
-	}
 }
 
 static unsigned long s_forge_name_modal_active_ms = 0;
@@ -1870,91 +1512,13 @@ boolean pc_menu_event_function_invoke(
 	if (fn_name && strcmp(fn_name, "load game menu init") == 0 &&
 		strcmp(w_name, "forge_tag_profile_list") == 0)
 	{
-		s_forge_tag_opt.profile_first = 0;
-		s_forge_tag_opt.profile_chosen = 0;
-		s_forge_tag_opt.profile_prev_row_focus = -1;
+		s_forge_profile_screen.profile_first = 0;
+		s_forge_profile_screen.profile_chosen = 0;
+		s_forge_profile_screen.profile_prev_row_focus = -1;
 		if (fw_named(widget, "list_item_1", 0))
 			widget->focused_child = fw_named(widget, "list_item_1", 0);
 		return TRUE;
 	}
-	if (fn_name && strcmp(fn_name, "load game menu init") == 0 &&
-		strcmp(w_name, "forge_snap_points_list") == 0)
-	{
-		struct forge_widget_instance *sp = fw_named(widget, "forge_snap_cat_spinner", 0);
-		struct forge_widget_instance *cat_row = fw_named(widget, "forge_snap_cat_row", 0);
-		g_forge_session_enabled = 1;
-		forge_tag_preview_clear();
-		s_forge_tag_opt.snap_editor_active = 0;
-		s_forge_tag_opt.snap_editor_row = 0;
-		s_forge_tag_opt.snap_active_pt_idx = 0;
-		s_forge_tag_opt.snap_cam_yaw_deg = 38.0f;
-		s_forge_tag_opt.snap_cam_pitch_deg = 22.0f;
-		s_forge_tag_opt.snap_cam_zoom = 1.0f;
-		s_forge_tag_opt.snap_first = 0;
-		s_forge_tag_opt.snap_chosen = 0;
-		s_forge_tag_opt.snap_prev_row_focus = -1;
-		if (cat_row)
-			cat_row->visible = TRUE;
-		if (sp)
-			sp->parameters.list.selected_index = 0; /* Default to SCENERY */
-		forge_scan_snap_tags_by_cat(0);
-		if (fw_named(widget, "list_item_1", 0))
-			widget->focused_child = fw_named(widget, "list_item_1", 0);
-		return TRUE;
-	}
-
-	if (fn_name && strcmp(fn_name, "port map list back") == 0)
-	{
-		struct forge_widget_instance *anc;
-		for (anc = widget; anc; anc = anc->parent)
-		{
-			if (anc->name &&
-				(strcmp(anc->name, "forge_snap_points_list") == 0 ||
-				 strcmp(anc->name, "forge_snap_points_screen") == 0))
-			{
-				struct forge_widget_instance *list = fw_named(anc, "forge_snap_points_list", 0);
-				if (!list && strcmp(anc->name, "forge_snap_points_list") == 0)
-					list = anc;
-				if (s_forge_tag_opt.snap_editor_active)
-				{
-					struct forge_widget_instance *cat_row = list ? fw_named(list, "forge_snap_cat_row", 0) : NULL;
-					struct forge_widget_instance *rows[10] = { NULL };
-					int vis_r;
-					forge_snap_points_save_all();
-					if (s_forge_tag_opt.snap_count > 0 &&
-						s_forge_tag_opt.snap_chosen >= 0 &&
-						s_forge_tag_opt.snap_chosen < s_forge_tag_opt.snap_count)
-					{
-						struct forge_tag_opt_tag_entry *te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_chosen];
-						forge_refresh_snap_tag_row_label(te);
-						forge_snap_points_set_editor_overlay(0, te->group_tag, te->tag_path, -1, 0.0f, 0.0f, 1.0f);
-					}
-					s_forge_tag_opt.snap_editor_active = 0;
-					if (cat_row)
-						cat_row->visible = TRUE;
-					if (list)
-					{
-						forge_FocusRowIndexOfList(list, rows);
-						vis_r = s_forge_tag_opt.snap_chosen - s_forge_tag_opt.snap_first;
-						if (vis_r < 0) vis_r = 0;
-						if (vis_r > 9) vis_r = 9;
-						if (rows[vis_r])
-							list->focused_child = rows[vis_r];
-					}
-					ui_play_audio_feedback_sound(3);
-					return TRUE;
-				}
-				forge_snap_points_set_editor_overlay(0, 0, NULL, -1, 0.0f, 0.0f, 1.0f);
-				forge_tag_preview_clear();
-				ui_play_audio_feedback_sound(3);
-				ui_widget_port_go_back(widget);
-				if (widget_deleted)
-					*widget_deleted = TRUE;
-				return TRUE;
-			}
-		}
-	}
-
 	if (fn_name && strcmp(fn_name, "load game menu activated") == 0)
 	{
 		struct forge_widget_instance *anc;
@@ -1976,72 +1540,20 @@ boolean pc_menu_event_function_invoke(
 			}
 			if (strcmp(anc->name, "forge_tag_profile_list") == 0)
 			{
-				int place = s_forge_tag_opt.profile_chosen;
+				int place = s_forge_profile_screen.profile_chosen;
 				long profile;
 
-				if (place < 0 || place >= s_forge_tag_opt.profile_count)
+				if (place < 0 || place >= s_forge_profile_screen.profile_count)
 				{
 					ui_play_audio_feedback_sound(4);
 					return FALSE;
 				}
-				profile = s_forge_tag_opt.profile_ids[place];
+				profile = s_forge_profile_screen.profile_ids[place];
 				forge_tag_profile_set(profile == NONE ? "" : port_tag_profiles_folder(profile));
 				if (s_forge_start_kind == _forge_start_multiplayer)
 					tag_multiplayer_game_forge_profile_set(profile);
 				return forge_start(widget_ptr, widget_deleted);
 			}
-			if (strcmp(anc->name, "forge_snap_points_list") == 0)
-			{
-				if (s_forge_tag_opt.snap_editor_active)
-				{
-					struct forge_widget_instance *rows[10] = { NULL };
-					int f_row = forge_FocusRowIndexOfList(anc, rows);
-					if (f_row < 0)
-						f_row = s_forge_tag_opt.snap_editor_row;
-					if (f_row >= 0 && f_row < 10)
-						forge_snap_editor_activate_row(anc, f_row);
-					return TRUE;
-				}
-				if (s_forge_tag_opt.snap_count > 0 &&
-					s_forge_tag_opt.snap_chosen >= 0 &&
-					s_forge_tag_opt.snap_chosen < s_forge_tag_opt.snap_count)
-				{
-					struct forge_tag_opt_tag_entry const *te = &s_forge_tag_opt.snap_tags[s_forge_tag_opt.snap_chosen];
-					struct forge_widget_instance *cat_row = fw_named(anc, "forge_snap_cat_row", 0);
-					forge_tag_preview_set_installed_tag(te->group_tag, te->tag_path, te->is_custom);
-					s_forge_tag_opt.snap_editor_active = 1;
-					s_forge_tag_opt.snap_editor_row = 0;
-					s_forge_tag_opt.snap_active_pt_idx = 0;
-					s_forge_tag_opt.snap_prev_left = 1;
-					s_forge_tag_opt.snap_prev_right = 1;
-					s_forge_tag_opt.snap_prev_del = 1;
-					if (cat_row)
-						cat_row->visible = FALSE;
-					if (fw_named(anc, "list_item_1", 0))
-						anc->focused_child = fw_named(anc, "list_item_1", 0);
-					ui_play_audio_feedback_sound(2);
-					return TRUE;
-				}
-				ui_play_audio_feedback_sound(4);
-				return FALSE;
-			}
-		}
-	}
-
-	/* Forge Tag Options modal buttons: RESET STOCK / RESET CUSTOM */
-	if (fn_name && strcmp(fn_name, "port mods close") == 0)
-	{
-		if (w_name && strcmp(w_name, "forge_reset_stock_btn_confirm") == 0)
-		{
-			forge_reset_stock_tags_only();
-			ui_play_audio_feedback_sound(2);
-			return TRUE;
-		}
-		if (w_name && strcmp(w_name, "forge_reset_custom_btn_confirm") == 0)
-		{
-			forge_reset_custom_tags_only();
-			ui_play_audio_feedback_sound(2);
-			return TRUE;
 		}
 	}
 
@@ -2646,12 +2158,6 @@ void pc_menu_game_data_function_invoke(
 		strcmp(w_name, "forge_tag_profile_list") == 0)
 	{
 		update_forge_tag_profile_widget(widget);
-		return;
-	}
-	if (fn_name && strcmp(fn_name, "load game list update") == 0 &&
-		strcmp(w_name, "forge_snap_points_list") == 0)
-	{
-		update_forge_snap_points_widget(widget);
 		return;
 	}
 	if (fn_name && strcmp(fn_name, "controls update menu") == 0)

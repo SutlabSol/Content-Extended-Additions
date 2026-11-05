@@ -1421,32 +1421,6 @@ static int ensure_xbox_map_decompressed_cache(
 	return 1;
 }
 
-static void forge_delete_files_matching(char const *dir_path, char const *pattern)
-{
-#if FORGE_HOST_FILES
-	char search_pat[512];
-	WIN32_FIND_DATAA fd;
-	HANDLE h;
-	snprintf(search_pat, sizeof(search_pat), "%s\\%s", dir_path, pattern);
-	h = FindFirstFileA(search_pat, &fd);
-	if (h == INVALID_HANDLE_VALUE)
-		return;
-	do
-	{
-		if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-		{
-			char full[512];
-			snprintf(full, sizeof(full), "%s/%s", dir_path, fd.cFileName);
-			remove(full);
-		}
-	} while (FindNextFileA(h, &fd));
-	CloseHandle(h);
-#else
-	(void)dir_path;
-	(void)pattern;
-#endif
-}
-
 void forge_runtime_init(void)
 {
 	if (g_forge.initialized)
@@ -7667,11 +7641,8 @@ int forge_monitor_render_player_unit(long object_index, void const *lighting_ptr
 }
 
 /* =========================================================================
- * FORGE TAG OPTIONS: MANIFEST.BIN, DONOR MAP .OCETAGS EXTRACTOR,
- * STOCK/CUSTOM CACHE RESET, AND LIVE 140x114 3D TAG PREVIEWER
+ * MANIFEST.BIN AND THE DONOR MAP .OCETAGS EXTRACTOR
  * ========================================================================= */
-
-extern void rasterizer_bitmap_changed(struct bitmap_data *bitmap);
 
 #define FORGE_MANIFEST_MAGIC 0x464E4D4Fu /* 'OMNF' */
 
@@ -7943,45 +7914,6 @@ struct forge_ext_closure_list
 	int32_t tag_indices[512];
 	int count;
 };
-
-static uint8_t *forge_donor_read_ext_bitmap_tag(FILE *bitmaps_fp, uint32_t item_index, uint32_t *out_size)
-{
-	uint8_t hdr[16];
-	uint8_t item[12];
-	uint32_t index_offset, item_size, item_data_off;
-	int32_t item_count;
-	uint8_t *buf;
-
-	if (out_size)
-		*out_size = 0;
-	if (!bitmaps_fp)
-		return NULL;
-	if (fseek(bitmaps_fp, 0, SEEK_SET) != 0 || fread(hdr, 1, 16, bitmaps_fp) != 16)
-		return NULL;
-	index_offset = *(uint32_t const *)(hdr + 8u);
-	item_count = *(int32_t const *)(hdr + 12u);
-	if (item_count <= 0 || item_count > 65536 || item_index >= (uint32_t)item_count || index_offset < 16u)
-		return NULL;
-	if (fseek(bitmaps_fp, (long)(index_offset + item_index * 12u), SEEK_SET) != 0 ||
-		fread(item, 1, 12, bitmaps_fp) != 12)
-		return NULL;
-	item_size = *(uint32_t const *)(item + 4u);
-	item_data_off = *(uint32_t const *)(item + 8u);
-	if (item_size < 0x6Cu || item_size > 256u * 1024u)
-		return NULL;
-	buf = (uint8_t *)malloc(item_size);
-	if (!buf)
-		return NULL;
-	if (fseek(bitmaps_fp, (long)item_data_off, SEEK_SET) != 0 ||
-		fread(buf, 1, item_size, bitmaps_fp) != item_size)
-	{
-		free(buf);
-		return NULL;
-	}
-	if (out_size)
-		*out_size = item_size;
-	return buf;
-}
 
 static void forge_donor_collect_schema_refs(
 	struct forge_donor_map_ctx const *ctx,
@@ -8458,101 +8390,15 @@ static void forge_fabb_rebase_schema(
 	}
 }
 
-int forge_reset_stock_tags_only(void)
-{
-	/* the palette is made again from the pack; old caches of the stock tags go */
-	forge_delete_files_matching("OpenCE Forge/cached_tags", "*.ocetags");
-	forge_delete_files_matching("OpenCE Forge/cached_tags", "*.txt");
-	remove("OpenCE Forge/cached_tags/manifest.bin");
-	remove("Faber_data/cached_tags/manifest.bin");
-	remove("Faber_data/cached_tags/xbox_catalog.txt");
-	remove("Faber_data/cached_tags/catalog.txt");
-	remove(FORGE_PACK_PALETTE_FILE);
-	forge_runtime_reload_catalogs();
-	return 1;
-}
-
-int forge_reset_custom_tags_only(void)
-{
-	forge_delete_files_matching("OpenCE Forge/custom_tags", "*.ocetags");
-	forge_delete_files_matching("OpenCE Forge/custom_tags", "*.txt");
-	forge_delete_files_matching("OpenCE Forge/cached_tags", "*.ocetags");
-	forge_delete_files_matching("OpenCE Forge/cached_tags", "*.txt");
-	forge_delete_files_matching("Faber_data/custom_tags", "*.ocetags");
-	forge_delete_files_matching("Faber_data/custom_tags", "*.txt");
-	forge_delete_files_matching("Faber_data/cached_tags", "*.ocetags");
-	forge_delete_files_matching("Faber_data/cached_tags", "*.txt");
-	forge_delete_files_matching("custom_tags", "*.ocetags");
-	forge_delete_files_matching("custom_tags", "*.txt");
-	forge_delete_files_matching("Faber_data/ocetags", "*.ocetags");
-	forge_delete_files_matching("Faber_data/cached_tags", "c_*.*");
-	forge_delete_files_matching("Faber_data/cached_tags/markers", "c_*.*");
-	remove("Faber_data/cached_tags/custom_catalog.txt");
-
-	forge_runtime_reload_catalogs();
-	return 1;
-}
-
 /* =========================================================================
- * LIVE 140x114 32-BIT ROTATING 3D TAG PREVIEWER
+ * SNAP POINTS: PER TAG, AND THE BOX OF THE TAG'S MODEL THEIR PRESETS MEASURE
  * ========================================================================= */
 
-#define FORGE_PREVIEW_W 256
-#define FORGE_PREVIEW_H 256
-#define FORGE_PREVIEW_MAX_VERTS 16384
-#define FORGE_PREVIEW_MAX_TRIS  24576
-#define FORGE_PREVIEW_MAX_TEXTURES 32
-
-struct forge_preview_tri
-{
-	uint16_t v0, v1, v2;
-	int16_t tex_idx;
-};
-
-struct forge_preview_texture
-{
-	int32_t bitm_key;
-	int16_t width;
-	int16_t height;
-	int alpha_test;
-	uint32_t *pixels;
-};
-
-struct forge_preview_state
-{
-	int active;
-	char key[512];
-	uint32_t current_group_tag;
-	char current_tag_path[FORGE_TAG_PATH_MAX];
-	struct bitmap_data *bitmap;
-	float zbuf[FORGE_PREVIEW_W * FORGE_PREVIEW_H];
-	float (*verts)[3];
-	float (*norms)[3];
-	float (*uvs)[2];
-	float (*proj)[3];
-	float (*shade)[2];
-	struct forge_preview_tri *tris;
-	struct forge_preview_texture textures[FORGE_PREVIEW_MAX_TEXTURES];
-	int tex_count;
-	int use_textures;
-	int last_rendered_use_textures;
-	int vert_count;
-	int tri_count;
-	float bbox_min[3];
-	float bbox_max[3];
-	float center[3];
-	float radius;
-	uint32_t tag_size_bytes;
-	unsigned long last_draw_ms;
-	/* Interactive 3D Snap Point Editor Overlay State */
-	int snap_editor_active;
-	int snap_active_pt_idx;
-	float snap_cam_yaw_deg;
-	float snap_cam_pitch_deg;
-	float snap_cam_zoom;
-};
-FORGE_HEAP_STATIC(struct forge_preview_state, s_forge_preview)
-#define s_forge_preview FORGE_HEAP(s_forge_preview)
+/* the box of the model of the tag being given snap points: the Tag Injector's
+preview's (forge_snap_points_bounds_set) or a stock tag's, read from its map
+(forge_snap_points_read_stock_bounds) */
+static float s_snap_bounds_min[3] = { -0.5f, -0.5f, -0.5f };
+static float s_snap_bounds_max[3] = { 0.5f, 0.5f, 0.5f };
 
 struct forge_snap_db_state
 {
@@ -8725,56 +8571,11 @@ int forge_snap_points_count_for_tag(uint32_t group_tag, char const *tag_path)
 	return cfg ? cfg->point_count : 0;
 }
 
-void forge_snap_points_get_preview_bounds(float out_min[3], float out_max[3])
-{
-	int c;
-	for (c = 0; c < 3; c++)
-	{
-		if (out_min) out_min[c] = s_forge_preview.bbox_min[c];
-		if (out_max) out_max[c] = s_forge_preview.bbox_max[c];
-	}
-}
-
-void forge_snap_points_set_editor_overlay(int active, uint32_t group_tag, char const *tag_path, int active_pt_idx, float cam_yaw_deg, float cam_pitch_deg, float cam_zoom)
-{
-	float zm = (cam_zoom > 0.2f) ? cam_zoom : 1.0f;
-	int changed = 0;
-
-	if (s_forge_preview.use_textures != 0 ||
-		s_forge_preview.snap_editor_active != active ||
-		s_forge_preview.snap_active_pt_idx != active_pt_idx ||
-		s_forge_preview.snap_cam_yaw_deg != cam_yaw_deg ||
-		s_forge_preview.snap_cam_pitch_deg != cam_pitch_deg ||
-		s_forge_preview.snap_cam_zoom != zm)
-	{
-		changed = 1;
-	}
-	/* Keep the Snap Points 3D viewer & interactive editor untextured so snap points and normals are clearly visible */
-	s_forge_preview.use_textures = 0;
-	s_forge_preview.snap_editor_active = active;
-	s_forge_preview.snap_active_pt_idx = active_pt_idx;
-	s_forge_preview.snap_cam_yaw_deg = cam_yaw_deg;
-	s_forge_preview.snap_cam_pitch_deg = cam_pitch_deg;
-	s_forge_preview.snap_cam_zoom = zm;
-	if (tag_path && tag_path[0])
-	{
-		if (s_forge_preview.current_group_tag != group_tag ||
-			_stricmp(s_forge_preview.current_tag_path, tag_path) != 0)
-		{
-			changed = 1;
-		}
-		s_forge_preview.current_group_tag = group_tag;
-		snprintf(s_forge_preview.current_tag_path, sizeof(s_forge_preview.current_tag_path), "%s", tag_path);
-	}
-	if (changed)
-		s_forge_preview.last_draw_ms = 0;
-}
-
 void forge_snap_points_apply_preset_to_point(struct forge_snap_point *pt, int preset_id, int normal_dir)
 {
-	float min_x = s_forge_preview.bbox_min[0], max_x = s_forge_preview.bbox_max[0];
-	float min_y = s_forge_preview.bbox_min[1], max_y = s_forge_preview.bbox_max[1];
-	float min_z = s_forge_preview.bbox_min[2], max_z = s_forge_preview.bbox_max[2];
+	float min_x = s_snap_bounds_min[0], max_x = s_snap_bounds_max[0];
+	float min_y = s_snap_bounds_min[1], max_y = s_snap_bounds_max[1];
+	float min_z = s_snap_bounds_min[2], max_z = s_snap_bounds_max[2];
 	float cx = 0.5f * (min_x + max_x);
 	float cy = 0.5f * (min_y + max_y);
 	float cz = 0.5f * (min_z + max_z);
@@ -8851,8 +8652,8 @@ void forge_snap_points_auto_generate(uint32_t group_tag, char const *tag_path, i
 	}
 	else if (mode == 1) /* 2-END BRIDGE / WALL (Opposite ends along longest horizontal axis) */
 	{
-		float dx = s_forge_preview.bbox_max[0] - s_forge_preview.bbox_min[0];
-		float dy = s_forge_preview.bbox_max[1] - s_forge_preview.bbox_min[1];
+		float dx = s_snap_bounds_max[0] - s_snap_bounds_min[0];
+		float dy = s_snap_bounds_max[1] - s_snap_bounds_min[1];
 		if (dy > 1.25f * dx)
 		{
 			forge_snap_points_apply_preset_to_point(&cfg->points[cfg->point_count++], _forge_snap_preset_left_center, -1);
@@ -8881,884 +8682,45 @@ void forge_snap_points_auto_generate(uint32_t group_tag, char const *tag_path, i
 		forge_snap_points_apply_preset_to_point(&cfg->points[cfg->point_count++], _forge_snap_preset_right_base, -1);
 	}
 	forge_snap_points_save_all();
-	s_forge_preview.last_draw_ms = 0;
 }
 
-static void forge_preview_reset_mesh(void)
+void forge_snap_points_bounds_set(float const bounds_min[3], float const bounds_max[3])
 {
-	int ti;
-	for (ti = 0; ti < FORGE_PREVIEW_MAX_TEXTURES; ti++)
-	{
-		free(s_forge_preview.textures[ti].pixels);
-		s_forge_preview.textures[ti].pixels = NULL;
-	}
-	memset(s_forge_preview.textures, 0, sizeof(s_forge_preview.textures));
-	s_forge_preview.tex_count = 0;
-	s_forge_preview.vert_count = 0;
-	s_forge_preview.tri_count = 0;
-	s_forge_preview.bbox_min[0] = -0.5f;
-	s_forge_preview.bbox_min[1] = -0.5f;
-	s_forge_preview.bbox_min[2] = -0.5f;
-	s_forge_preview.bbox_max[0] =  0.5f;
-	s_forge_preview.bbox_max[1] =  0.5f;
-	s_forge_preview.bbox_max[2] =  0.5f;
-	s_forge_preview.center[0] = 0.0f;
-	s_forge_preview.center[1] = 0.0f;
-	s_forge_preview.center[2] = 0.0f;
-	s_forge_preview.radius = 1.0f;
+	memcpy(s_snap_bounds_min, bounds_min, sizeof(s_snap_bounds_min));
+	memcpy(s_snap_bounds_max, bounds_max, sizeof(s_snap_bounds_max));
 }
 
-static int forge_preview_ensure_buffers(void)
-{
-	if (!s_forge_preview.verts)
-		s_forge_preview.verts = (float (*)[3])malloc(FORGE_PREVIEW_MAX_VERTS * sizeof(float[3]));
-	if (!s_forge_preview.norms)
-		s_forge_preview.norms = (float (*)[3])malloc(FORGE_PREVIEW_MAX_VERTS * sizeof(float[3]));
-	if (!s_forge_preview.uvs)
-		s_forge_preview.uvs = (float (*)[2])malloc(FORGE_PREVIEW_MAX_VERTS * sizeof(float[2]));
-	if (!s_forge_preview.proj)
-		s_forge_preview.proj = (float (*)[3])malloc(FORGE_PREVIEW_MAX_VERTS * sizeof(float[3]));
-	if (!s_forge_preview.shade)
-		s_forge_preview.shade = (float (*)[2])malloc(FORGE_PREVIEW_MAX_VERTS * sizeof(float[2]));
-	if (!s_forge_preview.tris)
-		s_forge_preview.tris = (struct forge_preview_tri *)malloc(FORGE_PREVIEW_MAX_TRIS * sizeof(struct forge_preview_tri));
-	if (!s_forge_preview.verts || !s_forge_preview.norms || !s_forge_preview.uvs ||
-		!s_forge_preview.proj || !s_forge_preview.shade || !s_forge_preview.tris)
-		return 0;
-	if (!s_forge_preview.bitmap)
-	{
-		s_forge_preview.bitmap = bitmap_2d_new(FORGE_PREVIEW_W, FORGE_PREVIEW_H, 0, 11 /* _bitmap_format_a8r8g8b8 */);
-		if (s_forge_preview.bitmap && s_forge_preview.bitmap->base_address)
-		{
-			memset(XBOX_POINTER(uint32_t, s_forge_preview.bitmap->base_address), 0, FORGE_PREVIEW_W * FORGE_PREVIEW_H * sizeof(uint32_t));
-			bitmap_rebuild(s_forge_preview.bitmap);
-		}
-	}
-	return (s_forge_preview.bitmap && s_forge_preview.bitmap->base_address) ? 1 : 0;
-}
+static int s_stock_bounds_found;
+static float s_stock_bounds_min[3];
+static float s_stock_bounds_max[3];
 
-static void forge_preview_build_fallback_octahedron(void)
-{
-	static float const s_oct_v[6][3] = {
-		{  0.0f,  0.0f,  1.0f },
-		{  0.8f,  0.0f,  0.0f },
-		{  0.0f,  0.8f,  0.0f },
-		{ -0.8f,  0.0f,  0.0f },
-		{  0.0f, -0.8f,  0.0f },
-		{  0.0f,  0.0f, -1.0f }
-	};
-	static uint16_t const s_oct_t[8][3] = {
-		{ 0, 1, 2 }, { 0, 2, 3 }, { 0, 3, 4 }, { 0, 4, 1 },
-		{ 5, 2, 1 }, { 5, 3, 2 }, { 5, 4, 3 }, { 5, 1, 4 }
-	};
-	int i;
-	forge_preview_reset_mesh();
-	for (i = 0; i < 6; i++)
-	{
-		s_forge_preview.verts[i][0] = s_oct_v[i][0];
-		s_forge_preview.verts[i][1] = s_oct_v[i][1];
-		s_forge_preview.verts[i][2] = s_oct_v[i][2];
-		s_forge_preview.norms[i][0] = s_oct_v[i][0];
-		s_forge_preview.norms[i][1] = s_oct_v[i][1];
-		s_forge_preview.norms[i][2] = s_oct_v[i][2];
-		s_forge_preview.uvs[i][0] = 0.0f;
-		s_forge_preview.uvs[i][1] = 0.0f;
-	}
-	for (i = 0; i < 8; i++)
-	{
-		s_forge_preview.tris[i].v0 = s_oct_t[i][0];
-		s_forge_preview.tris[i].v1 = s_oct_t[i][1];
-		s_forge_preview.tris[i].v2 = s_oct_t[i][2];
-		s_forge_preview.tris[i].tex_idx = -1;
-	}
-	s_forge_preview.vert_count = 6;
-	s_forge_preview.tri_count = 8;
-	s_forge_preview.radius = 1.15f;
-}
-
-static void forge_preview_normalize_mesh(void)
-{
-	float min_v[3], max_v[3];
-	float max_r2 = 0.0f;
-	int i;
-
-	if (s_forge_preview.vert_count < 3 || s_forge_preview.tri_count < 1)
-	{
-		forge_preview_build_fallback_octahedron();
-		return;
-	}
-	min_v[0] = max_v[0] = s_forge_preview.verts[0][0];
-	min_v[1] = max_v[1] = s_forge_preview.verts[0][1];
-	min_v[2] = max_v[2] = s_forge_preview.verts[0][2];
-	for (i = 1; i < s_forge_preview.vert_count; i++)
-	{
-		int c;
-		for (c = 0; c < 3; c++)
-		{
-			if (s_forge_preview.verts[i][c] < min_v[c]) min_v[c] = s_forge_preview.verts[i][c];
-			if (s_forge_preview.verts[i][c] > max_v[c]) max_v[c] = s_forge_preview.verts[i][c];
-		}
-	}
-	s_forge_preview.bbox_min[0] = min_v[0];
-	s_forge_preview.bbox_min[1] = min_v[1];
-	s_forge_preview.bbox_min[2] = min_v[2];
-	s_forge_preview.bbox_max[0] = max_v[0];
-	s_forge_preview.bbox_max[1] = max_v[1];
-	s_forge_preview.bbox_max[2] = max_v[2];
-	s_forge_preview.center[0] = 0.5f * (min_v[0] + max_v[0]);
-	s_forge_preview.center[1] = 0.5f * (min_v[1] + max_v[1]);
-	s_forge_preview.center[2] = 0.5f * (min_v[2] + max_v[2]);
-	for (i = 0; i < s_forge_preview.vert_count; i++)
-	{
-		float dx = s_forge_preview.verts[i][0] - s_forge_preview.center[0];
-		float dy = s_forge_preview.verts[i][1] - s_forge_preview.center[1];
-		float dz = s_forge_preview.verts[i][2] - s_forge_preview.center[2];
-		float r2 = dx * dx + dy * dy + dz * dz;
-		if (r2 > max_r2) max_r2 = r2;
-	}
-	s_forge_preview.radius = (max_r2 > 0.0001f) ? (float)sqrt((double)max_r2) : 1.0f;
-}
-
-static uint32_t forge_xbox_swizzle_xy(int x, int y, int w, int h)
-{
-	uint32_t idx = 0;
-	int bit = 1;
-	int shift = 0;
-	while (bit < w || bit < h)
-	{
-		if (bit < w)
-		{
-			if (x & bit) idx |= (1u << shift);
-			shift++;
-		}
-		if (bit < h)
-		{
-			if (y & bit) idx |= (1u << shift);
-			shift++;
-		}
-		bit <<= 1;
-	}
-	return idx;
-}
-
-static size_t forge_preview_bitmap_level_bytes(int w, int h, int16_t format)
-{
-	if (w <= 0 || h <= 0)
-		return 0;
-	switch (format)
-	{
-	case 0:  /* A8 */
-	case 1:  /* Y8 */
-	case 2:  /* AY8 */
-	case 17: /* P8 */
-		return (size_t)w * (size_t)h;
-	case 3:  /* A8Y8 */
-	case 6:  /* R5G6B5 */
-	case 8:  /* A1R5G5B5 */
-	case 9:  /* A4R4G4B4 */
-		return (size_t)w * (size_t)h * 2u;
-	case 10: /* X8R8G8B8 */
-	case 11: /* A8R8G8B8 */
-		return (size_t)w * (size_t)h * 4u;
-	case 14: /* DXT1 */
-		return (size_t)((w + 3) / 4) * (size_t)((h + 3) / 4) * 8u;
-	case 15: /* DXT3 */
-	case 16: /* DXT5 */
-		return (size_t)((w + 3) / 4) * (size_t)((h + 3) / 4) * 16u;
-	default:
-		return 0;
-	}
-}
-
-static uint32_t *forge_preview_decode_bitmap_pixels(
-	uint8_t const *bmp_entry_48,
-	FILE *pix_fp,
-	uint8_t const *mem_pix,
-	size_t mem_pix_len,
-	int16_t *out_w,
-	int16_t *out_h)
-{
-	int orig_w, orig_h, w, h, mipmaps, mip;
-	int16_t type, format;
-	uint16_t b_flags;
-	uint32_t pix_off;
-	int32_t pix_sz;
-	size_t mip_byte_off = 0, level_bytes = 0, avail_bytes = 0;
-	int is_swizzled;
-	uint8_t *alloc_raw = NULL;
-	uint8_t const *src = NULL;
-	uint32_t *dst = NULL;
-
-	if (!bmp_entry_48 || !out_w || !out_h)
-		return NULL;
-	orig_w = (int)*(int16_t const *)(bmp_entry_48 + 0x04u);
-	orig_h = (int)*(int16_t const *)(bmp_entry_48 + 0x06u);
-	type = *(int16_t const *)(bmp_entry_48 + 0x0Au);
-	format = *(int16_t const *)(bmp_entry_48 + 0x0Cu);
-	b_flags = *(uint16_t const *)(bmp_entry_48 + 0x0Eu);
-	mipmaps = (int)*(int16_t const *)(bmp_entry_48 + 0x14u);
-	pix_off = *(uint32_t const *)(bmp_entry_48 + 0x18u);
-	pix_sz = *(int32_t const *)(bmp_entry_48 + 0x1Cu);
-
-	if (type != 0 /* _bitmap_type_2d */ || orig_w <= 0 || orig_w > 4096 || orig_h <= 0 || orig_h > 4096)
-		return NULL;
-
-	avail_bytes = mem_pix ? mem_pix_len : ((pix_sz > 0 && pix_sz <= 16 * 1024 * 1024) ? (size_t)pix_sz : 0u);
-	if (avail_bytes == 0)
-		return NULL;
-
-	w = orig_w;
-	h = orig_h;
-	is_swizzled = ((b_flags & 0x08u) != 0 && format < 14);
-	if (!is_swizzled && mipmaps > 0)
-	{
-		for (mip = 0; mip < mipmaps && (w > 128 || h > 128); mip++)
-		{
-			size_t cur_sz = forge_preview_bitmap_level_bytes(w, h, format);
-			int nw = (w > 1) ? (w >> 1) : 1;
-			int nh = (h > 1) ? (h >> 1) : 1;
-			size_t next_sz = forge_preview_bitmap_level_bytes(nw, nh, format);
-			if (cur_sz == 0 || next_sz == 0 || mip_byte_off + cur_sz + next_sz > avail_bytes)
-				break;
-			mip_byte_off += cur_sz;
-			w = nw;
-			h = nh;
-		}
-	}
-
-	level_bytes = forge_preview_bitmap_level_bytes(w, h, format);
-	if (level_bytes == 0 || mip_byte_off + level_bytes > avail_bytes)
-	{
-		w = orig_w;
-		h = orig_h;
-		mip_byte_off = 0;
-		level_bytes = forge_preview_bitmap_level_bytes(w, h, format);
-		if (level_bytes == 0 || level_bytes > avail_bytes)
-			return NULL;
-	}
-
-	if (mem_pix)
-	{
-		src = mem_pix + mip_byte_off;
-	}
-	else if (pix_fp)
-	{
-		alloc_raw = (uint8_t *)malloc(level_bytes);
-		if (!alloc_raw)
-			return NULL;
-		if (fseek(pix_fp, (long)(pix_off + (uint32_t)mip_byte_off), SEEK_SET) != 0 ||
-			fread(alloc_raw, 1, level_bytes, pix_fp) != level_bytes)
-		{
-			free(alloc_raw);
-			return NULL;
-		}
-		src = alloc_raw;
-	}
-	else
-	{
-		return NULL;
-	}
-
-	dst = (uint32_t *)malloc((size_t)w * (size_t)h * sizeof(uint32_t));
-	if (!dst)
-	{
-		free(alloc_raw);
-		return NULL;
-	}
-
-	if (format == 14 || format == 15 || format == 16) /* DXT1 / DXT3 / DXT5 */
-	{
-		int bw = (w + 3) / 4;
-		int bh = (h + 3) / 4;
-		size_t bstride = (format == 14) ? 8u : 16u;
-		int by, bx;
-		for (by = 0; by < bh; by++)
-		{
-			for (bx = 0; bx < bw; bx++)
-			{
-				uint8_t const *blk = src + ((size_t)by * (size_t)bw + (size_t)bx) * bstride;
-				uint8_t const *cblk = (format == 14) ? blk : (blk + 8u);
-				uint16_t c0 = *(uint16_t const *)(cblk + 0u);
-				uint16_t c1 = *(uint16_t const *)(cblk + 2u);
-				uint32_t bits = *(uint32_t const *)(cblk + 4u);
-				uint32_t r[4], g[4], b[4], a_lut[4];
-				uint8_t a_pal[8];
-				uint64_t a_bits = 0;
-				int py, px;
-
-				r[0] = ((c0 >> 11) & 31u) * 255u / 31u;
-				g[0] = ((c0 >> 5)  & 63u) * 255u / 63u;
-				b[0] = ( c0        & 31u) * 255u / 31u;
-				r[1] = ((c1 >> 11) & 31u) * 255u / 31u;
-				g[1] = ((c1 >> 5)  & 63u) * 255u / 63u;
-				b[1] = ( c1        & 31u) * 255u / 31u;
-				a_lut[0] = 255u; a_lut[1] = 255u; a_lut[2] = 255u; a_lut[3] = 255u;
-
-				if (format != 14 || c0 > c1)
-				{
-					r[2] = (2u * r[0] + r[1] + 1u) / 3u;
-					g[2] = (2u * g[0] + g[1] + 1u) / 3u;
-					b[2] = (2u * b[0] + b[1] + 1u) / 3u;
-					r[3] = (r[0] + 2u * r[1] + 1u) / 3u;
-					g[3] = (g[0] + 2u * g[1] + 1u) / 3u;
-					b[3] = (b[0] + 2u * b[1] + 1u) / 3u;
-				}
-				else
-				{
-					r[2] = (r[0] + r[1]) >> 1;
-					g[2] = (g[0] + g[1]) >> 1;
-					b[2] = (b[0] + b[1]) >> 1;
-					r[3] = 0u; g[3] = 0u; b[3] = 0u;
-					a_lut[3] = 0u;
-				}
-
-				if (format == 16)
-				{
-					int ai;
-					a_pal[0] = blk[0];
-					a_pal[1] = blk[1];
-					if (a_pal[0] > a_pal[1])
-					{
-						for (ai = 1; ai <= 6; ai++)
-							a_pal[ai + 1] = (uint8_t)(((7 - ai) * (int)a_pal[0] + ai * (int)a_pal[1] + 3) / 7);
-					}
-					else
-					{
-						for (ai = 1; ai <= 4; ai++)
-							a_pal[ai + 1] = (uint8_t)(((5 - ai) * (int)a_pal[0] + ai * (int)a_pal[1] + 2) / 5);
-						a_pal[6] = 0u;
-						a_pal[7] = 255u;
-					}
-					for (ai = 0; ai < 6; ai++)
-						a_bits |= ((uint64_t)blk[2 + ai]) << (8 * ai);
-				}
-
-				for (py = 0; py < 4; py++)
-				{
-					int dy = by * 4 + py;
-					if (dy >= h) continue;
-					for (px = 0; px < 4; px++)
-					{
-						int dx = bx * 4 + px;
-						int p_i = py * 4 + px;
-						uint32_t ci = (bits >> (2 * p_i)) & 3u;
-						uint32_t al = a_lut[ci];
-						if (dx >= w) continue;
-						if (format == 15)
-						{
-							uint16_t row_a = *(uint16_t const *)(blk + py * 2);
-							al = ((row_a >> (px * 4)) & 0xFu) * 17u;
-						}
-						else if (format == 16)
-						{
-							al = a_pal[(a_bits >> (3 * p_i)) & 7u];
-						}
-						dst[dy * w + dx] = (al << 24) | (r[ci] << 16) | (g[ci] << 8) | b[ci];
-					}
-				}
-			}
-		}
-	}
-	else
-	{
-		int is_pot = ((w & (w - 1)) == 0) && ((h & (h - 1)) == 0);
-		int y, x;
-		for (y = 0; y < h; y++)
-		{
-			for (x = 0; x < w; x++)
-			{
-				size_t si = (is_swizzled && is_pot)
-					? (size_t)forge_xbox_swizzle_xy(x, y, w, h)
-					: ((size_t)y * (size_t)w + (size_t)x);
-				uint32_t pixel = 0xFF808080u;
-				switch (format)
-				{
-				case 0: /* A8 */
-					pixel = ((uint32_t)src[si] << 24) | 0x00FFFFFFu;
-					break;
-				case 1:  /* Y8 */
-				case 17: /* P8 */
-				{
-					uint32_t v = src[si];
-					pixel = 0xFF000000u | (v << 16) | (v << 8) | v;
-					break;
-				}
-				case 2: /* AY8 */
-				{
-					uint32_t v = src[si];
-					pixel = (v << 24) | (v << 16) | (v << 8) | v;
-					break;
-				}
-				case 3: /* A8Y8 */
-				{
-					uint16_t p16 = ((uint16_t const *)src)[si];
-					uint32_t v = p16 & 0xFFu;
-					uint32_t al = (p16 >> 8) & 0xFFu;
-					pixel = (al << 24) | (v << 16) | (v << 8) | v;
-					break;
-				}
-				case 6: /* R5G6B5 */
-				{
-					uint16_t p16 = ((uint16_t const *)src)[si];
-					uint32_t r = ((p16 >> 11) & 31u) * 255u / 31u;
-					uint32_t g = ((p16 >> 5)  & 63u) * 255u / 63u;
-					uint32_t b = ( p16        & 31u) * 255u / 31u;
-					pixel = 0xFF000000u | (r << 16) | (g << 8) | b;
-					break;
-				}
-				case 8: /* A1R5G5B5 */
-				{
-					uint16_t p16 = ((uint16_t const *)src)[si];
-					uint32_t al = (p16 & 0x8000u) ? 255u : 0u;
-					uint32_t r = ((p16 >> 10) & 31u) * 255u / 31u;
-					uint32_t g = ((p16 >> 5)  & 31u) * 255u / 31u;
-					uint32_t b = ( p16        & 31u) * 255u / 31u;
-					pixel = (al << 24) | (r << 16) | (g << 8) | b;
-					break;
-				}
-				case 9: /* A4R4G4B4 */
-				{
-					uint16_t p16 = ((uint16_t const *)src)[si];
-					uint32_t al = ((p16 >> 12) & 15u) * 17u;
-					uint32_t r  = ((p16 >> 8)  & 15u) * 17u;
-					uint32_t g  = ((p16 >> 4)  & 15u) * 17u;
-					uint32_t b  = ( p16        & 15u) * 17u;
-					pixel = (al << 24) | (r << 16) | (g << 8) | b;
-					break;
-				}
-				case 10: /* X8R8G8B8 */
-					pixel = ((uint32_t const *)src)[si] | 0xFF000000u;
-					break;
-				case 11: /* A8R8G8B8 */
-					pixel = ((uint32_t const *)src)[si];
-					break;
-				default:
-					break;
-				}
-				dst[y * w + x] = pixel;
-			}
-		}
-	}
-
-	free(alloc_raw);
-	*out_w = (int16_t)w;
-	*out_h = (int16_t)h;
-	return dst;
-}
-
-static int forge_preview_extract_shader_info(
-	uint32_t s_grp,
-	uint8_t const *s_ptr,
-	size_t s_len,
-	uint8_t const *block_buf,
-	size_t block_buf_len,
-	uint32_t block_addr_bias,
-	int32_t *out_bitm_handle,
-	float *out_u_scale,
-	float *out_v_scale,
-	int *out_alpha_test)
-{
-	float u_s = 1.0f, v_s = 1.0f;
-	int32_t b_handle = -1;
-	int alpha_test = 0;
-
-	if (!s_ptr || !out_bitm_handle || !out_u_scale || !out_v_scale || !out_alpha_test)
-		return 0;
-
-	if (s_grp == 'soso' && s_len >= 0xB4u)
-	{
-		u_s = *(float const *)(s_ptr + 0x9Cu);
-		v_s = *(float const *)(s_ptr + 0xA0u);
-		b_handle = *(int32_t const *)(s_ptr + 0xB0u);
-		alpha_test = 0;
-	}
-	else if (s_grp == 'senv' && s_len >= 0x98u)
-	{
-		b_handle = *(int32_t const *)(s_ptr + 0x94u);
-		alpha_test = 0;
-	}
-	else if ((s_grp == 'schi' || s_grp == 'scex') && s_len >= 0x60u)
-	{
-		int32_t m_cnt = *(int32_t const *)(s_ptr + 0x54u);
-		uint32_t m_addr = *(uint32_t const *)(s_ptr + 0x58u);
-		if (m_cnt <= 0 && s_grp == 'scex' && s_len >= 0x6Cu)
-		{
-			m_cnt = *(int32_t const *)(s_ptr + 0x60u);
-			m_addr = *(uint32_t const *)(s_ptr + 0x64u);
-		}
-		if (m_cnt > 0 && m_addr >= block_addr_bias &&
-			(uint64_t)(m_addr - block_addr_bias) + 220u <= (uint64_t)block_buf_len)
-		{
-			uint8_t const *m0 = block_buf + (m_addr - block_addr_bias);
-			u_s = *(float const *)(m0 + 0x54u);
-			v_s = *(float const *)(m0 + 0x58u);
-			b_handle = *(int32_t const *)(m0 + 0x78u);
-			alpha_test = 1;
-		}
-	}
-	else if (s_grp == 'sotr' && s_len >= 0x60u)
-	{
-		int32_t m_cnt = *(int32_t const *)(s_ptr + 0x54u);
-		uint32_t m_addr = *(uint32_t const *)(s_ptr + 0x58u);
-		if (m_cnt > 0 && m_addr >= block_addr_bias &&
-			(uint64_t)(m_addr - block_addr_bias) + 100u <= (uint64_t)block_buf_len)
-		{
-			uint8_t const *m0 = block_buf + (m_addr - block_addr_bias);
-			u_s = *(float const *)(m0 + 0x04u);
-			v_s = *(float const *)(m0 + 0x08u);
-			b_handle = *(int32_t const *)(m0 + 0x28u);
-			alpha_test = 1;
-		}
-	}
-	else if (s_grp == 'sgla' && s_len >= 0x168u)
-	{
-		b_handle = *(int32_t const *)(s_ptr + 0x164u);
-		u_s = *(float const *)(s_ptr + 0x154u);
-		v_s = u_s;
-		if (b_handle == -1 || b_handle == 0)
-		{
-			b_handle = *(int32_t const *)(s_ptr + 0x70u);
-			u_s = *(float const *)(s_ptr + 0x60u);
-			v_s = u_s;
-		}
-		alpha_test = 0;
-	}
-	else if (s_grp == 'smet' && s_len >= 0x5Cu)
-	{
-		b_handle = *(int32_t const *)(s_ptr + 0x58u);
-		alpha_test = 0;
-	}
-
-	if (b_handle == -1 || b_handle == 0)
-		return 0;
-	if (!(u_s > 0.0001f && u_s < 1000.0f)) u_s = 1.0f;
-	if (!(v_s > 0.0001f && v_s < 1000.0f)) v_s = 1.0f;
-	*out_bitm_handle = b_handle;
-	*out_u_scale = u_s;
-	*out_v_scale = v_s;
-	*out_alpha_test = alpha_test;
-	return 1;
-}
-
-static int16_t forge_preview_load_donor_bitmap(
-	struct forge_donor_map_ctx const *ctx,
-	int32_t bitm_idx,
-	int alpha_test)
-{
-	uint32_t b_io, b_grp, b_addr, b_ext;
-	uint8_t const *bmp_entry = NULL;
-	uint8_t *ext_buf = NULL;
-	uint32_t ext_sz = 0;
-	FILE *pix_fp = NULL;
-	int16_t w = 0, h = 0;
-	uint32_t *pixels = NULL;
-	int i, slot;
-
-	if (!ctx || bitm_idx < 0 || bitm_idx >= ctx->tag_count)
-		return -1;
-	for (i = 0; i < s_forge_preview.tex_count; i++)
-	{
-		if (s_forge_preview.textures[i].bitm_key == bitm_idx)
-			return (s_forge_preview.textures[i].pixels != NULL) ? (int16_t)i : -1;
-	}
-	if (s_forge_preview.tex_count >= FORGE_PREVIEW_MAX_TEXTURES)
-		return -1;
-
-	slot = s_forge_preview.tex_count++;
-	s_forge_preview.textures[slot].bitm_key = bitm_idx;
-	s_forge_preview.textures[slot].alpha_test = alpha_test;
-	s_forge_preview.textures[slot].pixels = NULL;
-
-	b_io = ctx->inst_off + (uint32_t)bitm_idx * 32u;
-	b_grp = *(uint32_t const *)(ctx->tag_buf + b_io + 0x00u);
-	b_addr = *(uint32_t const *)(ctx->tag_buf + b_io + 0x14u);
-	b_ext = *(uint32_t const *)(ctx->tag_buf + b_io + 0x18u);
-	if (b_grp != 'bitm')
-		return -1;
-
-	if (!ctx->is_xbox_v5 && b_ext != 0)
-	{
-		ext_buf = forge_donor_read_ext_bitmap_tag(ctx->bitmaps_fp, b_addr, &ext_sz);
-		if (ext_buf && ext_sz >= 0x6Cu)
-		{
-			int32_t b_cnt = *(int32_t const *)(ext_buf + 0x60u);
-			uint32_t b_rel = *(uint32_t const *)(ext_buf + 0x64u);
-			if (b_cnt > 0 && b_rel >= 0x6Cu && b_rel + 48u <= ext_sz)
-			{
-				bmp_entry = ext_buf + b_rel;
-				pix_fp = ctx->bitmaps_fp;
-			}
-		}
-	}
-	else if (b_addr >= ctx->tag_base && (b_addr - ctx->tag_base) + 0x6Cu <= ctx->tag_sz)
-	{
-		uint32_t b_off = b_addr - ctx->tag_base;
-		int32_t b_cnt = *(int32_t const *)(ctx->tag_buf + b_off + 0x60u);
-		uint32_t b_block_addr = *(uint32_t const *)(ctx->tag_buf + b_off + 0x64u);
-		if (b_cnt > 0 && b_block_addr >= ctx->tag_base &&
-			(b_block_addr - ctx->tag_base) + 48u <= ctx->tag_sz)
-		{
-			uint16_t b_flags;
-			bmp_entry = ctx->tag_buf + (b_block_addr - ctx->tag_base);
-			b_flags = *(uint16_t const *)(bmp_entry + 0x0Eu);
-			pix_fp = (((b_flags & 0x100u) != 0) && !ctx->is_xbox_v5) ? ctx->bitmaps_fp : ctx->map_fp;
-		}
-	}
-
-	if (bmp_entry && pix_fp)
-		pixels = forge_preview_decode_bitmap_pixels(bmp_entry, pix_fp, NULL, 0, &w, &h);
-	free(ext_buf);
-
-	if (!pixels)
-		return -1;
-	s_forge_preview.textures[slot].width = w;
-	s_forge_preview.textures[slot].height = h;
-	s_forge_preview.textures[slot].pixels = pixels;
-	return (int16_t)slot;
-}
-
-static int16_t forge_preview_resolve_donor_part_shader(
-	struct forge_donor_map_ctx const *ctx,
-	int32_t shaders_cnt,
-	uint32_t shaders_addr,
-	int16_t shader_idx,
-	float *out_u_scale,
-	float *out_v_scale)
-{
-	uint32_t sh_off, s_io, s_grp, sh_data_addr, s_ext;
-	int32_t sh_handle, s_idx, bitm_handle = -1;
-	float u_s = 1.0f, v_s = 1.0f;
-	int alpha_test = 0;
-
-	if (out_u_scale) *out_u_scale = 1.0f;
-	if (out_v_scale) *out_v_scale = 1.0f;
-	if (!ctx || shader_idx < 0 || shader_idx >= shaders_cnt || shaders_cnt <= 0 || shaders_cnt > 256 ||
-		shaders_addr < ctx->tag_base ||
-		(uint64_t)(shaders_addr - ctx->tag_base) + (uint64_t)shaders_cnt * 32u > (uint64_t)ctx->tag_sz)
-		return -1;
-
-	sh_off = (shaders_addr - ctx->tag_base) + (uint32_t)shader_idx * 32u;
-	sh_handle = *(int32_t const *)(ctx->tag_buf + sh_off + 0x0Cu);
-	if (sh_handle == -1 || sh_handle == 0)
-		return -1;
-	s_idx = (int32_t)((uint32_t)sh_handle & 0xFFFFu);
-	if (s_idx < 0 || s_idx >= ctx->tag_count)
-		return -1;
-
-	s_io = ctx->inst_off + (uint32_t)s_idx * 32u;
-	s_grp = *(uint32_t const *)(ctx->tag_buf + s_io + 0x00u);
-	sh_data_addr = *(uint32_t const *)(ctx->tag_buf + s_io + 0x14u);
-	s_ext = *(uint32_t const *)(ctx->tag_buf + s_io + 0x18u);
-	if ((!ctx->is_xbox_v5 && s_ext != 0) || sh_data_addr < ctx->tag_base || (sh_data_addr - ctx->tag_base) >= ctx->tag_sz)
-		return -1;
-
-	if (!forge_preview_extract_shader_info(
-			s_grp,
-			ctx->tag_buf + (sh_data_addr - ctx->tag_base),
-			ctx->tag_sz - (sh_data_addr - ctx->tag_base),
-			ctx->tag_buf,
-			ctx->tag_sz,
-			ctx->tag_base,
-			&bitm_handle,
-			&u_s,
-			&v_s,
-			&alpha_test))
-		return -1;
-
-	if (out_u_scale) *out_u_scale = u_s;
-	if (out_v_scale) *out_v_scale = v_s;
-	return forge_preview_load_donor_bitmap(ctx, (int32_t)((uint32_t)bitm_handle & 0xFFFFu), alpha_test);
-}
-
-static int16_t forge_preview_resolve_ocetags_part_shader(
-	char const *json,
-	size_t tags_pos,
-	size_t tags_end,
-	uint8_t const *mod_buf,
-	size_t mod_len,
-	int16_t shader_idx,
-	float *out_u_scale,
-	float *out_v_scale)
-{
-	int32_t sh_cnt, sh_handle, bitm_handle = -1;
-	uint32_t sh_rel;
-	uint16_t sh_low, bitm_low;
-	float u_s = 1.0f, v_s = 1.0f;
-	int alpha_test = 0, have_sh = 0, i, slot;
-	size_t p;
-
-	if (out_u_scale) *out_u_scale = 1.0f;
-	if (out_v_scale) *out_v_scale = 1.0f;
-	if (!json || !mod_buf || mod_len < 0xE8u || shader_idx < 0)
-		return -1;
-
-	sh_cnt = *(int32_t const *)(mod_buf + 0xDCu);
-	sh_rel = *(uint32_t const *)(mod_buf + 0xE0u);
-	if (shader_idx >= sh_cnt || sh_cnt <= 0 || sh_cnt > 256 || sh_rel < 0xE8u ||
-		(uint64_t)sh_rel + (uint64_t)sh_cnt * 32u > (uint64_t)mod_len)
-		return -1;
-
-	sh_handle = *(int32_t const *)(mod_buf + sh_rel + (uint32_t)shader_idx * 32u + 0x0Cu);
-	if (sh_handle == -1 || sh_handle == 0)
-		return -1;
-	sh_low = (uint16_t)((uint32_t)sh_handle & 0xFFFFu);
-
-	/* Find shader tag in tags[] by matching originalIndex & 0xFFFF */
-	p = tags_pos + 1;
-	while (p < tags_end)
-	{
-		size_t o_start, o_end;
-		uint32_t orig_idx = 0xFFFFFFFFu;
-		while (p < tags_end && json[p] != '{' && json[p] != ']') p++;
-		if (p >= tags_end || json[p] != '{') break;
-		o_start = p;
-		if (!ocetags_json_skip_value(json, o_start, tags_end, &o_end)) break;
-		if (ocetags_json_get_u32(json, o_start, o_end, "originalIndex", &orig_idx) &&
-			(uint16_t)(orig_idx & 0xFFFFu) == sh_low)
-		{
-			char sgstr[64];
-			size_t sd_len = 0;
-			uint8_t *s_buf = ocetags_json_decode_base64_key(json, o_start, o_end, "data", &sd_len);
-			sgstr[0] = 0;
-			ocetags_json_get_str(json, o_start, o_end, "group", sgstr, sizeof(sgstr));
-			if (s_buf && sd_len >= 0x40u)
-			{
-				have_sh = forge_preview_extract_shader_info(
-					ocetags_group_str_to_fourcc(sgstr),
-					s_buf, sd_len,
-					s_buf, sd_len, 0u,
-					&bitm_handle, &u_s, &v_s, &alpha_test);
-			}
-			free(s_buf);
-			break;
-		}
-		p = o_end;
-	}
-	if (!have_sh || bitm_handle == -1 || bitm_handle == 0)
-		return -1;
-
-	if (out_u_scale) *out_u_scale = u_s;
-	if (out_v_scale) *out_v_scale = v_s;
-	bitm_low = (uint16_t)((uint32_t)bitm_handle & 0xFFFFu);
-
-	for (i = 0; i < s_forge_preview.tex_count; i++)
-	{
-		if (s_forge_preview.textures[i].bitm_key == (int32_t)bitm_low)
-			return (s_forge_preview.textures[i].pixels != NULL) ? (int16_t)i : -1;
-	}
-	if (s_forge_preview.tex_count >= FORGE_PREVIEW_MAX_TEXTURES)
-		return -1;
-
-	slot = s_forge_preview.tex_count++;
-	s_forge_preview.textures[slot].bitm_key = (int32_t)bitm_low;
-	s_forge_preview.textures[slot].alpha_test = alpha_test;
-	s_forge_preview.textures[slot].pixels = NULL;
-
-	/* Find 'bitm' tag in tags[] by matching originalIndex & 0xFFFF */
-	p = tags_pos + 1;
-	while (p < tags_end)
-	{
-		size_t o_start, o_end;
-		uint32_t orig_idx = 0xFFFFFFFFu;
-		while (p < tags_end && json[p] != '{' && json[p] != ']') p++;
-		if (p >= tags_end || json[p] != '{') break;
-		o_start = p;
-		if (!ocetags_json_skip_value(json, o_start, tags_end, &o_end)) break;
-		if (ocetags_json_get_u32(json, o_start, o_end, "originalIndex", &orig_idx) &&
-			(uint16_t)(orig_idx & 0xFFFFu) == bitm_low)
-		{
-			size_t bd_len = 0, raw_arr = 0, raw_end = 0;
-			uint8_t *b_buf = ocetags_json_decode_base64_key(json, o_start, o_end, "data", &bd_len);
-			if (b_buf && bd_len >= 0x6Cu)
-			{
-				int32_t b_cnt = *(int32_t const *)(b_buf + 0x60u);
-				uint32_t b_rel = *(uint32_t const *)(b_buf + 0x64u);
-				if (b_cnt > 0 && b_rel >= 0x6Cu && b_rel + 48u <= bd_len &&
-					ocetags_json_find_key_range(json, o_start, o_end, "embeddedRawDataAssets", &raw_arr) &&
-					ocetags_json_skip_value(json, raw_arr, o_end, &raw_end))
-				{
-					size_t rp = raw_arr + 1;
-					while (rp < raw_end && json[rp] != '{' && json[rp] != ']') rp++;
-					if (rp < raw_end && json[rp] == '{')
-					{
-						size_t r0_start = rp, r0_end = 0;
-						if (ocetags_json_skip_value(json, r0_start, raw_end, &r0_end))
-						{
-							size_t pix_len = 0;
-							uint8_t *raw_pix = ocetags_json_decode_base64_key(json, r0_start, r0_end, "data", &pix_len);
-							if (raw_pix && pix_len > 0)
-							{
-								int16_t tw = 0, th = 0;
-								uint32_t *dec = forge_preview_decode_bitmap_pixels(
-									b_buf + b_rel, NULL, raw_pix, pix_len, &tw, &th);
-								if (dec)
-								{
-									s_forge_preview.textures[slot].width = tw;
-									s_forge_preview.textures[slot].height = th;
-									s_forge_preview.textures[slot].pixels = dec;
-								}
-							}
-							free(raw_pix);
-						}
-					}
-				}
-			}
-			free(b_buf);
-			break;
-		}
-		p = o_end;
-	}
-
-	return (s_forge_preview.textures[slot].pixels != NULL) ? (int16_t)slot : -1;
-}
-
-static void forge_preview_append_part_68b(
+/* a part's vertices (68 bytes each), posed by the model's nodes, into the box */
+static void forge_stock_bounds_add_part_68b(
 	uint8_t const *verts_68,
 	int32_t vtx_cnt,
-	uint16_t const *strip_indices,
-	int32_t idx_cnt,
 	struct real_matrix4x3 const *node_mats,
 	int32_t node_cnt,
 	uint8_t const *local_nodes,
-	int32_t local_node_cnt,
-	int16_t tex_idx,
-	float u_scale,
-	float v_scale)
+	int32_t local_node_cnt)
 {
-	int32_t base_v = s_forge_preview.vert_count;
-	int32_t vi, ii;
-
-	if (vtx_cnt < 3 || idx_cnt < 3)
-		return;
-	if (base_v + vtx_cnt > FORGE_PREVIEW_MAX_VERTS)
-		vtx_cnt = FORGE_PREVIEW_MAX_VERTS - base_v;
-	if (vtx_cnt < 3)
-		return;
+	int32_t vi;
 
 	for (vi = 0; vi < vtx_cnt; vi++)
 	{
 		uint8_t const *vp = verts_68 + (size_t)vi * 68u;
+		float position[3];
 		float px = *(float const *)(vp + 0u);
 		float py = *(float const *)(vp + 4u);
 		float pz = *(float const *)(vp + 8u);
-		float nx = *(float const *)(vp + 12u);
-		float ny = *(float const *)(vp + 16u);
-		float nz = *(float const *)(vp + 20u);
-		float vu = *(float const *)(vp + 48u);
-		float vv = *(float const *)(vp + 52u);
 		int16_t n0 = *(int16_t const *)(vp + 56u);
 		int16_t n1 = *(int16_t const *)(vp + 58u);
 		float w0 = *(float const *)(vp + 60u);
 		float w1 = *(float const *)(vp + 64u);
+		int axis;
 
 		if (!(px > -10000.0f && px < 10000.0f)) px = 0.0f;
 		if (!(py > -10000.0f && py < 10000.0f)) py = 0.0f;
 		if (!(pz > -10000.0f && pz < 10000.0f)) pz = 0.0f;
-		if (!(nx >= -2.0f && nx <= 2.0f)) nx = 0.0f;
-		if (!(ny >= -2.0f && ny <= 2.0f)) ny = 0.0f;
-		if (!(nz >= -2.0f && nz <= 2.0f)) nz = 1.0f;
-		if (!(vu > -10000.0f && vu < 10000.0f)) vu = 0.0f;
-		if (!(vv > -10000.0f && vv < 10000.0f)) vv = 0.0f;
 		if (!(w0 >= 0.0f && w0 <= 1.0f)) w0 = 1.0f;
 		if (!(w1 >= 0.0f && w1 <= 1.0f)) w1 = 0.0f;
 		if (w0 + w1 <= 0.001f) { w0 = 1.0f; w1 = 0.0f; }
@@ -9783,18 +8745,9 @@ static void forge_preview_append_part_68b(
 				float tx1 = m1->scale * (m1->forward.i * px + m1->left.i * py + m1->up.i * pz) + m1->position.x;
 				float ty1 = m1->scale * (m1->forward.j * px + m1->left.j * py + m1->up.j * pz) + m1->position.y;
 				float tz1 = m1->scale * (m1->forward.k * px + m1->left.k * py + m1->up.k * pz) + m1->position.z;
-				float tnx0 = m0->forward.i * nx + m0->left.i * ny + m0->up.i * nz;
-				float tny0 = m0->forward.j * nx + m0->left.j * ny + m0->up.j * nz;
-				float tnz0 = m0->forward.k * nx + m0->left.k * ny + m0->up.k * nz;
-				float tnx1 = m1->forward.i * nx + m1->left.i * ny + m1->up.i * nz;
-				float tny1 = m1->forward.j * nx + m1->left.j * ny + m1->up.j * nz;
-				float tnz1 = m1->forward.k * nx + m1->left.k * ny + m1->up.k * nz;
 				px = w0 * tx0 + w1 * tx1;
 				py = w0 * ty0 + w1 * ty1;
 				pz = w0 * tz0 + w1 * tz1;
-				nx = w0 * tnx0 + w1 * tnx1;
-				ny = w0 * tny0 + w1 * tny1;
-				nz = w0 * tnz0 + w1 * tnz1;
 			}
 			else if (n0 >= 0 && n0 < node_cnt)
 			{
@@ -9802,46 +8755,20 @@ static void forge_preview_append_part_68b(
 				float tx = m->scale * (m->forward.i * px + m->left.i * py + m->up.i * pz) + m->position.x;
 				float ty = m->scale * (m->forward.j * px + m->left.j * py + m->up.j * pz) + m->position.y;
 				float tz = m->scale * (m->forward.k * px + m->left.k * py + m->up.k * pz) + m->position.z;
-				float tnx = m->forward.i * nx + m->left.i * ny + m->up.i * nz;
-				float tny = m->forward.j * nx + m->left.j * ny + m->up.j * nz;
-				float tnz = m->forward.k * nx + m->left.k * ny + m->up.k * nz;
 				px = tx; py = ty; pz = tz;
-				nx = tnx; ny = tny; nz = tnz;
 			}
 		}
-		s_forge_preview.verts[base_v + vi][0] = px;
-		s_forge_preview.verts[base_v + vi][1] = py;
-		s_forge_preview.verts[base_v + vi][2] = pz;
-		s_forge_preview.norms[base_v + vi][0] = nx;
-		s_forge_preview.norms[base_v + vi][1] = ny;
-		s_forge_preview.norms[base_v + vi][2] = nz;
-		s_forge_preview.uvs[base_v + vi][0] = vu * u_scale;
-		s_forge_preview.uvs[base_v + vi][1] = vv * v_scale;
-	}
-	s_forge_preview.vert_count += vtx_cnt;
-
-	for (ii = 0; ii + 2 < idx_cnt && s_forge_preview.tri_count < FORGE_PREVIEW_MAX_TRIS; ii++)
-	{
-		uint16_t i0 = strip_indices[ii];
-		uint16_t i1 = strip_indices[ii + 1];
-		uint16_t i2 = strip_indices[ii + 2];
-		if (i0 == 0xFFFFu || i1 == 0xFFFFu || i2 == 0xFFFFu)
-			continue;
-		if (i0 == i1 || i1 == i2 || i0 == i2)
-			continue;
-		if (i0 >= (uint16_t)vtx_cnt || i1 >= (uint16_t)vtx_cnt || i2 >= (uint16_t)vtx_cnt)
-			continue;
-		if (ii & 1)
+		position[0] = px;
+		position[1] = py;
+		position[2] = pz;
+		for (axis = 0; axis < 3; axis++)
 		{
-			uint16_t tmp = i1;
-			i1 = i2;
-			i2 = tmp;
+			if (!s_stock_bounds_found || position[axis] < s_stock_bounds_min[axis])
+				s_stock_bounds_min[axis] = position[axis];
+			if (!s_stock_bounds_found || position[axis] > s_stock_bounds_max[axis])
+				s_stock_bounds_max[axis] = position[axis];
 		}
-		s_forge_preview.tris[s_forge_preview.tri_count].v0 = (uint16_t)(base_v + i0);
-		s_forge_preview.tris[s_forge_preview.tri_count].v1 = (uint16_t)(base_v + i1);
-		s_forge_preview.tris[s_forge_preview.tri_count].v2 = (uint16_t)(base_v + i2);
-		s_forge_preview.tris[s_forge_preview.tri_count].tex_idx = tex_idx;
-		s_forge_preview.tri_count++;
+		s_stock_bounds_found = 1;
 	}
 }
 
@@ -9912,281 +8839,7 @@ static void forge_preview_compute_node_mats(
 	}
 }
 
-static int forge_preview_load_from_ocetags_json(char const *json, size_t json_len)
-{
-	size_t tags_pos = 0, tags_end = 0, p;
-	uint16_t preferred_mod_low = 0xFFFFu;
-	int have_preferred_mod = 0;
-	int pass;
-
-	if (!json || json_len < 32)
-		return 0;
-	if (!ocetags_json_find_key_range(json, 0, json_len, "tags", &tags_pos) ||
-		!ocetags_json_skip_value(json, tags_pos, json_len, &tags_end))
-		return 0;
-
-	/* Inspect root tag (tags[0]) to identify the primary 'mod2'/'mode' tag's originalIndex */
-	p = tags_pos + 1;
-	while (p < tags_end && json[p] != '{' && json[p] != ']') p++;
-	if (p < tags_end && json[p] == '{')
-	{
-		size_t root_start = p, root_end = 0;
-		if (ocetags_json_skip_value(json, root_start, tags_end, &root_end))
-		{
-			char rgstr[64];
-			uint32_t rfourcc;
-			size_t rd_len = 0;
-			uint8_t *r_buf;
-			rgstr[0] = 0;
-			ocetags_json_get_str(json, root_start, root_end, "group", rgstr, sizeof(rgstr));
-			rfourcc = ocetags_group_str_to_fourcc(rgstr);
-			r_buf = ocetags_json_decode_base64_key(json, root_start, root_end, "data", &rd_len);
-			if (r_buf)
-			{
-				if (rfourcc == 'actv' && rd_len >= 0x24u)
-				{
-					int32_t unit_ref = *(int32_t const *)(r_buf + 0x20u);
-					if (unit_ref != -1 && unit_ref != 0)
-					{
-						uint16_t unit_low = (uint16_t)((uint32_t)unit_ref & 0xFFFFu);
-						size_t up = root_end;
-						while (up < tags_end)
-						{
-							size_t u_start, u_end;
-							uint32_t u_orig = 0xFFFFFFFFu;
-							while (up < tags_end && json[up] != '{' && json[up] != ']') up++;
-							if (up >= tags_end || json[up] != '{') break;
-							u_start = up;
-							if (!ocetags_json_skip_value(json, u_start, tags_end, &u_end)) break;
-							if (ocetags_json_get_u32(json, u_start, u_end, "originalIndex", &u_orig) &&
-								(uint16_t)(u_orig & 0xFFFFu) == unit_low)
-							{
-								size_t ud_len = 0;
-								uint8_t *u_buf = ocetags_json_decode_base64_key(json, u_start, u_end, "data", &ud_len);
-								if (u_buf && ud_len >= 0x38u)
-								{
-									int32_t m_ref = *(int32_t const *)(u_buf + 0x34u);
-									if (m_ref != -1 && m_ref != 0)
-									{
-										preferred_mod_low = (uint16_t)((uint32_t)m_ref & 0xFFFFu);
-										have_preferred_mod = 1;
-									}
-								}
-								free(u_buf);
-								break;
-							}
-							up = u_end;
-						}
-					}
-				}
-				else if (rd_len >= 0x38u)
-				{
-					int32_t m_ref = *(int32_t const *)(r_buf + 0x34u);
-					if (m_ref != -1 && m_ref != 0)
-					{
-						preferred_mod_low = (uint16_t)((uint32_t)m_ref & 0xFFFFu);
-						have_preferred_mod = 1;
-					}
-				}
-				free(r_buf);
-			}
-		}
-	}
-
-	for (pass = 0; pass < 2; pass++)
-	{
-		p = tags_pos + 1;
-		while (p < tags_end)
-		{
-			size_t obj_start, obj_end;
-			char gstr[64];
-			uint32_t fourcc;
-			while (p < tags_end && json[p] != '{' && json[p] != ']') p++;
-			if (p >= tags_end || json[p] != '{') break;
-			obj_start = p;
-			if (!ocetags_json_skip_value(json, obj_start, tags_end, &obj_end)) break;
-			gstr[0] = 0;
-			ocetags_json_get_str(json, obj_start, obj_end, "group", gstr, sizeof(gstr));
-			fourcc = ocetags_group_str_to_fourcc(gstr);
-			if (fourcc == 'mod2' || fourcc == 'mode')
-			{
-				if (pass == 0)
-				{
-					uint32_t orig_idx = 0xFFFFFFFFu;
-					char mpath[256];
-					mpath[0] = 0;
-					ocetags_json_get_str(json, obj_start, obj_end, "path", mpath, sizeof(mpath));
-					if (have_preferred_mod &&
-						ocetags_json_get_u32(json, obj_start, obj_end, "originalIndex", &orig_idx))
-					{
-						if ((uint16_t)(orig_idx & 0xFFFFu) != preferred_mod_low)
-						{
-							p = obj_end;
-							continue;
-						}
-					}
-					else if (strstr(mpath, "\\fp\\") != NULL || strstr(mpath, "/fp/") != NULL)
-					{
-						p = obj_end;
-						continue;
-					}
-				}
-			{
-				size_t d_len = 0;
-				uint8_t *mod_buf = ocetags_json_decode_base64_key(json, obj_start, obj_end, "data", &d_len);
-				struct real_matrix4x3 node_mats[64];
-				int32_t node_cnt = 0;
-				size_t gparts_arr = 0, gparts_end = 0;
-
-			if (mod_buf && d_len >= 0xE8u)
-			{
-				int32_t nc = *(int32_t const *)(mod_buf + 0xB8u);
-				uint32_t n_rel = *(uint32_t const *)(mod_buf + 0xBCu);
-				if (nc > 0 && nc <= 64 && n_rel >= 0xE8u && n_rel + (uint32_t)nc * 156u <= d_len)
-				{
-					node_cnt = nc;
-					forge_preview_compute_node_mats(mod_buf + n_rel, node_cnt, node_mats);
-				}
-			}
-
-			if (ocetags_json_find_key_range(json, obj_start, obj_end, "gbxmodelGeometryParts", &gparts_arr) &&
-				ocetags_json_skip_value(json, gparts_arr, obj_end, &gparts_end))
-			{
-				int has_local_nodes = (mod_buf && d_len >= 0xE8u && (*(uint32_t const *)(mod_buf + 0x00) & 2u) != 0);
-				uint8_t active_geom[256];
-				int has_region_filter = 0;
-				size_t gp = gparts_arr + 1;
-
-				memset(active_geom, 0, sizeof(active_geom));
-				if (mod_buf && d_len >= 0xE8u)
-				{
-					int32_t reg_cnt = *(int32_t const *)(mod_buf + 0xC4u);
-					uint32_t reg_rel = *(uint32_t const *)(mod_buf + 0xC8u);
-					int32_t geom_cnt = *(int32_t const *)(mod_buf + 0xD0u);
-					int32_t r_i;
-					if (reg_cnt > 0 && reg_cnt <= 32 && reg_rel >= 0xE8u &&
-						(uint64_t)reg_rel + (uint64_t)reg_cnt * 76u <= d_len)
-					{
-						for (r_i = 0; r_i < reg_cnt; r_i++)
-						{
-							uint32_t r_off = reg_rel + (uint32_t)r_i * 76u;
-							int32_t perm_cnt = *(int32_t const *)(mod_buf + r_off + 64u);
-							uint32_t perm_rel = *(uint32_t const *)(mod_buf + r_off + 68u);
-							if (perm_cnt > 0 && perm_rel >= 0xE8u && (uint64_t)perm_rel + 88u <= d_len)
-							{
-								int lod_i;
-								for (lod_i = 4; lod_i >= 0; lod_i--)
-								{
-									int16_t cand_g = *(int16_t const *)(mod_buf + perm_rel + 64u + (uint32_t)lod_i * 2u);
-									if (cand_g >= 0 && cand_g < geom_cnt && cand_g < 256)
-									{
-										active_geom[cand_g] = 1;
-										has_region_filter = 1;
-										break;
-									}
-								}
-							}
-						}
-					}
-				}
-
-				while (gp < gparts_end)
-				{
-					size_t gp_start, gp_end;
-					size_t vb_len = 0, tb_len = 0;
-					uint8_t *v_raw;
-					uint8_t *t_raw;
-					uint8_t const *local_nodes = NULL;
-					int32_t local_node_cnt = 0;
-					int16_t part_shader_idx = -1;
-					int16_t tex_idx = -1;
-					float sh_u_scale = 1.0f, sh_v_scale = 1.0f;
-					float mod_u_scale = 1.0f, mod_v_scale = 1.0f;
-					uint32_t g_i = 0, p_i = 0;
-					int have_gp_idx;
-					while (gp < gparts_end && json[gp] != '{' && json[gp] != ']') gp++;
-					if (gp >= gparts_end || json[gp] != '{') break;
-					gp_start = gp;
-					if (!ocetags_json_skip_value(json, gp_start, gparts_end, &gp_end)) break;
-					have_gp_idx = (ocetags_json_get_u32(json, gp_start, gp_end, "geometryIndex", &g_i) &&
-								   ocetags_json_get_u32(json, gp_start, gp_end, "partIndex", &p_i));
-					if (have_gp_idx && has_region_filter && g_i < 256u && !active_geom[g_i])
-					{
-						gp = gp_end;
-						continue;
-					}
-					if (mod_buf && d_len >= 0xE8u)
-					{
-						mod_u_scale = *(float const *)(mod_buf + 0x30u);
-						mod_v_scale = *(float const *)(mod_buf + 0x34u);
-						if (!(mod_u_scale > 0.0001f && mod_u_scale < 1000.0f)) mod_u_scale = 1.0f;
-						if (!(mod_v_scale > 0.0001f && mod_v_scale < 1000.0f)) mod_v_scale = 1.0f;
-					}
-					if (mod_buf && d_len >= 0xE8u && have_gp_idx)
-					{
-						int32_t geom_cnt = *(int32_t const *)(mod_buf + 0xD0u);
-						uint32_t geom_rel = *(uint32_t const *)(mod_buf + 0xD4u);
-						if ((int32_t)g_i < geom_cnt && geom_rel >= 0xE8u && (uint64_t)geom_rel + (uint64_t)geom_cnt * 48u <= d_len)
-						{
-							uint8_t const *g_ptr = mod_buf + geom_rel + (size_t)g_i * 48u;
-							int32_t part_cnt = *(int32_t const *)(g_ptr + 36u);
-							uint32_t parts_rel = *(uint32_t const *)(g_ptr + 40u);
-							if ((int32_t)p_i < part_cnt && parts_rel >= 0xE8u && (uint64_t)parts_rel + (uint64_t)part_cnt * 132u <= d_len)
-							{
-								uint8_t const *ce_part = mod_buf + parts_rel + (size_t)p_i * 132u;
-								part_shader_idx = *(int16_t const *)(ce_part + 0x04u);
-								if (has_local_nodes)
-								{
-									local_node_cnt = (int32_t)ce_part[107];
-									local_nodes = ce_part + 108;
-								}
-							}
-						}
-					}
-					if (part_shader_idx >= 0)
-					{
-						tex_idx = forge_preview_resolve_ocetags_part_shader(
-							json, tags_pos, tags_end, mod_buf, d_len,
-							part_shader_idx, &sh_u_scale, &sh_v_scale);
-					}
-					v_raw = ocetags_json_decode_base64_key(json, gp_start, gp_end, "vertexData", &vb_len);
-					if (!v_raw)
-						v_raw = ocetags_json_decode_base64_key(json, gp_start, gp_end, "vertices", &vb_len);
-					t_raw = ocetags_json_decode_base64_key(json, gp_start, gp_end, "triangleData", &tb_len);
-					if (!t_raw)
-						t_raw = ocetags_json_decode_base64_key(json, gp_start, gp_end, "triangles", &tb_len);
-					if (v_raw && t_raw && vb_len >= 3u * 68u && tb_len >= 6u)
-					{
-						forge_preview_append_part_68b(
-							v_raw,
-							(int32_t)(vb_len / 68u),
-							(uint16_t const *)t_raw,
-							(int32_t)(tb_len / 2u),
-							(node_cnt > 0) ? node_mats : NULL,
-							node_cnt,
-							local_nodes,
-							local_node_cnt,
-							tex_idx,
-							mod_u_scale * sh_u_scale,
-							mod_v_scale * sh_v_scale);
-					}
-					free(v_raw);
-					free(t_raw);
-					gp = gp_end;
-				}
-			}
-			free(mod_buf);
-			if (s_forge_preview.tri_count > 0)
-				return 1;
-			}
-		}
-		p = obj_end;
-	}
-	}
-	return 0;
-}
-
-static int forge_preview_load_from_donor_map(char const *map_path, uint32_t group_tag, char const *tag_path)
+static int forge_stock_bounds_from_donor_map(char const *map_path, uint32_t group_tag, char const *tag_path)
 {
 	struct forge_donor_map_ctx ctx;
 	struct forge_ext_closure_list *closure;
@@ -10208,26 +8861,10 @@ static int forge_preview_load_from_donor_map(char const *map_path, uint32_t grou
 		return 0;
 	}
 
-	/* Compute approximate closure size in bytes for the info panel, and keep closure for child mod2 fallback */
+	/* The closure, for a child mod2 to fall back on */
 	closure = (struct forge_ext_closure_list *)calloc(1, sizeof(*closure));
 	if (closure)
-	{
-		int ci;
-		uint32_t est_bytes = 0;
 		forge_donor_add_tag_closure(&ctx, root_idx, closure, 0);
-		for (ci = 0; ci < closure->count; ci++)
-		{
-			int32_t ti = closure->tag_indices[ci];
-			uint32_t tio = ctx.inst_off + (uint32_t)ti * 32u;
-			uint32_t tgrp = *(uint32_t const *)(ctx.tag_buf + tio + 0x00);
-			struct tag_schema_group const *sg = forge_runtime_schema_group_get((tgrp == 'mode') ? 'mod2' : tgrp);
-			if (sg && sg->definition && sg->definition->size > 0)
-				est_bytes += (uint32_t)sg->definition->size * 4u;
-			else
-				est_bytes += 2048u;
-		}
-		s_forge_preview.tag_size_bytes = est_bytes;
-	}
 
 	mod_idx = -1;
 	obj_io = ctx.inst_off + (uint32_t)root_idx * 32u;
@@ -10330,13 +8967,6 @@ static int forge_preview_load_from_donor_map(char const *map_path, uint32_t grou
 
 	/* Load highest LOD geometry of each region (or geometry 0 if no regions) */
 	{
-	int32_t shaders_cnt = *(int32_t const *)(ctx.tag_buf + mod_off + 0xDCu);
-	uint32_t shaders_addr = *(uint32_t const *)(ctx.tag_buf + mod_off + 0xE0u);
-	float mod_u_scale = *(float const *)(ctx.tag_buf + mod_off + 0x30u);
-	float mod_v_scale = *(float const *)(ctx.tag_buf + mod_off + 0x34u);
-	if (!(mod_u_scale > 0.0001f && mod_u_scale < 1000.0f)) mod_u_scale = 1.0f;
-	if (!(mod_v_scale > 0.0001f && mod_v_scale < 1000.0f)) mod_v_scale = 1.0f;
-
 	for (r_i = 0; r_i < ((reg_cnt > 0 && reg_cnt <= 32) ? reg_cnt : 1); r_i++)
 	{
 		int32_t g_idx = 0;
@@ -10377,10 +9007,6 @@ static int forge_preview_load_from_donor_map(char const *map_path, uint32_t grou
 		for (p_idx = 0; p_idx < part_cnt; p_idx++)
 		{
 			uint8_t const *sp = ctx.tag_buf + (parts_addr - ctx.tag_base) + (uint32_t)p_idx * part_stride;
-			int16_t part_shader_idx = *(int16_t const *)(sp + 0x04u);
-			float sh_u_scale = 1.0f, sh_v_scale = 1.0f;
-			int16_t tex_idx = forge_preview_resolve_donor_part_shader(
-				&ctx, shaders_cnt, shaders_addr, part_shader_idx, &sh_u_scale, &sh_v_scale);
 
 			if (!ctx.is_xbox_v5)
 			{
@@ -10400,17 +9026,13 @@ static int forge_preview_load_from_donor_map(char const *map_path, uint32_t grou
 						fseek(ctx.map_fp, (long)(ctx.idx_file_off + idx_off), SEEK_SET) == 0 &&
 						fread(i_buf, 1, i_bytes, ctx.map_fp) == i_bytes)
 					{
-						s_forge_preview.tag_size_bytes += (uint32_t)(v_bytes + i_bytes);
 						{
 							int has_local_nodes = ((*(uint32_t const *)(ctx.tag_buf + mod_off + 0x00) & 2u) != 0);
-							forge_preview_append_part_68b(
-								v_buf, vtx_cnt, i_buf, tri_cnt + 2,
+							forge_stock_bounds_add_part_68b(
+								v_buf, vtx_cnt,
 								(node_cnt > 0) ? node_mats : NULL, node_cnt,
 								has_local_nodes ? (sp + 108u) : NULL,
-								has_local_nodes ? (int32_t)sp[107u] : 0,
-								tex_idx,
-								mod_u_scale * sh_u_scale,
-								mod_v_scale * sh_v_scale);
+								has_local_nodes ? (int32_t)sp[107u] : 0);
 						}
 					}
 					free(v_buf);
@@ -10465,16 +9087,10 @@ static int forge_preview_load_from_donor_map(char const *map_path, uint32_t grou
 									v_buf + (size_t)vi * 68u);
 							}
 						}
-						s_forge_preview.tag_size_bytes += (uint32_t)vtx_cnt * v_stride + (uint32_t)(tri_cnt + 2) * 2u;
-						forge_preview_append_part_68b(
+						forge_stock_bounds_add_part_68b(
 							v_buf, vtx_cnt,
-							(uint16_t const *)(ctx.tag_buf + (tri_addr - ctx.tag_base)),
-							tri_cnt + 2,
 							(node_cnt > 0) ? node_mats : NULL, node_cnt,
-							NULL, 0,
-							tex_idx,
-							mod_u_scale * sh_u_scale,
-							mod_v_scale * sh_v_scale);
+							NULL, 0);
 						free(v_buf);
 					}
 				}
@@ -10484,590 +9100,41 @@ static int forge_preview_load_from_donor_map(char const *map_path, uint32_t grou
 	}
 
 	forge_donor_map_close(&ctx);
-	return (s_forge_preview.tri_count > 0) ? 1 : 0;
+	return s_stock_bounds_found;
 }
 
-static void forge_preview_draw_line_2d(
-	uint32_t *pix,
-	float x0f, float y0f, float z0,
-	float x1f, float y1f, float z1,
-	uint32_t color,
-	int depth_test)
+/* whether a tag is one of the default palette's, the path of the map of the
+pack it was found in into `map_path` (which may be NULL) */
+int forge_snap_points_stock_tag(uint32_t group_tag, char const *tag_path, char *map_path, size_t map_path_size)
 {
-	float dx = x1f - x0f;
-	float dy = y1f - y0f;
-	float adx = (dx >= 0.0f) ? dx : -dx;
-	float ady = (dy >= 0.0f) ? dy : -dy;
-	int steps = (int)((adx > ady) ? adx : ady);
-	int s;
+	long pack = port_tag_packs_find(FORGE_PACK);
+	int ci;
 
-	if (steps <= 0) steps = 1;
-	if (steps > 600) return;
-	for (s = 0; s <= steps; s++)
+	if (pack < 0 || !tag_path || !tag_path[0])
+		return 0;
+	for (ci = 0; ci < g_forge.catalog_count; ci++)
 	{
-		float t = (float)s / (float)steps;
-		int x = (int)(x0f + dx * t + 0.5f);
-		int y = (int)(y0f + dy * t + 0.5f);
-		float z = z0 + (z1 - z0) * t;
-		if (x >= 0 && x < FORGE_PREVIEW_W && y >= 0 && y < FORGE_PREVIEW_H)
+		if (g_forge.catalog[ci].pad && g_forge.catalog[ci].group_tag == group_tag &&
+			_stricmp(g_forge.catalog[ci].tag_path, tag_path) == 0)
 		{
-			int idx = y * FORGE_PREVIEW_W + x;
-			if (!depth_test || z >= s_forge_preview.zbuf[idx] - 0.02f)
-				pix[idx] = color;
+			if (map_path)
+				snprintf(map_path, map_path_size, "maps/%s.map", port_tag_packs_map(pack, g_forge.catalog[ci].pad - 1));
+			return 1;
 		}
 	}
+	return 0;
 }
 
-static void forge_preview_render_frame(unsigned long now_ms)
+int forge_snap_points_read_stock_bounds(uint32_t group_tag, char const *tag_path)
 {
-	uint32_t *pix;
-	float angle, ca, sa, cp, sp, scale, scale_x;
-	int i, g;
+	char map_path[512];
 
-	if (!s_forge_preview.bitmap || !s_forge_preview.bitmap->base_address)
-		return;
-	pix = XBOX_POINTER(uint32_t, s_forge_preview.bitmap->base_address);
-
-	/* Subtle dark two-tone gradient backdrop inside the 140x114 preview viewport */
-	for (i = 0; i < FORGE_PREVIEW_W * FORGE_PREVIEW_H; i++)
-	{
-		int y = i / FORGE_PREVIEW_W;
-		uint32_t r = (uint32_t)(5 + (y * 8) / FORGE_PREVIEW_H);
-		uint32_t gr = (uint32_t)(12 + (y * 16) / FORGE_PREVIEW_H);
-		uint32_t b = (uint32_t)(24 + (y * 28) / FORGE_PREVIEW_H);
-		pix[i] = 0xFF000000u | (r << 16) | (gr << 8) | b;
-		s_forge_preview.zbuf[i] = -1e9f;
-	}
-
-	if (s_forge_preview.snap_editor_active)
-	{
-		float pitch_rad = s_forge_preview.snap_cam_pitch_deg * (3.14159265f / 180.0f);
-		float zm = (s_forge_preview.snap_cam_zoom > 0.2f) ? s_forge_preview.snap_cam_zoom : 1.0f;
-		angle = s_forge_preview.snap_cam_yaw_deg * (3.14159265f / 180.0f);
-		ca = (float)cos((double)angle);
-		sa = (float)sin((double)angle);
-		cp = (float)cos((double)pitch_rad);
-		sp = (float)sin((double)pitch_rad);
-		scale = (FORGE_PREVIEW_H * 0.41f * zm) / ((s_forge_preview.radius > 0.001f) ? s_forge_preview.radius : 1.0f);
-	}
-	else
-	{
-		angle = (float)(now_ms % 7000u) * (6.2831853f / 7000.0f) + 0.8f;
-		ca = (float)cos((double)angle);
-		sa = (float)sin((double)angle);
-		cp = (float)cos(0.36);
-		sp = (float)sin(0.36);
-		scale = (FORGE_PREVIEW_H * 0.43f) / ((s_forge_preview.radius > 0.001f) ? s_forge_preview.radius : 1.0f);
-	}
-	/* Compensate for the 140x114 widget aspect ratio so the 256x256 square texture renders 1:1 unstretched */
-	scale_x = scale * (114.0f / 140.0f);
-
-	/* Render rotating ground grid under the normalized bounding sphere */
-	for (g = -3; g <= 3; g++)
-	{
-		float d = (float)g * (s_forge_preview.radius * 0.32f);
-		float ext = 3.0f * (s_forge_preview.radius * 0.32f);
-		float gz = -s_forge_preview.radius * 0.78f;
-		uint32_t gcol = (g == 0) ? 0xFF1E5C9Eu : 0xFF12365Eu;
-		int axis;
-		for (axis = 0; axis < 2; axis++)
-		{
-			float x0 = (axis == 0) ? -ext : d;
-			float y0 = (axis == 0) ? d : -ext;
-			float x1 = (axis == 0) ? ext : d;
-			float y1 = (axis == 0) ? d : ext;
-			float tw0 = x0 * ca - y0 * sa;
-			float rt0 = x0 * sa + y0 * ca;
-			float up0 = gz * cp - tw0 * sp;
-			float dp0 = tw0 * cp + gz * sp;
-			float tw1 = x1 * ca - y1 * sa;
-			float rt1 = x1 * sa + y1 * ca;
-			float up1 = gz * cp - tw1 * sp;
-			float dp1 = tw1 * cp + gz * sp;
-			forge_preview_draw_line_2d(
-				pix,
-				FORGE_PREVIEW_W * 0.5f + rt0 * scale_x,
-				FORGE_PREVIEW_H * 0.54f - up0 * scale,
-				dp0,
-				FORGE_PREVIEW_W * 0.5f + rt1 * scale_x,
-				FORGE_PREVIEW_H * 0.54f - up1 * scale,
-				dp1,
-				gcol,
-				0);
-		}
-	}
-
-	/* Project vertices and compute two-tone directional + rim lighting */
-	for (i = 0; i < s_forge_preview.vert_count; i++)
-	{
-		float x = s_forge_preview.verts[i][0] - s_forge_preview.center[0];
-		float y = s_forge_preview.verts[i][1] - s_forge_preview.center[1];
-		float z = s_forge_preview.verts[i][2] - s_forge_preview.center[2];
-		float nx = s_forge_preview.norms[i][0];
-		float ny = s_forge_preview.norms[i][1];
-		float nz = s_forge_preview.norms[i][2];
-		float toward = x * ca - y * sa;
-		float right = x * sa + y * ca;
-		float up = z * cp - toward * sp;
-		float n_tw = nx * ca - ny * sa;
-		float n_rt = nx * sa + ny * ca;
-		float n_up = nz * cp - n_tw * sp;
-		float n_len;
-
-		n_tw = n_tw * cp + nz * sp;
-		s_forge_preview.proj[i][0] = FORGE_PREVIEW_W * 0.5f + right * scale_x;
-		s_forge_preview.proj[i][1] = FORGE_PREVIEW_H * 0.52f - up * scale;
-		s_forge_preview.proj[i][2] = toward * cp + z * sp;
-
-		n_len = (float)sqrt((double)(n_rt * n_rt + n_up * n_up + n_tw * n_tw));
-		if (n_len > 0.001f)
-		{
-			float dot_l, rim;
-			if (n_tw < 0.0f) n_len = -n_len;
-			n_rt /= n_len; n_up /= n_len; n_tw /= n_len;
-			dot_l = n_rt * (-0.42f) + n_up * 0.56f + n_tw * 0.71f;
-			if (dot_l < 0.0f) dot_l = 0.0f;
-			rim = 1.0f - n_tw;
-			if (rim < 0.0f) rim = 0.0f;
-			s_forge_preview.shade[i][0] = 0.30f + 0.70f * dot_l;
-			s_forge_preview.shade[i][1] = rim * rim * 0.65f;
-		}
-		else
-		{
-			s_forge_preview.shade[i][0] = 0.65f;
-			s_forge_preview.shade[i][1] = 0.15f;
-		}
-	}
-
-	/* Rasterize triangles (diffuse bitmap textured in ADD TAGS / INSTALLED TAGS, or two-tone shaded in SNAP POINTS) */
-	for (i = 0; i < s_forge_preview.tri_count; i++)
-	{
-		uint16_t i0 = s_forge_preview.tris[i].v0;
-		uint16_t i1 = s_forge_preview.tris[i].v1;
-		uint16_t i2 = s_forge_preview.tris[i].v2;
-		int16_t t_id = s_forge_preview.tris[i].tex_idx;
-		struct forge_preview_texture const *tex =
-			(s_forge_preview.use_textures && t_id >= 0 && t_id < s_forge_preview.tex_count &&
-			 s_forge_preview.textures[t_id].pixels != NULL &&
-			 s_forge_preview.textures[t_id].width > 0 && s_forge_preview.textures[t_id].height > 0)
-			? &s_forge_preview.textures[t_id]
-			: NULL;
-		float const *a = s_forge_preview.proj[i0];
-		float const *b = s_forge_preview.proj[i1];
-		float const *c = s_forge_preview.proj[i2];
-		float u0 = s_forge_preview.uvs[i0][0], v0 = s_forge_preview.uvs[i0][1];
-		float u1 = s_forge_preview.uvs[i1][0], v1 = s_forge_preview.uvs[i1][1];
-		float u2 = s_forge_preview.uvs[i2][0], v2 = s_forge_preview.uvs[i2][1];
-		float area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-		int min_x, max_x, min_y, max_y, x, y;
-		float inv_area;
-
-		if (area > -0.05f && area < 0.05f)
-			continue;
-		inv_area = 1.0f / area;
-
-		min_x = (int)floor(MIN(a[0], MIN(b[0], c[0])));
-		max_x = (int)ceil(MAX(a[0], MAX(b[0], c[0])));
-		min_y = (int)floor(MIN(a[1], MIN(b[1], c[1])));
-		max_y = (int)ceil(MAX(a[1], MAX(b[1], c[1])));
-		if (min_x < 0) min_x = 0;
-		if (max_x >= FORGE_PREVIEW_W) max_x = FORGE_PREVIEW_W - 1;
-		if (min_y < 0) min_y = 0;
-		if (max_y >= FORGE_PREVIEW_H) max_y = FORGE_PREVIEW_H - 1;
-
-		for (y = min_y; y <= max_y; y++)
-		{
-			float py = (float)y + 0.5f;
-			for (x = min_x; x <= max_x; x++)
-			{
-				float px = (float)x + 0.5f;
-				float w0 = ((b[0] - px) * (c[1] - py) - (b[1] - py) * (c[0] - px)) * inv_area;
-				float w1 = ((c[0] - px) * (a[1] - py) - (c[1] - py) * (a[0] - px)) * inv_area;
-				float w2 = 1.0f - w0 - w1;
-				int tidx;
-				float z, lit, rim;
-				uint32_t cr, cg, cb;
-
-				if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f)
-					continue;
-				tidx = y * FORGE_PREVIEW_W + x;
-				z = w0 * a[2] + w1 * b[2] + w2 * c[2];
-				if (z <= s_forge_preview.zbuf[tidx])
-					continue;
-
-				lit = w0 * s_forge_preview.shade[i0][0] + w1 * s_forge_preview.shade[i1][0] + w2 * s_forge_preview.shade[i2][0];
-				rim = w0 * s_forge_preview.shade[i0][1] + w1 * s_forge_preview.shade[i1][1] + w2 * s_forge_preview.shade[i2][1];
-
-				if (tex)
-				{
-					float u = w0 * u0 + w1 * u1 + w2 * u2;
-					float v = w0 * v0 + w1 * v1 + w2 * v2;
-					int tx, ty;
-					uint32_t texel;
-					float shade_gain;
-
-					u -= (float)floor((double)u);
-					v -= (float)floor((double)v);
-					tx = (int)(u * (float)tex->width);
-					ty = (int)(v * (float)tex->height);
-					if (tx < 0) tx = 0;
-					else if (tx >= (int)tex->width) tx = (int)tex->width - 1;
-					if (ty < 0) ty = 0;
-					else if (ty >= (int)tex->height) ty = (int)tex->height - 1;
-
-					texel = tex->pixels[ty * (int)tex->width + tx];
-					if (tex->alpha_test && ((texel >> 24) & 0xFFu) < 32u)
-						continue;
-
-					s_forge_preview.zbuf[tidx] = z;
-					shade_gain = 0.28f + 1.15f * lit;
-					cr = (uint32_t)PIN((float)((texel >> 16) & 0xFFu) * shade_gain + 16.0f * rim, 0.0f, 255.0f);
-					cg = (uint32_t)PIN((float)((texel >> 8)  & 0xFFu) * shade_gain + 26.0f * rim, 0.0f, 255.0f);
-					cb = (uint32_t)PIN((float)( texel        & 0xFFu) * shade_gain + 40.0f * rim, 0.0f, 255.0f);
-					pix[tidx] = 0xFF000000u | (cr << 16) | (cg << 8) | cb;
-				}
-				else
-				{
-					float edge_dist = MIN(w0, MIN(w1, w2));
-					s_forge_preview.zbuf[tidx] = z;
-					if (edge_dist < 0.045f)
-						rim += 0.28f;
-					cr = (uint32_t)PIN(115.0f * lit + 40.0f * rim, 0.0f, 255.0f);
-					cg = (uint32_t)PIN(175.0f * lit + 150.0f * rim, 0.0f, 255.0f);
-					cb = (uint32_t)PIN(235.0f * lit + 255.0f * rim, 0.0f, 255.0f);
-					pix[tidx] = 0xFF000000u | (cr << 16) | (cg << 8) | cb;
-				}
-			}
-		}
-	}
-
-	if (s_forge_preview.vert_count <= 16)
-	{
-		for (i = 0; i < s_forge_preview.tri_count; i++)
-		{
-			uint16_t i0 = s_forge_preview.tris[i].v0;
-			uint16_t i1 = s_forge_preview.tris[i].v1;
-			uint16_t i2 = s_forge_preview.tris[i].v2;
-			float const *a = s_forge_preview.proj[i0];
-			float const *b = s_forge_preview.proj[i1];
-			float const *c = s_forge_preview.proj[i2];
-			forge_preview_draw_line_2d(pix, a[0], a[1], a[2], b[0], b[1], b[2], 0xFF2896FFu, 1);
-			forge_preview_draw_line_2d(pix, b[0], b[1], b[2], c[0], c[1], c[2], 0xFF2896FFu, 1);
-			forge_preview_draw_line_2d(pix, c[0], c[1], c[2], a[0], a[1], a[2], 0xFF2896FFu, 1);
-		}
-	}
-
-	/* Render 3D Bounding Box Wireframe & Snap Point Markers + Outward Normal Vectors */
-	{
-		struct forge_tag_snap_config const *snap_cfg = NULL;
-		if (s_forge_preview.current_tag_path[0])
-		{
-			snap_cfg = forge_snap_points_get_for_tag(
-				s_forge_preview.current_group_tag,
-				s_forge_preview.current_tag_path,
-				0);
-		}
-
-		if (s_forge_preview.snap_editor_active)
-		{
-			static int const s_box_edges[12][2] = {
-				{ 0, 1 }, { 1, 3 }, { 3, 2 }, { 2, 0 },
-				{ 4, 5 }, { 5, 7 }, { 7, 6 }, { 6, 4 },
-				{ 0, 4 }, { 1, 5 }, { 2, 6 }, { 3, 7 }
-			};
-			float bc[8][3];
-			int ci, ei;
-			for (ci = 0; ci < 8; ci++)
-			{
-				float bx = ((ci & 1) ? s_forge_preview.bbox_max[0] : s_forge_preview.bbox_min[0]) - s_forge_preview.center[0];
-				float by = ((ci & 2) ? s_forge_preview.bbox_max[1] : s_forge_preview.bbox_min[1]) - s_forge_preview.center[1];
-				float bz = ((ci & 4) ? s_forge_preview.bbox_max[2] : s_forge_preview.bbox_min[2]) - s_forge_preview.center[2];
-				float tw = bx * ca - by * sa;
-				float rt = bx * sa + by * ca;
-				float up = bz * cp - tw * sp;
-				bc[ci][0] = FORGE_PREVIEW_W * 0.5f + rt * scale_x;
-				bc[ci][1] = FORGE_PREVIEW_H * 0.52f - up * scale;
-				bc[ci][2] = tw * cp + bz * sp;
-			}
-			for (ei = 0; ei < 12; ei++)
-			{
-				int a = s_box_edges[ei][0];
-				int b = s_box_edges[ei][1];
-				forge_preview_draw_line_2d(
-					pix,
-					bc[a][0], bc[a][1], bc[a][2],
-					bc[b][0], bc[b][1], bc[b][2],
-					0xFF1E5688u,
-					0);
-			}
-		}
-
-		if (!s_forge_preview.use_textures && snap_cfg && snap_cfg->point_count > 0)
-		{
-			int p;
-			float n_len = s_forge_preview.radius * 0.34f;
-			if (n_len < 0.08f) n_len = 0.08f;
-			for (p = 0; p < snap_cfg->point_count && p < FORGE_MAX_SNAP_POINTS_PER_TAG; p++)
-			{
-				struct forge_snap_point const *pt = &snap_cfg->points[p];
-				int is_sel = (s_forge_preview.snap_editor_active && p == s_forge_preview.snap_active_pt_idx);
-				float px = pt->x - s_forge_preview.center[0];
-				float py = pt->y - s_forge_preview.center[1];
-				float pz = pt->z - s_forge_preview.center[2];
-				float ex = px + pt->nx * n_len;
-				float ey = py + pt->ny * n_len;
-				float ez = pz + pt->nz * n_len;
-				float tw0 = px * ca - py * sa;
-				float rt0 = px * sa + py * ca;
-				float up0 = pz * cp - tw0 * sp;
-				float dp0 = tw0 * cp + pz * sp;
-				float tw1 = ex * ca - ey * sa;
-				float rt1 = ex * sa + ey * ca;
-				float up1 = ez * cp - tw1 * sp;
-				float dp1 = tw1 * cp + ez * sp;
-				float sx0 = FORGE_PREVIEW_W * 0.5f + rt0 * scale_x;
-				float sy0 = FORGE_PREVIEW_H * 0.52f - up0 * scale;
-				float sx1 = FORGE_PREVIEW_W * 0.5f + rt1 * scale_x;
-				float sy1 = FORGE_PREVIEW_H * 0.52f - up1 * scale;
-				uint32_t pt_col = is_sel ? 0xFFFFE838u : 0xFF2896FFu;
-				uint32_t ln_col = is_sel ? 0xFF40FF60u : 0xFF60D8FFu;
-				int rad = is_sel ? 6 : 4;
-				int dy_i, dx_i;
-
-				/* Draw outward normal vector line */
-				forge_preview_draw_line_2d(pix, sx0, sy0, dp0, sx1, sy1, dp1, ln_col, 0);
-				if (is_sel)
-				{
-					forge_preview_draw_line_2d(pix, sx0 + 1.0f, sy0, dp0, sx1 + 1.0f, sy1, dp1, ln_col, 0);
-					forge_preview_draw_line_2d(pix, sx0, sy0 + 1.0f, dp0, sx1, sy1 + 1.0f, dp1, ln_col, 0);
-				}
-
-				/* Draw normal tip dot */
-				for (dy_i = -2; dy_i <= 2; dy_i++)
-				{
-					for (dx_i = -2; dx_i <= 2; dx_i++)
-					{
-						int tx = (int)(sx1 + 0.5f) + dx_i;
-						int ty = (int)(sy1 + 0.5f) + dy_i;
-						if (tx >= 0 && tx < FORGE_PREVIEW_W && ty >= 0 && ty < FORGE_PREVIEW_H)
-							pix[ty * FORGE_PREVIEW_W + tx] = ln_col;
-					}
-				}
-
-				/* Draw snap point diamond marker */
-				for (dy_i = -rad; dy_i <= rad; dy_i++)
-				{
-					int a_dy = (dy_i >= 0) ? dy_i : -dy_i;
-					for (dx_i = -rad; dx_i <= rad; dx_i++)
-					{
-						int a_dx = (dx_i >= 0) ? dx_i : -dx_i;
-						if (a_dx + a_dy <= rad)
-						{
-							int mx = (int)(sx0 + 0.5f) + dx_i;
-							int my = (int)(sy0 + 0.5f) + dy_i;
-							if (mx >= 0 && mx < FORGE_PREVIEW_W && my >= 0 && my < FORGE_PREVIEW_H)
-							{
-								pix[my * FORGE_PREVIEW_W + mx] = (a_dx + a_dy == rad) ? 0xFFFFFFFFu : pt_col;
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	bitmap_rebuild(s_forge_preview.bitmap);
-	rasterizer_bitmap_changed(s_forge_preview.bitmap);
-	s_forge_preview.last_rendered_use_textures = s_forge_preview.use_textures;
-	s_forge_preview.last_draw_ms = now_ms;
+	if (!forge_snap_points_stock_tag(group_tag, tag_path, map_path, sizeof(map_path)))
+		return 0;
+	s_stock_bounds_found = 0;
+	if (!forge_stock_bounds_from_donor_map(map_path, group_tag, tag_path))
+		return 0;
+	forge_snap_points_bounds_set(s_stock_bounds_min, s_stock_bounds_max);
+	return 1;
 }
-
-void forge_tag_preview_clear(void)
-{
-	s_forge_preview.active = 0;
-	s_forge_preview.key[0] = '\0';
-	s_forge_preview.current_group_tag = 0;
-	s_forge_preview.current_tag_path[0] = '\0';
-	s_forge_preview.snap_editor_active = 0;
-	s_forge_preview.tag_size_bytes = 0;
-}
-
-uint32_t forge_tag_preview_get_current_size_bytes(void)
-{
-	return s_forge_preview.tag_size_bytes;
-}
-
-void forge_tag_preview_set_installed_tag(uint32_t group_tag, char const *tag_path, int is_custom)
-{
-	char new_key[512];
-	char safe_stem[128];
-	int loaded = 0;
-
-	if (!tag_path || !tag_path[0])
-	{
-		forge_tag_preview_clear();
-		return;
-	}
-	if (!forge_preview_ensure_buffers())
-		return;
-	snprintf(new_key, sizeof(new_key), "INST|%d|%08X|%s", is_custom, (unsigned int)group_tag, tag_path);
-	s_forge_preview.active = 1;
-	s_forge_preview.use_textures = 1;
-	s_forge_preview.current_group_tag = group_tag;
-	snprintf(s_forge_preview.current_tag_path, sizeof(s_forge_preview.current_tag_path), "%s", tag_path);
-	if (strcmp(s_forge_preview.key, new_key) == 0)
-		return;
-	snprintf(s_forge_preview.key, sizeof(s_forge_preview.key), "%s", new_key);
-	s_forge_preview.tag_size_bytes = 0;
-	forge_preview_reset_mesh();
-
-	/* 1. Try direct <safe_stem>.ocetags or any matching .ocetags in custom_tags/ or cached_tags/ */
-	forge_make_safe_ocetags_stem(group_tag, tag_path, safe_stem, sizeof(safe_stem));
-	{
-		static char const *const s_dirs[] = {
-			"OpenCE Forge/custom_tags",
-			"OpenCE Forge/cached_tags",
-			"Faber_data/custom_tags",
-			"Faber_data/cached_tags",
-			"custom_tags"
-		};
-		int d;
-		for (d = 0; d < 5 && !loaded; d++)
-		{
-			char cand[512];
-			FILE *fp;
-			snprintf(cand, sizeof(cand), "%s/%s.ocetags", s_dirs[d], safe_stem);
-			fp = fopen(cand, "rb");
-			if (fp)
-			{
-				size_t ulen = 0;
-				int was_c = 0;
-				uint8_t *ubuf;
-				fseek(fp, 0, SEEK_END);
-				s_forge_preview.tag_size_bytes = (uint32_t)ftell(fp);
-				fclose(fp);
-				ubuf = forge_read_and_decompress_ocetags_file(cand, &ulen, &was_c);
-				if (ubuf && ulen > 32)
-					loaded = forge_preview_load_from_ocetags_json((char const *)ubuf, ulen);
-				free(ubuf);
-			}
-		}
-#if FORGE_HOST_FILES
-		for (d = 0; d < 5 && !loaded; d++)
-		{
-			char pattern[512];
-			WIN32_FIND_DATAA fd;
-			HANDLE h;
-			snprintf(pattern, sizeof(pattern), "%s/*.ocetags", s_dirs[d]);
-			h = FindFirstFileA(pattern, &fd);
-			if (h != INVALID_HANDLE_VALUE)
-			{
-				do
-				{
-					if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-					{
-						char full[512];
-						size_t ulen = 0;
-						int was_c = 0;
-						uint8_t *ubuf;
-						snprintf(full, sizeof(full), "%s/%s", s_dirs[d], fd.cFileName);
-						ubuf = forge_read_and_decompress_ocetags_file(full, &ulen, &was_c);
-						if (ubuf && ulen > 32)
-						{
-							size_t t_pos = 0;
-							if (ocetags_json_find_key_range((char const *)ubuf, 0, ulen, "tags", &t_pos))
-							{
-								size_t p = t_pos + 1;
-								while (p < ulen && ubuf[p] != '{') p++;
-								if (p < ulen)
-								{
-									char gs[64], ps[256];
-									gs[0] = 0; ps[0] = 0;
-									ocetags_json_get_str((char const *)ubuf, p, ulen, "group", gs, sizeof(gs));
-									ocetags_json_get_str((char const *)ubuf, p, ulen, "path", ps, sizeof(ps));
-									if (ocetags_group_str_to_fourcc(gs) == group_tag && _stricmp(ps, tag_path) == 0)
-									{
-										s_forge_preview.tag_size_bytes = (uint32_t)fd.nFileSizeLow;
-										loaded = forge_preview_load_from_ocetags_json((char const *)ubuf, ulen);
-									}
-								}
-							}
-						}
-						free(ubuf);
-					}
-				} while (!loaded && FindNextFileA(h, &fd));
-				CloseHandle(h);
-			}
-		}
-#endif
-	}
-
-	/* 2. A stock tag: from the map of the pack the palette found it in, else scanning maps/<name>.map */
-	if (!loaded)
-	{
-		long pack = port_tag_packs_find(FORGE_PACK);
-		int ci;
-
-		for (ci = 0; ci < g_forge.catalog_count && !loaded; ci++)
-		{
-			if (pack >= 0 && g_forge.catalog[ci].pad && g_forge.catalog[ci].group_tag == group_tag &&
-				_stricmp(g_forge.catalog[ci].tag_path, tag_path) == 0)
-			{
-				char mpath[512];
-
-				snprintf(mpath, sizeof(mpath), "maps/%s.map", port_tag_packs_map(pack, g_forge.catalog[ci].pad - 1));
-				loaded = forge_preview_load_from_donor_map(mpath, group_tag, tag_path);
-			}
-		}
-	}
-#if FORGE_HOST_FILES
-	if (!loaded)
-	{
-		WIN32_FIND_DATAA fd;
-		HANDLE h = FindFirstFileA("maps\\*.map", &fd);
-		if (h != INVALID_HANDLE_VALUE)
-		{
-			do
-			{
-				if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY))
-				{
-					char mpath[512];
-					if (_stricmp(fd.cFileName, "bitmaps.map") == 0 ||
-						_stricmp(fd.cFileName, "sounds.map") == 0 ||
-						_stricmp(fd.cFileName, "loc.map") == 0 ||
-						_stricmp(fd.cFileName, "ui.map") == 0)
-						continue;
-					snprintf(mpath, sizeof(mpath), "maps/%s", fd.cFileName);
-					if (forge_preview_load_from_donor_map(mpath, group_tag, tag_path))
-					{
-						loaded = 1;
-						break;
-					}
-				}
-			} while (FindNextFileA(h, &fd));
-			CloseHandle(h);
-		}
-	}
-#endif
-
-	if (!loaded)
-		forge_preview_build_fallback_octahedron();
-	forge_preview_normalize_mesh();
-	s_forge_preview.last_draw_ms = 0;
-}
-
-struct bitmap_data *forge_tag_preview_get_bitmap(void)
-{
-	unsigned long now_ms;
-	if (!s_forge_preview.active || !s_forge_preview.bitmap)
-		return NULL;
-	now_ms = system_milliseconds();
-	if (s_forge_preview.last_draw_ms == 0 ||
-		s_forge_preview.last_rendered_use_textures != s_forge_preview.use_textures ||
-		now_ms - s_forge_preview.last_draw_ms >= 30u)
-		forge_preview_render_frame(now_ms);
-	return s_forge_preview.bitmap;
-}
-
-
 

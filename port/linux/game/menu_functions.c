@@ -2148,6 +2148,8 @@ static void level_list_update(struct widget_instance *list)
 	profile_name_show(description);
 }
 
+extern int g_forge_session_enabled;
+
 /* "solo level set map": the level shown, if reached, or the Custom Edition
 campaign map, for the difficulty menu; or the multiplayer map, played at
 once (FALSE: no difficulty menu). A custom folder opens and stays here. The
@@ -2198,6 +2200,14 @@ static boolean level_choose(struct widget_instance *list, short controller)
 
 		if (!map_name || !campaign_profile(controller, &profile))
 			return campaign_fail();
+		/* (a Forge session's map isn't played yet: forge_hooks.c asks for its
+		tag profile first, and starts it) */
+		if (g_forge_session_enabled)
+		{
+			main_set_map_name(map_name);
+			main_defer_map_map_change();
+			return TRUE;
+		}
 		campaign_start(map_name, main_get_difficulty(), controller, FALSE);
 		return FALSE;
 	}
@@ -6522,6 +6532,8 @@ enum
 	_tags_list_campaign_ranks,
 	_tags_list_campaign_slot,
 	_tags_list_campaign_loadout,
+	/* a scenery's or door's tag's snap points (Forge's: forge_hooks.c) */
+	_tags_list_snap_points,
 	NUMBER_OF_TAGS_LISTS
 };
 
@@ -6562,9 +6574,22 @@ enum
 	_tags_setting_custom_type,
 	_tags_setting_hud,
 	_tags_setting_replace,
+	_tags_setting_snap_points,
 	_tags_setting_remove,
+	/* (a weapon's, the most: no snap points) */
 	MAXIMUM_TAGS_SETTING_ROWS = 8
 };
+
+/* a tag's SNAP POINTS list (forge_hooks.c) */
+short forge_snap_editor_row_count(void);
+void forge_snap_editor_open(unsigned long group_tag, char const *tag_path);
+void forge_snap_editor_measured(float const bounds_min[3], float const bounds_max[3]);
+int forge_snap_editor_count(void);
+int forge_snap_points_count_for_tag(uint32_t group_tag, char const *tag_path);
+void forge_snap_editor_row(short row, char *name, size_t name_size, char *state, size_t state_size);
+int forge_snap_editor_step(short row, short dir);
+int forge_snap_editor_activate(short row);
+short forge_snap_editor_points(float (*points)[3], short maximum, short *chosen);
 
 /* the name typed: none, a new profile's, the tag's custom type, the name
 the tag is shown by, or a copy's of the profile shown */
@@ -6765,6 +6790,8 @@ static short tags_setting_rows(short *rows)
 		rows[count++] = _tags_setting_hud;
 	if (tags_screen.tag_stock)
 		rows[count++] = _tags_setting_replace;
+	if (group == 'scen' || group == 'mach' || group == 'ctrl')
+		rows[count++] = _tags_setting_snap_points;
 	rows[count++] = _tags_setting_remove;
 	return count;
 }
@@ -7499,6 +7526,8 @@ static short tags_count(void)
 		return (short)MIN(tags_profile_category_count(tags_screen.profile_category), 0x7FFF);
 	case _tags_list_tag:
 		return tags_setting_rows(rows);
+	case _tags_list_snap_points:
+		return forge_snap_editor_row_count();
 	case _tags_list_kinds:
 		return NUMBER_OF_TAGS_KIND_ROWS;
 	case _tags_list_browse:
@@ -7728,6 +7757,12 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 			snprintf(name, name_size, "CUSTOM TYPE");
 			tag_injector_tag_custom_type(tags_screen.profile, tags_screen.tag, state, (long)state_size);
 			break;
+		case _tags_setting_snap_points:
+			snprintf(name, name_size, "SNAP POINTS");
+			snprintf(state, state_size, "%d", forge_snap_points_count_for_tag(
+				(uint32_t)port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag),
+				port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag)));
+			break;
 		case _tags_setting_remove:
 			snprintf(name, name_size, "REMOVE TAG");
 			snprintf(state, state_size, "%s", tags_screen.removing == tags_screen.tag ? "A AGAIN" : "");
@@ -7746,6 +7781,9 @@ static void tags_row_text(short place, char *name, size_t name_size, char *state
 			break;
 		}
 		}
+		break;
+	case _tags_list_snap_points:
+		forge_snap_editor_row(place, name, name_size, state, state_size);
 		break;
 	case _tags_list_kinds:
 		if (place == _tags_kind_profile)
@@ -8187,6 +8225,10 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 				"copies).\n \nOFF: the level's stays, and this one joins the pools as it is.\n \nA, left or "
 				"right turns it on or off.");
 			break;
+		case _tags_setting_snap_points:
+			snprintf(text, text_size, "Where Forge's objects of this tag join each other, as they are placed.\n \nA "
+				"edits them. They are kept with the tag's path, on this machine.");
+			break;
 		case _tags_setting_remove:
 			snprintf(text, text_size, "A, twice, takes it out of %s and deletes its bundle. Its map can add it again.\n"
 				" \nTo leave it out for now, turn it off.", profile);
@@ -8194,6 +8236,12 @@ static void tags_details_text(short place, char *title, size_t title_size, char 
 		}
 		break;
 	}
+	case _tags_list_snap_points:
+		snprintf(title, title_size, "%s", tags_tag_shown(tags_screen.profile, tags_screen.tag));
+		snprintf(text, text_size, "%d snap points, marked on its model (the white one is chosen).\n \nLAYOUT sets them "
+			"by the model's box; each is then moved by its own rows, Shift for smaller steps.",
+			forge_snap_editor_count());
+		break;
 	case _tags_list_kinds:
 		if (place == _tags_kind_profile)
 		{
@@ -8752,9 +8800,18 @@ static boolean tags_choose(struct widget_instance *widget)
 		ui_play_audio_feedback_sound(SOUND_FORWARD);
 		tags_list_open(list, _tags_list_tag, 0);
 		break;
+	case _tags_list_snap_points:
+		ui_play_audio_feedback_sound(forge_snap_editor_activate(place) ? SOUND_FORWARD : SOUND_ERROR);
+		break;
 	case _tags_list_tag:
 		switch (tags_setting_of(place))
 		{
+		case _tags_setting_snap_points:
+			forge_snap_editor_open(port_tag_profiles_tag_group(tags_screen.profile, tags_screen.tag),
+				port_tag_profiles_tag_name(tags_screen.profile, tags_screen.tag));
+			ui_play_audio_feedback_sound(SOUND_FORWARD);
+			tags_list_open(list, _tags_list_snap_points, 0);
+			break;
 		case _tags_setting_name:
 		{
 			char shown[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
@@ -9049,11 +9106,17 @@ static boolean tags_step(struct widget_instance *widget, short step)
 	{
 		short setting = tags_setting_of(place);
 
-		if (setting == _tags_setting_name || setting == _tags_setting_custom_type || setting == _tags_setting_remove)
+		if (setting == _tags_setting_name || setting == _tags_setting_custom_type ||
+			setting == _tags_setting_snap_points || setting == _tags_setting_remove)
+		{
 			return TRUE;
+		}
 		tags_setting_step(setting, step);
 		return TRUE;
 	}
+	case _tags_list_snap_points:
+		ui_play_audio_feedback_sound(forge_snap_editor_step(place, step) ? SOUND_CURSOR : SOUND_ERROR);
+		return TRUE;
 	case _tags_list_kinds:
 		if (place != _tags_kind_profile || tags_screen.profile == NONE)
 			return TRUE;
@@ -9117,6 +9180,7 @@ static boolean tags_back(struct widget_instance *widget, boolean *widget_deleted
 		break;
 	case _tags_list_profile: up = _tags_list_profile_categories; break;
 	case _tags_list_tag: up = _tags_list_profile; break;
+	case _tags_list_snap_points: up = _tags_list_tag; break;
 	case _tags_list_kinds: up = _tags_list_top; break;
 	case _tags_list_browse: up = _tags_list_kinds; break;
 	case _tags_list_folder: up = _tags_list_browse; break;
@@ -9190,6 +9254,7 @@ static short tags_buttons(void)
 	case _tags_list_profile_categories:
 	case _tags_list_profile:
 	case _tags_list_tag:
+	case _tags_list_snap_points:
 		return _tags_buttons_profile;
 	case _tags_list_mp_profiles:
 		return _tags_buttons_mp_profiles;
@@ -9535,7 +9600,7 @@ void tag_injector_profiles_poll(void)
 		tags_profile_choose(profile);
 		tags_screen.chosen[_tags_list_profiles] = (short)profile;
 		tags_screen.tag = NONE;
-		if (tags_screen.list == _tags_list_tag)
+		if (tags_screen.list == _tags_list_tag || tags_screen.list == _tags_list_snap_points)
 			tags_screen.list = _tags_list_profile;
 		snprintf(text, sizeof(text), "Made %s, a copy of %s.", port_tag_profiles_name(profile), original_name);
 		tags_message(text);
@@ -9647,6 +9712,23 @@ static void tags_text_close_up(char *text)
 		memmove(blank + 1, blank + 3, strlen(blank + 3) + 1);
 }
 
+/* a SNAP POINTS list's tag's model: its box, once read, for the layouts and
+presets to measure, and its points marked on it */
+static void tags_snap_points_preview(void)
+{
+	float minimum[3];
+	float maximum[3];
+	float points[TAG_PREVIEW_MAXIMUM_MARKERS][3];
+	short chosen;
+	short count;
+
+	tag_preview_profile_tag(tags_screen.profile, tags_screen.tag);
+	if (tag_preview_bounds(minimum, maximum))
+		forge_snap_editor_measured(minimum, maximum);
+	count = forge_snap_editor_points(points, TAG_PREVIEW_MAXIMUM_MARKERS, &chosen);
+	tag_preview_markers((float const (*)[3])points, count, chosen);
+}
+
 /* "port tags update": the rows (the list moving on at its ends while there
 are more past them), each one's name (cut short where it is too long) and
 state, and the details of the one chosen, the last thing done's word above
@@ -9668,9 +9750,10 @@ static void tags_update(struct widget_instance *list)
 	if (tags_screen.profile >= port_tag_profiles_count())
 		tags_profile_choose(0);
 	if ((tags_screen.list == _tags_list_profile_categories || tags_screen.list == _tags_list_profile ||
-		tags_screen.list == _tags_list_tag) && tags_screen.profile == NONE)
+		tags_screen.list == _tags_list_tag || tags_screen.list == _tags_list_snap_points) && tags_screen.profile == NONE)
 		tags_list_show(list, _tags_list_profiles);
-	if (tags_screen.list == _tags_list_tag && tags_screen.tag >= port_tag_profiles_tag_count(tags_screen.profile))
+	if ((tags_screen.list == _tags_list_tag || tags_screen.list == _tags_list_snap_points) &&
+		tags_screen.tag >= port_tag_profiles_tag_count(tags_screen.profile))
 		tags_list_show(list, _tags_list_profile);
 	if (tags_screen.list == _tags_list_profile && !tags_profile_category_count(tags_screen.profile_category))
 		tags_list_show(list, _tags_list_profile_categories);
@@ -9757,9 +9840,12 @@ static void tags_update(struct widget_instance *list)
 		tags_screen.message[0] = 0;
 	/* (the tag chosen's model under its details: a map's tag, or a
 	profile's) */
-	previewed = count && (tags_screen.list == _tags_list_tags || tags_screen.list == _tags_list_profile);
+	previewed = count && (tags_screen.list == _tags_list_tags || tags_screen.list == _tags_list_profile ||
+		tags_screen.list == _tags_list_snap_points);
 	if (previewed && tags_screen.list == _tags_list_tags)
 		tag_preview_map_tag(tags_screen.category, *chosen);
+	else if (previewed && tags_screen.list == _tags_list_snap_points)
+		tags_snap_points_preview();
 	else if (previewed)
 		tag_preview_profile_tag(tags_screen.profile, tags_profile_tag_of(*chosen));
 	else
@@ -19077,12 +19163,6 @@ static boolean gamemode_menu_init(struct widget_instance *list)
 			list->focused_child = named(list, "forge_item_single_player", 0);
 		return TRUE;
 	}
-	if (list->name && !strcmp(list->name, "forge_tag_options_select_list"))
-	{
-		if (named(list, "forge_item_reset_stock_tags", 0))
-			list->focused_child = named(list, "forge_item_reset_stock_tags", 0);
-		return TRUE;
-	}
 	return TRUE;
 }
 
@@ -19122,9 +19202,7 @@ static void gamemode_menu_update(struct widget_instance *list)
 	if (!list)
 		return;
 
-	if (list->name &&
-		(!strcmp(list->name, "forge_menu_select_list") ||
-		 !strcmp(list->name, "forge_tag_options_select_list")))
+	if (list->name && !strcmp(list->name, "forge_menu_select_list"))
 	{
 		if (desc)
 		{
@@ -19144,18 +19222,6 @@ static void gamemode_menu_update(struct widget_instance *list)
 						L"SAVED FORGE MAPS\r\nBROWSE & LOAD SAVED\r\nFORGE & CUSTOM MAPS" :
 					!strcmp(fc, "forge_item_tag_injector") ?
 						L"TAG INJECTOR\r\nPROFILES OF TAGS FROM\r\nCUSTOM MAPS, FOR FORGE,\r\nCAMPAIGN & MULTIPLAYER" :
-					!strcmp(fc, "forge_item_tag_options") ?
-						L"TAG OPTIONS\r\nRESET TAG CACHES &\r\nASSIGN SNAP POINTS" :
-					!strcmp(fc, "forge_item_reset_stock_tags") ?
-						L"RESET STOCK TAGS\r\nCLEAR STOCK TAG CACHE\r\nWHILE KEEPING\r\nCUSTOM TAGS" :
-					!strcmp(fc, "forge_item_reset_custom_tags") ?
-						L"RESET CUSTOM TAGS\r\nREMOVE ALL EXTRACTED\r\nCUSTOM [C] TAG\r\nPACKAGES" :
-					!strcmp(fc, "clear_custom_cache_profile_item") ?
-						L"CLEAR CUSTOM TAGS\r\nREMOVE IMPORTED\r\nCUSTOM .OCETAGS\r\nPACKAGES" :
-					!strcmp(fc, "reset_tag_cache_profile_item") ?
-						L"RESET TAG CACHE\r\nREBUILD ALL EXTRACTED\r\nFORGE TAG CACHES" :
-					!strcmp(fc, "forge_item_snap_points") ?
-						L"SNAP POINTS\r\nASSIGN 3D SNAP FACES\r\n& ALIGNMENT EDGES\r\nTO TAGS" :
 						L"SINGLE PLAYER SANDBOX\r\nEDIT ANY STOCK,\r\nCUSTOM OR FORGE\r\nMAP SOLO",
 					160);
 			}
