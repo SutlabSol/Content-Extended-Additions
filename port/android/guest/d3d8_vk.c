@@ -2096,6 +2096,50 @@ uint32_t host_vk_visibility(uint32_t index);
 
 static BOOL visibility_pending[VISIBILITY_TEST_SLOTS];
 
+/* The numbering of each slot's tests that lens flares read (xgpu.h). The GPU
+only overwrites a slot, so nothing says when a given test's count has come:
+a test is taken to have come once the frames the GPU can be behind have
+passed (the host's frames in flight). One test at a time is watched, so what this says is at
+most twice that behind, and never ahead. */
+#define VISIBILITY_COUNT_FRAMES 4
+static unsigned long visibility_ended[VISIBILITY_TEST_SLOTS];
+static unsigned long visibility_counted[VISIBILITY_TEST_SLOTS];
+static unsigned long visibility_watched[VISIBILITY_TEST_SLOTS];
+static unsigned long visibility_watched_frame[VISIBILITY_TEST_SLOTS];
+
+static void visibility_count_update(unsigned long index)
+{
+	if (visibility_watched[index] && device.frame - visibility_watched_frame[index] >= VISIBILITY_COUNT_FRAMES)
+	{
+		visibility_counted[index] = visibility_watched[index];
+		visibility_watched[index] = 0;
+	}
+}
+
+static void visibility_count_ended(unsigned long index)
+{
+	visibility_ended[index]++;
+	visibility_count_update(index);
+	if (!visibility_watched[index])
+	{
+		visibility_watched[index] = visibility_ended[index];
+		visibility_watched_frame[index] = device.frame;
+	}
+}
+
+/* (xgpu.h) */
+unsigned long long xgpu_visibility_tests_ended(unsigned long index)
+{
+	return visibility_ended[index % VISIBILITY_TEST_SLOTS];
+}
+
+unsigned long long xgpu_visibility_test_counted(unsigned long index)
+{
+	index = index % VISIBILITY_TEST_SLOTS;
+	visibility_count_update(index);
+	return visibility_counted[index];
+}
+
 void WINAPI D3DDevice_BeginVisibilityTest(void)
 {
 	if (!device.video_ready || device.visibility_test_active)
@@ -2119,6 +2163,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	/* (multisampled, the host counts samples) */
 	command->area = target_scale[0] * target_scale[1] * (float)target_samples;
 	visibility_pending[index] = TRUE;
+	visibility_count_ended(index);
 	return S_OK;
 }
 

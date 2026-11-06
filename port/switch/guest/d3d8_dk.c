@@ -1698,6 +1698,50 @@ static BOOL visibility_pending[DK_VISIBILITY_SLOTS];
 divided by it, the game dividing by its own test's area (lens flares) */
 static float visibility_area[DK_VISIBILITY_SLOTS];
 
+/* The numbering of each slot's tests that lens flares read (xgpu.h). The GPU
+only overwrites a slot, so nothing says when a given test's count has come:
+a test is taken to have come once the frames the GPU can be behind have
+passed (host_dk.c's FRAMES). One test at a time is watched, so what this says is at
+most twice that behind, and never ahead. */
+#define VISIBILITY_COUNT_FRAMES 4
+static unsigned long visibility_ended[DK_VISIBILITY_SLOTS];
+static unsigned long visibility_counted[DK_VISIBILITY_SLOTS];
+static unsigned long visibility_watched[DK_VISIBILITY_SLOTS];
+static unsigned long visibility_watched_frame[DK_VISIBILITY_SLOTS];
+
+static void visibility_count_update(unsigned long index)
+{
+	if (visibility_watched[index] && device.frame - visibility_watched_frame[index] >= VISIBILITY_COUNT_FRAMES)
+	{
+		visibility_counted[index] = visibility_watched[index];
+		visibility_watched[index] = 0;
+	}
+}
+
+static void visibility_count_ended(unsigned long index)
+{
+	visibility_ended[index]++;
+	visibility_count_update(index);
+	if (!visibility_watched[index])
+	{
+		visibility_watched[index] = visibility_ended[index];
+		visibility_watched_frame[index] = device.frame;
+	}
+}
+
+/* (xgpu.h) */
+unsigned long long xgpu_visibility_tests_ended(unsigned long index)
+{
+	return visibility_ended[visibility_slot(index)];
+}
+
+unsigned long long xgpu_visibility_test_counted(unsigned long index)
+{
+	index = visibility_slot(index);
+	visibility_count_update(index);
+	return visibility_counted[index];
+}
+
 void WINAPI D3DDevice_BeginVisibilityTest(void)
 {
 	if (device.visibility_test_active)
@@ -1717,6 +1761,7 @@ HRESULT WINAPI D3DDevice_EndVisibilityTest(DWORD index)
 	command = stream_command(DK_COMMAND_VISIBILITY_END, sizeof(*command));
 	command->index = (uint32_t)index;
 	visibility_pending[index] = TRUE;
+	visibility_count_ended(index);
 	visibility_area[index] = target_scale[0] * target_scale[1];
 	return S_OK;
 }
