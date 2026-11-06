@@ -2944,6 +2944,16 @@ boolean widget_event_function_list_widget_goto_previous_item(
 			{
 				child = widget->child;
 				item_index = 0;
+				/* port: a list can have no children on this platform (the
+				Theater's button bar on the consoles), as goto_next_item allows */
+				if (!child)
+				{
+					error(
+						_error_silent,
+						"failed to set focus to the previous list item of a column widget");
+
+					return FALSE;
+				}
 				while (child->next)
 				{
 					child = child->next;
@@ -7382,6 +7392,30 @@ static void widget_instance_render_recursive(
 		definition->background_bitmap.index,
 		0,
 		frame_index);
+	/* port: the color and profile screens' Spartan, the model and not its
+	picture (port/linux/game/menu_chief.c; the profile screen's picture is
+	also the split-screen lobby's, which keeps it) */
+	if (bitmap && widget->name &&
+		(!strcmp(widget->name, "color_right_pic") ||
+			(!strcmp(widget->name, "qtr_screen_profile_color_pic") && widget->parent && widget->parent->name &&
+				!strcmp(widget->parent->name, "player_profile_right_item"))))
+	{
+		extern boolean menu_chief_draw(short x0, short y0, short x1, short y1, short color_index, boolean controlled);
+		/* (neither screen's picture is in the middle of its panel, as he, with
+		what he holds out to one side, must be) */
+		short chief_left = (short)(definition->bounds.x0 + offset.x + halo_screen_ui_offset_current() -
+			(widget->name[0] == 'q' ? 20 : 5));
+		short chief_top = (short)(definition->bounds.y0 + offset.y);
+
+		if (menu_chief_draw(chief_left, chief_top,
+				(short)(chief_left + definition->bounds.x1 - definition->bounds.x0),
+				(short)(chief_top + definition->bounds.y1 - definition->bounds.y0),
+				frame_index,
+				widget->name[0] == 'c'))
+		{
+			bitmap = NULL;
+		}
+	}
 	if (bitmap)
 	{
 		real alpha = alpha_modifier;

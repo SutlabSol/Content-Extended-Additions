@@ -55,8 +55,7 @@ GitHub Actions need no package: they bring their own SDL3
 
 ### Portable build
 
-The builds from GitHub Actions are portable builds (`--portable`; refer to
-"Build options" in the main [README](../../README.md#build-options)). The
+The builds from GitHub Actions are portable builds (`--portable`). The
 portable build starts on more systems than the build machine's:
 
 - It is compiled and linked against the 32-bit glibc 2.31 of Debian 11, the
@@ -988,7 +987,7 @@ The direction of the view is an exception. The game reads the mouse and the
 sticks in each frame. In first person, on foot, each frame points the view
 where the player aims at that time (`display.direct_camera`). Thus the view
 turns in the frame that the mouse moves. In a vehicle and in cinematics, the
-view mixes as the other things do. On Android, the view mixes as before.
+view mixes as the other things do.
 
 To get 30 frames each second, set `display.interpolation = false`.
 

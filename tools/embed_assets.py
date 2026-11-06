@@ -66,6 +66,8 @@ MENU_ASSETS = Path("port/assets/menus")
 MENU_LIST = MENU_ASSETS / "menus.json"
 # the tag packs' manifests, each tag_pack/<name>.pack (port/linux/src/port_tag_packs.c)
 TAG_PACK_ASSETS = Path("port/assets/tag_packs")
+# the settings' Credits (menu_functions.c's credits screen)
+CREDITS_TEXT = ROOT / "port/assets/credits.txt"
 # SMAA's files and the names port/linux/src/xgpu_post.c declares them by
 SMAA_ASSETS = Path("port/third_party/smaa")
 SMAA_FILES = (("SMAA.hlsl", "xgpu_smaa_shader"), ("area_tex.zlib", "xgpu_smaa_area_texture"),
@@ -233,7 +235,7 @@ def hud_assets_build(n: Any, prefix: str, output: Path) -> List[Path]:
         description=f"{prefix.upper()} EMBED $out",
     )
     n.build(outputs=output, rule=f"{prefix}_embed_assets",
-            implicit=[Path("tools/embed_assets.py"), *inputs])
+            implicit=[Path("tools/embed_assets.py"), CREDITS_TEXT.relative_to(ROOT), *inputs])
     return [output]
 
 
@@ -406,6 +408,12 @@ def main() -> None:
         lines.append("\t{ 0 },")
     lines.append("};")
     lines.append(f"const unsigned int tag_pack_manifests_embedded_count = {len(manifests)};")
+    # the settings' Credits (port/assets/credits.txt), ASCII ending in a NUL
+    data = CREDITS_TEXT.read_text(encoding="ascii").replace("\r", "").encode("ascii") + b"\0"
+    lines.append("")
+    lines.append("const unsigned int halo_credits_words[] = {")
+    lines.extend(words(data))
+    lines.append("};")
     lines.append("")
     # the sounds (each of size 0 that the checkout does not have), on every
     # renderer

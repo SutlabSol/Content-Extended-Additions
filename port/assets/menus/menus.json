@@ -59,6 +59,7 @@
   "ce/main_menu.settings_select.player_setup.player_profile_edit.gamepad_setup.gyro.xml",
   "ce/main_menu.settings_select.player_setup.player_profile_edit.gamepad_setup.layout.xml",
   "ce/main_menu.settings_select.player_setup.player_profile_edit.gamepad_setup.xml",
+  "ce/main_menu.settings_select.player_setup.player_profile_edit.credits.xml",
   "ce/main_menu.settings_select.player_setup.player_profile_edit.gameplay.community.xml",
   "ce/main_menu.settings_select.player_setup.player_profile_edit.gameplay.community.social.xml",
   "ce/main_menu.settings_select.player_setup.player_profile_edit.gameplay.community.social.chat.xml",
@@ -135,6 +136,7 @@
   "ce/port/main_menu/multiplayer_type_select/server_settings/coop_options/header_coop_options.png",
   "ce/port/main_menu/multiplayer_type_select/server_settings/map_share_options/header_map_share_options.png",
   "ce/port/main_menu/multiplayer_type_select/server_settings/voice_options/header_voice_options.png",
+  "ce/port/main_menu/settings_select/player_setup/player_profile_edit/credits/credits_logo.png",
   "ce/port/main_menu/settings_select/player_setup/player_profile_edit/gameplay/header_gameplay.png",
   "ce/port/main_menu/theater/header_theater.png",
   "ce/port/medals/icons__0.png",
@@ -351,6 +353,7 @@
   "ce/shell/main_menu/multiplayer_type_select/mp_map_select/header_select_map__0.png",
   "ce/shell/main_menu/multiplayer_type_select/mp_options__0.png",
   "ce/shell/main_menu/multiplayer_type_select/mp_options__1.png",
+  "ce/shell/main_menu/multiplayer_type_select/mp_options__6.png",
   "ce/shell/main_menu/multiplayer_type_select/server_settings/header_server_settings__0.png",
   "ce/shell/main_menu/player_profiles_select/header_select_profile__0.png",
   "ce/shell/main_menu/settings_select/multiplayer_setup/indicator_options_edit/header_indicator_options__0.png",
@@ -389,6 +392,7 @@
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__5.png",
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__6.png",
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__8.png",
+  "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__9.png",
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/video_settings/header_profile_video_settings__0.png",
   "ce/shell/main_menu/solo_level_select/header_load_level__0.png"
  ]

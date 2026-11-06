@@ -225,7 +225,7 @@ static const struct config_setting config_settings[] =
 		"The menus' pointer for the mouse: the game's blue arrow, \"small\",\n"
 		"\"medium\", \"large\" or \"extra_large\" (18, 24, 32 or 40 of the menus'\n"
 		"480 lines tall, at any resolution), or \"off\" for the system's pointer." },
-	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop,
+	{ "display.direct_camera", _config_boolean, "true", "HALO_DIRECT_CAMERA", _environment_value, _platform_desktop | _platform_android,
 		"In first person, point the view where the player aims now instead of\n"
 		"where the last tick left it: the view turns the frame the mouse moves,\n"
 		"not up to two ticks (66 ms) later." },
@@ -2179,6 +2179,10 @@ static const struct config_setting config_settings[] =
 		"Draw the zoom's blur as the game does, in passes over the whole screen,\n"
 		"rather than on a small copy blended over it once (about 3.7 ms less of\n"
 		"the GPU's frame at 720p). Takes effect the next start." },
+	{ "debug.mod_models_in_heap", _config_boolean, "false", "HALO_MOD_MODELS_IN_HEAP", _environment_value,
+		_platform_android,
+		"Keep the mods' models outside the Xbox's contiguous memory, as a model past\n"
+		"their budget is, to try that path with any mod. Takes effect the next map." },
 	{ "debug.gpu_blend_discard", _config_boolean, "true", "HALO_GPU_BLEND_DISCARD", _environment_value,
 		_platform_android,
 		"Let a blended draw's pixels go where they would leave the screen as it was\n"
@@ -2188,6 +2192,12 @@ static const struct config_setting config_settings[] =
 		"Turn the game's drawing commands into the GPU's on a thread of their own,\n"
 		"on another core, while the game goes on with its next frame; false runs\n"
 		"them on the game's thread, as before. Takes effect the next start." },
+#ifdef HALO_SWITCH
+	{ "debug.frame_pace_ahead", _config_boolean, "false", "HALO_FRAME_PACE_AHEAD", _environment_value, _platform_android,
+		"With the render thread, let the game begin a frame while the one before\n"
+		"waits to be presented, a refresh more lag; false waits for that present.\n"
+		"Takes effect the next start." },
+#endif
 	{ "debug.gpu_draw_scissor", _config_boolean, "true", "HALO_GPU_DRAW_SCISSOR", _environment_value,
 		_platform_android,
 		"Rasterize an object's shadow and a dynamic light's pass only inside the\n"
