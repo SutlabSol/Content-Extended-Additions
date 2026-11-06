@@ -4793,6 +4793,21 @@ static void object_connect_lights(
 	return;
 }
 
+void object_attached_lights_moved(
+	long object_index)
+{
+	struct object_datum *object = object_get(object_index);
+
+	/* (as object_update has it: a hidden object's are off the map) */
+	if (!TEST_FLAG(object->object.flags, _object_invisible_bit) ||
+		object_definition_get(object->definition_index)->object.model.index==NONE)
+	{
+		object_connect_lights(object_index, TRUE, TRUE);
+	}
+
+	return;
+}
+
 static void object_name_list_allocate(
 	void)
 {

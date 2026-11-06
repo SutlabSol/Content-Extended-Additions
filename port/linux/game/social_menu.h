@@ -130,7 +130,7 @@ void social_menu_row(short row, char *name, long name_size, char *state, long st
 short social_menu_row_platform(short row);
 /* the service rank and emblem of a person row (_row_friend, _row_incoming, _row_outgoing, _row_recent_player) */
 /* the emblem a row shows in its state's place (CUSTOMISE EMBLEM's) */
-boolean social_menu_row_emblem(short row, struct firefight_emblem_info *out_emblem);
+boolean social_menu_row_emblem(short row, struct firefight_emblem_info *out_emblem, short *out_part);
 boolean social_menu_row_person_icons(short row, struct firefight_mcc_rank_info *out_rank, struct firefight_emblem_info *out_emblem);
 
 /* the row chosen's details: its title and its text, the last thing done

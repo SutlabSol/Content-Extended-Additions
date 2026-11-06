@@ -31,8 +31,13 @@
 #include "scenario/scenario_definitions.h"
 #include "physics/collisions.h"
 #include "units/unit_definitions.h"
+#include "items/items.h"
+#include "items/weapons.h"
 #include "items/weapon_definitions.h"
 #include "objects/damage.h"
+#include "effects/effect_definitions.h"
+#include "effects/effects.h"
+#include "halo_skulls.h"
 
 #include "forge_engine.h"
 
@@ -909,6 +914,226 @@ void forge_ai_encounters_apply(void)
 	}
 }
 
+/* ---------- how a spawn's units appear
+
+Each effect's tag is the map's or the campaign's, by these names (all twelve
+multiplayer maps have the same effects: those need no map here). The others
+are copied in as a spawn's actors are: forge_ai_spawn_effect_wanted for an
+online game, forge_ai_saved_tags_collect for a saved map. A level without one
+shows the teleport, which every map has */
+#define FORGE_AI_EFFECT_TELEPORT "effects\\coop teleport"
+
+enum
+{
+	_forge_ai_effect_none = 0,
+	_forge_ai_effect_teleport,
+	_forge_ai_effect_cloak,
+};
+
+static struct
+{
+	char const *label;
+	char const *path; /* NULL: not a tag */
+	char const *map; /* the campaign level with it, NULL: every map has it */
+} const s_ai_spawn_effects[] =
+{
+	{ "NONE", NULL, NULL },
+	{ "TELEPORT", FORGE_AI_EFFECT_TELEPORT, NULL },
+	{ "CLOAK", NULL, NULL },
+	{ "PLASMA BLAST", "weapons\\plasma grenade\\effects\\explosion", NULL },
+	{ "FLOOD BURST", SKULLS_OUTBREAK_BURST_TAG, "c20" },
+};
+
+int forge_ai_spawn_effect_wanted(char const *name)
+{
+	int i;
+
+	for (i = 0; i < (int)NUMBEROF(s_ai_spawn_effects); i++)
+	{
+		if (s_ai_spawn_effects[i].map && !_stricmp(s_ai_spawn_effects[i].path, name))
+			return 1;
+	}
+	return 0;
+}
+
+void forge_ai_spawn_effect_play(int effect, union real_point3d const *point)
+{
+	char const *marker_names[1];
+	real_point3d marker_points[1];
+	real_vector3d marker_forwards[1];
+	long definition;
+
+	if (effect < 0 || effect >= (int)NUMBEROF(s_ai_spawn_effects) || !s_ai_spawn_effects[effect].path)
+		return;
+	definition = forge_ai_tag_find('effe', s_ai_spawn_effects[effect].path);
+	if (definition == NONE)
+		definition = forge_ai_tag_find('effe', FORGE_AI_EFFECT_TELEPORT);
+	if (definition == NONE)
+		return;
+	marker_names[0] = "";
+	marker_points[0] = *point;
+	marker_forwards[0] = *global_up3d;
+	/* (it hurts no one, and leaves nothing to trip over) */
+	skulls_effect_harmless = TRUE;
+	skulls_effect_no_objects = TRUE;
+	effect_new_unattached_from_markers(definition, NONE, NULL, 1, marker_names, marker_points, marker_forwards,
+		0.0f, 0.0f, NULL, NULL, TRUE);
+	skulls_effect_harmless = FALSE;
+	skulls_effect_no_objects = FALSE;
+}
+
+/* ---------- a spawn's units as they start
+
+The first at its point, the next around it in a cross and its corners, north
+being the way the spawn faces, then the same a step further out. A place in a
+wall or with no ground under it is the point's. Its respawns are all the
+point's (encounter_place_actor's `spawning`) */
+#define FORGE_AI_GRID_SPACING 0.8f
+#define FORGE_AI_GRID_PLACES 16
+
+static signed char const s_ai_grid[FORGE_AI_GRID_PLACES][2] =
+{
+	/* north, east */
+	{ 0, 0 },
+	{ 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
+	{ 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 },
+	{ 2, 0 }, { -2, 0 }, { 0, 2 }, { 0, -2 },
+	{ 2, 2 }, { -2, 2 }, { -2, -2 },
+};
+
+/* (what the level's ground gave, kept for the preview, which asks each frame) */
+struct forge_ai_grid_layout
+{
+	float x, y, z, yaw;
+	short count;
+	union real_point3d points[FORGE_AI_GRID_PLACES];
+};
+static struct forge_ai_grid_layout *s_ai_grid_layouts;
+/* the next unit of each spawn to start: a spawn starts them all again each time
+the AI does, so this goes round */
+static short s_ai_grid_next[FORGE_MAX_AI_SPAWNS];
+/* the effect of the unit being placed */
+static int s_ai_placing_effect;
+
+static void forge_ai_grid_place(struct forge_ai_spawn_entry const *entry, int index, union real_point3d *point)
+{
+	unsigned long const flags = FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit);
+	float north = (float)s_ai_grid[index][0] * FORGE_AI_GRID_SPACING;
+	float east = (float)s_ai_grid[index][1] * FORGE_AI_GRID_SPACING;
+	float forward_x = (float)cos((double)entry->yaw), forward_y = (float)sin((double)entry->yaw);
+	real_point3d start;
+	real_vector3d vector;
+	struct collision_result collision;
+
+	point->x = entry->x;
+	point->y = entry->y;
+	point->z = entry->z;
+	if (!index)
+		return;
+	/* (a clear way there at waist height, then the ground) */
+	start.x = entry->x;
+	start.y = entry->y;
+	start.z = entry->z + 0.5f;
+	vector.i = forward_x * north + forward_y * east;
+	vector.j = forward_y * north - forward_x * east;
+	vector.k = 0.0f;
+	memset(&collision, 0, sizeof(collision));
+	if (collision_test_vector(flags, &start, &vector, NONE, &collision))
+		return;
+	start.x += vector.i;
+	start.y += vector.j;
+	vector.i = 0.0f;
+	vector.j = 0.0f;
+	vector.k = -2.0f;
+	memset(&collision, 0, sizeof(collision));
+	if (!collision_test_vector(flags, &start, &vector, NONE, &collision))
+		return;
+	point->x = start.x;
+	point->y = start.y;
+	point->z = collision.point.z + 0.05f;
+}
+
+static struct forge_ai_grid_layout const *forge_ai_grid_layout(struct forge_ai_spawn_entry const *entry, int slot)
+{
+	struct forge_ai_grid_layout *layout;
+	int i;
+
+	if (!s_ai_grid_layouts)
+		s_ai_grid_layouts = (struct forge_ai_grid_layout *)calloc(FORGE_MAX_AI_SPAWNS, sizeof(*s_ai_grid_layouts));
+	if (!s_ai_grid_layouts || slot < 0 || slot >= FORGE_MAX_AI_SPAWNS)
+		return NULL;
+	layout = &s_ai_grid_layouts[slot];
+	if (layout->x != entry->x || layout->y != entry->y || layout->z != entry->z || layout->yaw != entry->yaw ||
+		layout->count != entry->unit_count)
+	{
+		layout->x = entry->x;
+		layout->y = entry->y;
+		layout->z = entry->z;
+		layout->yaw = entry->yaw;
+		layout->count = entry->unit_count;
+		for (i = 0; i < entry->unit_count && i < FORGE_AI_GRID_PLACES; i++)
+			forge_ai_grid_place(entry, i, &layout->points[i]);
+	}
+	return layout;
+}
+
+/* the spawns the level is playing, as forge_ai_level_spawns chose them. That is
+asked once, as the AI is built: it uses up what a saved map brought */
+static struct forge_ai_spawn_entry const *forge_ai_playing_spawns(int *count)
+{
+	if (g_forge_session_enabled && s_markers_scanned && g_forge.live_instance_count > 0)
+	{
+		if (!g_forge.edit_state.ai_spawns_edited)
+			return NULL;
+		*count = g_forge.edit_state.ai_spawn_count;
+		return g_forge.edit_state.ai_spawns;
+	}
+	if (!s_saved.applied || !s_saved.has_spawns)
+		return NULL;
+	*count = s_saved.count;
+	return s_saved.entries;
+}
+
+/* (from encounter_place_actor) where a unit of a squad starts: the location, or
+`place`, a copy of it where the spawn's layout has this one */
+struct actor_starting_location *forge_ai_location_for_unit(
+	struct actor_starting_location *location,
+	boolean spawning,
+	struct actor_starting_location *place)
+{
+	int count = 0, i;
+	struct forge_ai_spawn_entry const *entries = forge_ai_playing_spawns(&count);
+	struct forge_ai_grid_layout const *layout;
+	int unit;
+
+	s_ai_placing_effect = _forge_ai_effect_none;
+	if (!entries)
+		return location;
+	for (i = 0; i < count && i < FORGE_MAX_AI_SPAWNS; i++)
+	{
+		if (entries[i].active && entries[i].x == location->position.x && entries[i].y == location->position.y &&
+			entries[i].z == location->position.z)
+		{
+			break;
+		}
+	}
+	if (i == count || i == FORGE_MAX_AI_SPAWNS)
+		return location;
+	s_ai_placing_effect = entries[i].spawn_effect;
+	if (spawning || entries[i].unit_count < 2 || !forge_ai_entry_own_squad(&entries[i]))
+		return location;
+	unit = s_ai_grid_next[i] % entries[i].unit_count;
+	s_ai_grid_next[i] = (short)(unit + 1);
+	layout = forge_ai_grid_layout(&entries[i], i);
+	if (!unit || unit >= FORGE_AI_GRID_PLACES || !layout)
+		return location;
+	*place = *location;
+	place->position.x = layout->points[unit].x;
+	place->position.y = layout->points[unit].y;
+	place->position.z = layout->points[unit].z;
+	return place;
+}
+
 static void forge_ai_weapon_give(long unit_index, long weapon_definition)
 {
 	struct object_placement_data placement;
@@ -929,6 +1154,27 @@ void forge_ai_unit_placed(long unit_index, struct actor_starting_location const 
 
 	if (slot > 0 && slot <= s_built.weapon_count)
 		forge_ai_weapon_give(unit_index, s_built.weapons[slot - 1]);
+	/* (not as the level loads: there is no one to see it, and no clients yet) */
+	if (s_ai_placing_effect != _forge_ai_effect_none && game_time_get() > 0)
+	{
+		if (s_ai_placing_effect == _forge_ai_effect_cloak)
+		{
+			struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+
+			/* (without the flag it fades, in the four seconds the engine takes) */
+			if (unit)
+				unit->unit.active_camouflage = 1.0f;
+		}
+		else
+		{
+			union real_point3d origin;
+
+			object_get_origin(unit_index, &origin);
+			forge_ai_spawn_effect_play(s_ai_placing_effect, &origin);
+			forge_network_send_spawn_effect(s_ai_placing_effect, &origin);
+		}
+	}
+	s_ai_placing_effect = _forge_ai_effect_none;
 }
 
 /* any weapon in any AI's hands: its animations are borrowed, as the campaign
@@ -1012,12 +1258,25 @@ void forge_ai_saved_parse(char const *text)
 		int fields;
 
 		memset(entry, 0, sizeof(*entry));
-		fields = sscanf(cur + 9, "%f|%f|%f|%f|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%255[^|\r\n]|%255[^\r\n]",
+		fields = sscanf(cur + 9, "%f|%f|%f|%f|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%255[^|\r\n]|%255[^|\r\n]",
 			&entry->x, &entry->y, &entry->z, &entry->yaw, &team, &count, &alive, &delay, &total, &gametypes,
 			&encounter, &squad, &location, &detached, entry->actor_variant_path, entry->weapon_path);
 		cur += 9;
 		if (fields < 15)
 			continue;
+		/* (last on the line, as a map from before it has none, and a spawn with
+		no weapon of its own stops the scan short of it) */
+		{
+			char const *effect = strstr(cur, "|fx=");
+
+			if (effect && effect < cur + strcspn(cur, "\r\n"))
+			{
+				int index = atoi(effect + 4);
+
+				if (index > 0 && index < (int)NUMBEROF(s_ai_spawn_effects))
+					entry->spawn_effect = (uint8_t)index;
+			}
+		}
 		entry->team = (int16_t)team;
 		entry->unit_count = (int16_t)count;
 		entry->respawn_alive = (int16_t)alive;
@@ -1250,6 +1509,42 @@ void forge_ai_spawn_moved(struct forge_live_instance const *inst)
 	}
 }
 
+int forge_ai_spawn_settings_get(int32_t live_idx, struct forge_ai_spawn_entry *settings)
+{
+	struct forge_ai_spawn_entry *entry = forge_ai_entry_live(live_idx);
+
+	if (!entry)
+		return 0;
+	*settings = *entry;
+	return 1;
+}
+
+void forge_ai_spawn_settings_set(int32_t live_idx, struct forge_ai_spawn_entry const *settings)
+{
+	struct forge_ai_spawn_entry *entry = forge_ai_entry_live(live_idx);
+	struct forge_live_instance *inst;
+	float x, y, z, yaw;
+
+	if (!entry)
+		return;
+	inst = &g_forge.live_instances[live_idx];
+	/* (where it is stays as it is: the object's own to say) */
+	x = entry->x;
+	y = entry->y;
+	z = entry->z;
+	yaw = entry->yaw;
+	*entry = *settings;
+	entry->x = x;
+	entry->y = y;
+	entry->z = z;
+	entry->yaw = yaw;
+	snprintf(inst->tag_path, sizeof(inst->tag_path), "%s", entry->actor_variant_path);
+	inst->team_designator = entry->team;
+	g_forge.edit_state.ai_spawns_edited = 1;
+	forge_ai_preview_update(live_idx);
+	forge_network_send_ai_spawn(live_idx);
+}
+
 void forge_ai_spawn_deleted(struct forge_live_instance const *inst)
 {
 	struct forge_ai_spawn_entry *entry = forge_ai_entry_of(inst);
@@ -1277,6 +1572,7 @@ void forge_ai_spawn_copy_settings(int source_entry, int32_t live_idx)
 	entry->respawn_delay_seconds = source->respawn_delay_seconds;
 	entry->respawn_total = source->respawn_total;
 	entry->gametype_flags = source->gametype_flags;
+	entry->spawn_effect = source->spawn_effect;
 	g_forge.live_instances[live_idx].team_designator = entry->team;
 	forge_ai_preview_update(live_idx);
 	forge_network_send_ai_spawn(live_idx);
@@ -1390,6 +1686,11 @@ void forge_ai_spawn_row_text(int32_t live_idx, int row, char *label, size_t labe
 		}
 		snprintf(value, value_size, "%s", s_ai_gametype_names[i < (int)NUMBEROF(s_ai_gametypes) ? i : 0]);
 		break;
+	case _forge_ai_row_spawn_effect:
+		snprintf(label, label_size, "SPAWN EFFECT:");
+		snprintf(value, value_size, "%s", s_ai_spawn_effects[entry->spawn_effect < NUMBEROF(s_ai_spawn_effects) ?
+			entry->spawn_effect : 0].label);
+		break;
 	}
 }
 
@@ -1491,6 +1792,13 @@ void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir)
 			index = 0;
 		entry->gametype_flags = s_ai_gametypes[(index + (int)NUMBEROF(s_ai_gametypes) + dir) % (int)NUMBEROF(s_ai_gametypes)];
 		break;
+	case _forge_ai_row_spawn_effect:
+		entry->spawn_effect = (uint8_t)((entry->spawn_effect + (int)NUMBEROF(s_ai_spawn_effects) + dir) %
+			(int)NUMBEROF(s_ai_spawn_effects));
+		/* (read now, in a solo Forge game, not as the unit appears) */
+		if (s_ai_spawn_effects[entry->spawn_effect].path)
+			forge_ai_tag_need('effe', s_ai_spawn_effects[entry->spawn_effect].path);
+		break;
 	default:
 		return;
 	}
@@ -1515,13 +1823,15 @@ int forge_ai_palette_entry_allowed(struct forge_catalog_entry const *entry)
 	return forge_ai_map_editable() && entry->group_tag == FORGE_GROUP_AI_SPAWN;
 }
 
-static void forge_ai_saved_tag_add(uint32_t group_tag, char const *path)
+static void forge_ai_saved_tag_add(uint32_t group_tag, char const *path, char const *known_map)
 {
 	struct forge_scenario_edit_state *edits = &g_forge.edit_state;
 	char map[32];
 	int i;
 
-	if (!path[0] || !forge_campaign_tag_map(group_tag, path, map, sizeof(map)))
+	if (known_map)
+		snprintf(map, sizeof(map), "%s", known_map);
+	else if (!path[0] || !forge_campaign_tag_map(group_tag, path, map, sizeof(map)))
 		return;
 	for (i = 0; i < edits->ai_actor_count; i++)
 	{
@@ -1551,8 +1861,14 @@ void forge_ai_saved_tags_collect(void)
 	{
 		if (!edits->ai_spawns[i].active)
 			continue;
-		forge_ai_saved_tag_add('actv', edits->ai_spawns[i].actor_variant_path);
-		forge_ai_saved_tag_add('weap', edits->ai_spawns[i].weapon_path);
+		forge_ai_saved_tag_add('actv', edits->ai_spawns[i].actor_variant_path, NULL);
+		forge_ai_saved_tag_add('weap', edits->ai_spawns[i].weapon_path, NULL);
+		if (edits->ai_spawns[i].spawn_effect < NUMBEROF(s_ai_spawn_effects) &&
+			s_ai_spawn_effects[edits->ai_spawns[i].spawn_effect].map)
+		{
+			forge_ai_saved_tag_add('effe', s_ai_spawn_effects[edits->ai_spawns[i].spawn_effect].path,
+				s_ai_spawn_effects[edits->ai_spawns[i].spawn_effect].map);
+		}
 	}
 	platform_log("Forge: the map's spawns use %d campaign tags", (int)edits->ai_actor_count);
 }
@@ -1592,7 +1908,8 @@ void forge_ai_spawn_net_apply(
 	int respawn_delay_seconds,
 	int respawn_total,
 	unsigned int gametype_flags,
-	int detached)
+	int detached,
+	int spawn_effect)
 {
 	struct forge_ai_spawn_entry *entry = forge_ai_entry_live(live_idx);
 	struct forge_live_instance *inst;
@@ -1613,9 +1930,32 @@ void forge_ai_spawn_net_apply(
 	entry->respawn_delay_seconds = (int16_t)respawn_delay_seconds;
 	entry->respawn_total = (int16_t)respawn_total;
 	entry->gametype_flags = (uint16_t)gametype_flags;
+	if (spawn_effect >= 0 && spawn_effect < (int)NUMBEROF(s_ai_spawn_effects))
+		entry->spawn_effect = (uint8_t)spawn_effect;
 	entry->detached = (uint8_t)detached;
 	g_forge.edit_state.ai_spawns_edited = 1;
 	forge_ai_preview_update(live_idx);
+}
+
+int forge_ai_spawn_grid_count(int32_t live_idx)
+{
+	struct forge_ai_spawn_entry const *entry = forge_ai_entry_live(live_idx);
+
+	return entry && entry->unit_count > 1 && forge_ai_entry_own_squad(entry) ? entry->unit_count : 0;
+}
+
+int forge_ai_spawn_grid_point(int32_t live_idx, int index, union real_point3d *point)
+{
+	struct forge_ai_spawn_entry const *entry = forge_ai_entry_live(live_idx);
+	struct forge_ai_grid_layout const *layout;
+
+	if (!entry || index < 0 || index >= FORGE_AI_GRID_PLACES || index >= entry->unit_count)
+		return 0;
+	layout = forge_ai_grid_layout(entry, (int)(entry - g_forge.edit_state.ai_spawns));
+	if (!layout)
+		return 0;
+	*point = layout->points[index];
+	return 1;
 }
 
 void forge_ai_spawn_net_settings(
@@ -1648,6 +1988,19 @@ long forge_ai_actor_unit_definition(char const *path)
 	if (variant == NONE)
 		return NONE;
 	return ((struct actor_variant_definition *)tag_get('actv', variant))->unit_reference.index;
+}
+
+/* a model answers to Forge's user alone: no unit or vehicle meets it, and no
+blast pushes it (taking no damage does not stop that: object_cause_damage) */
+void forge_ai_preview_protect(long unit_index)
+{
+	struct unit_datum *unit = (struct unit_datum *)object_try_and_get_and_verify_type(unit_index, _object_mask_unit);
+
+	if (unit)
+	{
+		SET_FLAG(unit->object.flags, _object_no_collisions_bit, TRUE);
+		SET_FLAG(unit->unit.flags, _unit_impervious_bit, TRUE);
+	}
 }
 
 static long forge_ai_preview_new(struct forge_ai_spawn_entry const *entry)
@@ -1686,6 +2039,7 @@ static long forge_ai_preview_new(struct forge_ai_spawn_entry const *entry)
 		SET_FLAG(object->object.flags, _object_cannot_be_garbage_bit, TRUE);
 		SET_FLAG(object->object.flags, _object_deleted_when_deactivated_bit, FALSE);
 		object_set_automatic_deactivation(unit_index, FALSE);
+		forge_ai_preview_protect(unit_index);
 	}
 	return unit_index;
 }
@@ -1728,6 +2082,18 @@ static void forge_ai_previews_set(int shown)
 	}
 }
 
+static int forge_ai_object_is_placed(long object_index)
+{
+	int i;
+
+	for (i = 0; i < g_forge.live_instance_count; i++)
+	{
+		if (g_forge.live_instances[i].object_index == object_index)
+			return 1;
+	}
+	return 0;
+}
+
 /* what the AI left: dead units no player or placed object is */
 static void forge_ai_corpses_delete(void)
 {
@@ -1737,14 +2103,31 @@ static void forge_ai_corpses_delete(void)
 	object_iterator_new(&iterator, _object_mask_biped, 0);
 	while ((unit = (struct unit_datum *)object_iterator_next(&iterator)) != NULL)
 	{
-		int i;
-
 		if (unit->unit.player_index != NONE || !TEST_FLAG(unit->object.damage_flags, _object_dead_bit))
 			continue;
-		for (i = 0; i < g_forge.live_instance_count && g_forge.live_instances[i].object_index != iterator.index; i++)
+		if (!forge_ai_object_is_placed(iterator.index))
+			object_delete(iterator.index);
+	}
+}
+
+/* and the weapons dropped: loose ones a unit carried, the map's own waiting
+to be taken never were. Not a flag or ball, which the game needs, nor a placed
+object */
+static void forge_ai_dropped_weapons_delete(void)
+{
+	struct object_iterator iterator;
+	struct item_datum *item;
+
+	object_iterator_new(&iterator, _object_mask_weapon, 0);
+	while ((item = (struct item_datum *)object_iterator_next(&iterator)) != NULL)
+	{
+		if (!TEST_FLAG(item->item.flags, _item_has_been_held_bit) ||
+			TEST_FLAG(item->item.flags, _item_attached_to_unit_bit) ||
+			item->object.parent_object_index != NONE || weapon_is_flag(iterator.index))
 		{
+			continue;
 		}
-		if (i == g_forge.live_instance_count)
+		if (!forge_ai_object_is_placed(iterator.index))
 			object_delete(iterator.index);
 	}
 }
@@ -1767,6 +2150,7 @@ void forge_ai_forge_mode_changed(int forge_mode)
 		ai_dispose_from_old_map();
 		ai_initialize_for_new_map();
 		forge_ai_corpses_delete();
+		forge_ai_dropped_weapons_delete();
 		forge_ai_previews_set(1);
 	}
 	else

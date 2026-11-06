@@ -168,8 +168,10 @@ own pool, whose tags a client copies too; 10 a Forge game's Tag Injector share
 (_distributed_message_tag_share's kind); 11 a Firefight variant's share (its
 kind) and the temporary skulls in Firefight's state; 12 a Forge marker's usage
 changing (!FU:), which dropship routes hang on, and a dropship's looks in
-Firefight's state; 13 a Forge AI spawn's settings (!FA:) */
-#define HALO_PORT_MOD_NETWORK_VERSION 13
+Firefight's state; 13 a Forge AI spawn's settings (!FA:); 14 its spawn effect,
+in !FA: and shown by !FE:, and the campaign effects a Forge game imports; 15
+two of those effects gone, which moves the tags after them */
+#define HALO_PORT_MOD_NETWORK_VERSION 15
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

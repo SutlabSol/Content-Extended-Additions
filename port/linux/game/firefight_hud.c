@@ -1895,8 +1895,9 @@ static void ff_emblem_add_layer(struct ff_icon_scratch *scratch, unsigned int wo
 }
 
 /* the emblem in the scratch's pixels128: its background, then its foreground's
-layers in their order, each mask tinted with its colour */
-static void ff_emblem_compose(struct ff_icon_scratch *scratch, struct firefight_emblem_info const *e)
+layers in their order, each mask tinted with its colour; or one of those alone
+(part: _firefight_emblem_part_...) */
+static void ff_emblem_compose(struct ff_icon_scratch *scratch, struct firefight_emblem_info const *e, short part)
 {
 	short foreground = (short)PIN(e->foreground, 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
 	short background = (short)PIN(e->background, 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
@@ -1907,11 +1908,14 @@ static void ff_emblem_compose(struct ff_icon_scratch *scratch, struct firefight_
 	unsigned int second = ff_emblem_foreground_word(foreground, 1);
 	int i;
 
-	/* (the empty pixels have the background's colour, for no dark edge where the texture is filtered) */
+	/* (the empty pixels have the colour under them, for no dark edge where the texture is filtered) */
 	for (i = 0; i < FF_ICON_HI_DIM * FF_ICON_HI_DIM; i++)
-		scratch->pixels128[i] = back & 0x00FFFFFF;
+		scratch->pixels128[i] = (part == _firefight_emblem_part_foreground ? primary : back) & 0x00FFFFFF;
 
-	ff_emblem_add_layer(scratch, firefight_emblem_masks[background], back);
+	if (part != _firefight_emblem_part_foreground)
+		ff_emblem_add_layer(scratch, firefight_emblem_masks[background], back);
+	if (part == _firefight_emblem_part_background)
+		return;
 	if (e->secondary_layer && (first & EMBLEM_PRIMARY_ON_TOP))
 		ff_emblem_add_layer(scratch, second, secondary);
 	ff_emblem_add_layer(scratch, first, primary);
@@ -1919,12 +1923,13 @@ static void ff_emblem_compose(struct ff_icon_scratch *scratch, struct firefight_
 		ff_emblem_add_layer(scratch, second, secondary);
 }
 
-void firefight_draw_player_emblem(
+void firefight_draw_player_emblem_part(
 	short x0,
 	short y0,
 	short size,
 	struct firefight_emblem_info const *emblem,
-	real alpha)
+	real alpha,
+	short part)
 {
 	struct firefight_emblem_info def_emb = FIREFIGHT_EMBLEM_DEFAULT;
 	struct firefight_emblem_info const *e = emblem ? emblem : &def_emb;
@@ -1935,7 +1940,7 @@ void firefight_draw_player_emblem(
 	unsigned long c_sec = (unsigned long)PIN(e->secondary_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
 	unsigned long c_bg = (unsigned long)PIN(e->background_color, 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
 	/* (7 bits of foreground, 6 of background, 1 of layer, 5 of each colour) */
-	unsigned long key = 0x40000000UL | (fg << 22) | (bg << 16) | (sec << 15) | (c_pri << 10) | (c_sec << 5) | c_bg;
+	unsigned long key;
 	struct ff_icon_scratch *scratch = ff_icon_scratch();
 	struct ff_cached_icon_mesh *mesh = NULL;
 	int i;
@@ -1943,13 +1948,27 @@ void firefight_draw_player_emblem(
 	/* (a player without one, as social_extensions_get_person_rank_and_emblem says) */
 	if (e->foreground < 0)
 		return;
+	/* (a part's picture depends on its own settings alone; bits 31 and 29 tell
+	it from the whole emblem's, each picture its own in the cache) */
+	if (part == _firefight_emblem_part_foreground)
+	{
+		bg = 0;
+		c_bg = 0;
+	}
+	else if (part == _firefight_emblem_part_background)
+	{
+		fg = sec = c_pri = c_sec = 0;
+	}
+	key = 0x40000000UL | (fg << 22) | (bg << 16) | (sec << 15) | (c_pri << 10) | (c_sec << 5) | c_bg |
+		(part == _firefight_emblem_part_foreground ? 0x80000000UL :
+			part == _firefight_emblem_part_background ? 0x20000000UL : 0);
 	if (global_d3d_device)
 	{
 		if (ff_draw_hw_icon_pixels(key, NULL, x0, y0, size, alpha))
 			return;
 		if (scratch)
 		{
-			ff_emblem_compose(scratch, e);
+			ff_emblem_compose(scratch, e, part);
 			if (ff_draw_hw_icon_pixels(key, scratch->pixels128, x0, y0, size, alpha))
 				return;
 		}
@@ -1970,7 +1989,7 @@ void firefight_draw_player_emblem(
 
 		if (!scratch)
 			return;
-		ff_emblem_compose(scratch, e);
+		ff_emblem_compose(scratch, e, part);
 		ff_icon_grid(scratch, grid);
 		mesh = &s_emblem_mesh_cache[s_emblem_mesh_next];
 		s_emblem_mesh_next = (s_emblem_mesh_next + 1) & 7;
@@ -1978,6 +1997,16 @@ void firefight_draw_player_emblem(
 	}
 
 	ff_draw_cached_icon_mesh(mesh, x0, y0, size, alpha);
+}
+
+void firefight_draw_player_emblem(
+	short x0,
+	short y0,
+	short size,
+	struct firefight_emblem_info const *emblem,
+	real alpha)
+{
+	firefight_draw_player_emblem_part(x0, y0, size, emblem, alpha, _firefight_emblem_part_whole);
 }
 
 static void draw_screen_quad(short x0, short y0, short x1, short y1, pixel32 col)

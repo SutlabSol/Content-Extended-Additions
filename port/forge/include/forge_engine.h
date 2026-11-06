@@ -69,6 +69,8 @@ the other builds, the platform layer's last read of the keys (forge_hooks.c);
 none while a chat box is typed in (forge_chat_typing) */
 short forge_key_state(int vk);
 int forge_chat_typing(void);
+/* whether one of Forge's menus is open: the chat's hotkeys are then not the chat's */
+int forge_menu_open(void);
 /* the first controller's state as the game gets it (the Xbox's: its
 buttons, its analog buttons A B X Y BLACK WHITE LT RT, its sticks with up
 positive); 0 with none, or while a chat box is typed in */
@@ -330,6 +332,9 @@ struct forge_runtime_state
 	int32_t grabbed_object_index;
 	int32_t grabbed_live_index;
 	int grabbed_is_new_spawn;
+	/* the grabbed instance is only having its settings changed: it stays
+	where it is, and is let go when the settings close */
+	int grabbed_for_settings;
 	float grabbed_orig_x, grabbed_orig_y, grabbed_orig_z;
 	float grabbed_orig_yaw, grabbed_orig_pitch, grabbed_orig_roll;
 	float grab_distance;
@@ -404,7 +409,9 @@ enum forge_bind_action
 	FORGE_BIND_OBJECT_OPTIONS = 8,
 	FORGE_BIND_DELETE_OBJECT = 9,
 	FORGE_BIND_COPY_OBJECT = 10,
-	FORGE_BIND_COUNT = 11
+	/* what the reticle is on: its settings, without picking it up */
+	FORGE_BIND_LOOK_SETTINGS = 11,
+	FORGE_BIND_COUNT = 12
 };
 
 enum forge_gamepad_button
@@ -488,6 +495,7 @@ enum forge_ai_spawn_row
 	_forge_ai_row_respawn_delay,
 	_forge_ai_row_respawn_total,
 	_forge_ai_row_game_mode,
+	_forge_ai_row_spawn_effect,
 	NUMBER_OF_FORGE_AI_SETTING_ROWS,
 	_forge_ai_row_rot_snap = NUMBER_OF_FORGE_AI_SETTING_ROWS,
 	_forge_ai_row_floor,
@@ -520,6 +528,9 @@ void forge_ai_markers_scan(void);
 int forge_ai_spawn_entry_new(int32_t live_idx, char const *variant_path, float x, float y, float z, float yaw, int16_t team);
 void forge_ai_spawn_moved(struct forge_live_instance const *inst);
 void forge_ai_spawn_deleted(struct forge_live_instance const *inst);
+/* a spawn's settings as they are, and put back (the properties' UNDO) */
+int forge_ai_spawn_settings_get(int32_t live_idx, struct forge_ai_spawn_entry *settings);
+void forge_ai_spawn_settings_set(int32_t live_idx, struct forge_ai_spawn_entry const *settings);
 void forge_ai_spawn_copy_settings(int source_entry, int32_t live_idx);
 void forge_ai_spawn_row_text(int32_t live_idx, int row, char *label, size_t label_size, char *value, size_t value_size);
 void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir);
@@ -534,7 +545,17 @@ void forge_ai_spawn_net_apply(
 	int respawn_delay_seconds,
 	int respawn_total,
 	unsigned int gametype_flags,
-	int detached);
+	int detached,
+	int spawn_effect);
+/* a spawn's units past its first as they start: how many it has laid out (0: one
+at its point), and where unit `index` stands. Forge's preview draws them */
+int forge_ai_spawn_grid_count(int32_t live_idx);
+int forge_ai_spawn_grid_point(int32_t live_idx, int index, union real_point3d *point);
+/* a spawn effect shown here, and told to the clients */
+void forge_ai_spawn_effect_play(int effect, union real_point3d const *point);
+/* a spawn's model out of reach of all but Forge's user */
+void forge_ai_preview_protect(long unit_index);
+void forge_network_send_spawn_effect(int effect, union real_point3d const *point);
 void forge_ai_spawn_net_settings(
 	int32_t live_idx,
 	uint32_t *variant_hash,

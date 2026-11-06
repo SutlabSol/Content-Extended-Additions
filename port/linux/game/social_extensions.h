@@ -72,12 +72,14 @@ short social_extensions_choose(short list_kind, short row_kind, short value);
 boolean social_extensions_step_row(short list_kind, short row_kind, short value, short delta);
 
 /* The emblem a row shows in its state's place (the CUSTOMISE EMBLEM row, and
-its list's emblem and background): TRUE and out_emblem for such a row */
+its list's emblem and background): TRUE and out_emblem for such a row, and
+out_part the part of it to show: the whole, or what the row chooses */
 boolean social_extensions_row_emblem(
 	short list_kind,
 	short row_kind,
 	short value,
-	struct firefight_emblem_info *out_emblem);
+	struct firefight_emblem_info *out_emblem,
+	short *out_part);
 
 /* Draws the live emblem preview in the Social details pane, on the CUSTOMISE
 EMBLEM row and in its list */

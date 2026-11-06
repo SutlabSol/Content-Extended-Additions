@@ -885,6 +885,15 @@ void firefight_hud_xp_exit_draw(short screen_width, short screen_height);
 void firefight_draw_mcc_rank_icon(short x0, short y0, short size, short tour_number, short rank_in_tour, real alpha);
 void firefight_draw_h3_ranked_icon(short x0, short y0, short size, short ranked_index, real alpha);
 void firefight_draw_player_emblem(short x0, short y0, short size, struct firefight_emblem_info const *emblem, real alpha);
+/* what of an emblem is drawn: the editor shows the part each row chooses */
+enum
+{
+	_firefight_emblem_part_whole,
+	_firefight_emblem_part_foreground,
+	_firefight_emblem_part_background
+};
+void firefight_draw_player_emblem_part(short x0, short y0, short size, struct firefight_emblem_info const *emblem,
+	real alpha, short part);
 void firefight_draw_mcc_nameplate(short x0, short y0, short x1, short y1, short nameplate_id, pixel32 armor_accent, real alpha);
 void firefight_hud_draw_pgcr_extras(long mvp_player_index, short mvp_row);
 /* game_engine.c: a player's rank and emblem, on any machine */

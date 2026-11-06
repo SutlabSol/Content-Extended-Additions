@@ -41,12 +41,13 @@ enum
 
 enum
 {
-	_emb_row_foreground = 0,
-	_emb_row_secondary_layer = 1,
-	_emb_row_background = 2,
-	_emb_row_primary_color = 3,
-	_emb_row_secondary_color = 4,
-	_emb_row_bg_color = 5,
+	/* (in the order shown) */
+	_emb_row_background = 0,
+	_emb_row_bg_color = 1,
+	_emb_row_foreground = 2,
+	_emb_row_secondary_layer = 3,
+	_emb_row_primary_color = 4,
+	_emb_row_secondary_color = 5,
 	_emb_row_nameplate = 6,
 	/* (the nameplate's row last, for it may be left out) */
 	_emb_row_count = 6 + OPENCE_ENABLE_NAMEPLATES
@@ -338,8 +339,15 @@ void social_extensions_build_list_rows(short list_kind, social_ext_row_add_fn ad
 
 	if (list_kind == _social_ext_list_emblem)
 	{
+		struct firefight_emblem_info emb;
+
+		/* (the secondary colour is the detail's: no row without it) */
+		firefight_stats_get_emblem(NONE, &emb);
 		for (i = 0; i < _emb_row_count; i++)
-			add_fn(_social_ext_row_item, i);
+		{
+			if (i != _emb_row_secondary_color || emb.secondary_layer)
+				add_fn(_social_ext_row_item, i);
+		}
 	}
 	else if (list_kind == _social_ext_list_service_record)
 	{
@@ -1100,12 +1108,15 @@ boolean social_extensions_row_emblem(
 	short list_kind,
 	short row_kind,
 	short value,
-	struct firefight_emblem_info *out_emblem)
+	struct firefight_emblem_info *out_emblem,
+	short *out_part)
 {
 	if (row_kind != _social_ext_row_emblem && (list_kind != _social_ext_list_emblem || row_kind != _social_ext_row_item ||
 		(value != _emb_row_foreground && value != _emb_row_background)))
 		return FALSE;
 	firefight_stats_get_emblem(NONE, out_emblem);
+	*out_part = row_kind == _social_ext_row_emblem ? _firefight_emblem_part_whole :
+		value == _emb_row_foreground ? _firefight_emblem_part_foreground : _firefight_emblem_part_background;
 	return TRUE;
 }
 

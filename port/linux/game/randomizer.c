@@ -1988,6 +1988,8 @@ one import (tag_import.h), the same on every machine: the units its encounters
 make must be the same tags on the host and its clients, which Forge's reading
 one tag as it is placed cannot promise. About 6,000 tags and 17 MB at the very
 most, of IMPORT_MAX and COPY_BUDGET */
+extern int forge_ai_spawn_effect_wanted(char const *name);
+
 static void gather_forge_session_tags(void)
 {
 	long copied = 0;
@@ -2008,7 +2010,8 @@ static void gather_forge_session_tags(void)
 
 			if (name && tag_loaded(group, name) == NONE &&
 				((group == ACTOR_VARIANT_DEFINITION_TAG && forge_campaign_actor_wanted(name)) ||
-				 (group == WEAPON_DEFINITION_TAG && !_strnicmp(name, "weapons\\", 8))))
+				 (group == WEAPON_DEFINITION_TAG && !_strnicmp(name, "weapons\\", 8)) ||
+				 (group == EFFECT_DEFINITION_TAG && forge_ai_spawn_effect_wanted(name))))
 			{
 				copied += tag_import_want(donor, tag);
 			}

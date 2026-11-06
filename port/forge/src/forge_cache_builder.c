@@ -5442,13 +5442,13 @@ static int append_forge_map_metadata_and_preview_trailer(
 				if (!ai->active || !ai->actor_variant_path[0])
 					continue;
 				line_len = snprintf(ai_line, sizeof(ai_line),
-					"AI_SPAWN|%.4f|%.4f|%.4f|%.4f|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%s|%s\r\n",
+					"AI_SPAWN|%.4f|%.4f|%.4f|%.4f|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%s|%s|fx=%d\r\n",
 					ai->x, ai->y, ai->z, ai->yaw,
 					(int)ai->team, (int)ai->unit_count,
 					(int)ai->respawn_alive, (int)ai->respawn_delay_seconds, (int)ai->respawn_total,
 					(unsigned)ai->gametype_flags,
 					(int)ai->encounter_index, (int)ai->squad_index, (int)ai->location_index, (int)ai->detached,
-					ai->actor_variant_path, ai->weapon_path);
+					ai->actor_variant_path, ai->weapon_path, (int)ai->spawn_effect);
 				if (line_len > 0 && state_buf.data)
 				{
 					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);

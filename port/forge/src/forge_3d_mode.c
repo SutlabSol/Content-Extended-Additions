@@ -56,6 +56,9 @@ extern tag tag_get_group_tag(long tag_index);
 extern unsigned long system_milliseconds(void);
 /* (the platform layer's: port/linux/src/xinput_sdl.c, sdl_platform.h) */
 extern int halo_linux_mouse_look(short controller_index, float *yaw_delta, float *pitch_delta);
+extern int halo_linux_touch_move(short controller_index, float *forward, float *strafe);
+extern int halo_linux_touch_look(short gamepad_index, float *yaw, float *pitch, float *gyro_yaw, float *gyro_pitch);
+extern boolean input_abstraction_port_look_inverted(short port);
 extern void platform_scoreboard_scroll(int open, long *notches, long *pages);
 extern boolean render_camera_world_to_screen(
 	const struct render_camera *camera,
@@ -67,6 +70,9 @@ extern void halo_menus_art_register(void const *texture, char const *png);
 extern long hud_hires_asset_count(void);
 extern char const *hud_hires_asset_tag(long asset);
 extern void hud_hires_register_placeholder(long asset, unsigned long const *texture);
+extern long hud_hires_placeholder_asset(unsigned long data);
+extern short controller_glyph_style(void);
+extern boolean controller_glyph_lookup(short style, short slot, struct bitmap_data **bitmap, short bounds[4]);
 extern int config_boolean(char const *name);
 
 extern void SDL_free(void *mem);
@@ -101,6 +107,7 @@ void forge_controls_init_defaults(void)
 	g_forge.bind_vk[FORGE_BIND_OBJECT_OPTIONS] = 'V';
 	g_forge.bind_vk[FORGE_BIND_DELETE_OBJECT]  = 0x2E; /* VK_DELETE */
 	g_forge.bind_vk[FORGE_BIND_COPY_OBJECT]    = 'C';
+	g_forge.bind_vk[FORGE_BIND_LOOK_SETTINGS]  = 'V';
 
 	/* (D-pad Up is the chat's: network_chat.c, social_chat.c) */
 	g_forge.bind_gp[FORGE_BIND_TOGGLE_MODE]    = FORGE_GP_DPAD_RIGHT;
@@ -116,6 +123,7 @@ void forge_controls_init_defaults(void)
 	/* (with SNAP TO FLOOR: that one while an object is held, this one while
 	none is) */
 	g_forge.bind_gp[FORGE_BIND_COPY_OBJECT]    = FORGE_GP_DPAD_LEFT;
+	g_forge.bind_gp[FORGE_BIND_LOOK_SETTINGS]  = FORGE_GP_Y;
 
 	g_forge.controller_look_sens = 1.0f;
 	g_forge.controller_fly_speed = 1.0f;
@@ -151,6 +159,9 @@ void forge_controls_load(void)
 				}
 				if (idx == FORGE_BIND_COPY_OBJECT)
 					saw_copy_bind = 1;
+				/* (D-pad Up is the chat's: Y, which only deletes what is held) */
+				if (idx == FORGE_BIND_LOOK_SETTINGS && gp == FORGE_GP_DPAD_UP)
+					gp = FORGE_GP_Y;
 				g_forge.bind_vk[idx] = vk;
 				g_forge.bind_gp[idx] = gp;
 			}
@@ -319,6 +330,19 @@ char const *forge_action_prompt(int action)
 	return dst;
 }
 
+/* (the Switch's) whether Forge's menus take the right face button, marked A, as
+A and the bottom one, marked B, as B, as the game's menus do
+(controls.nintendo_menu_buttons: xinput_sdl.c's menu_buttons_swapped); the
+buttons are named by where they sit everywhere else */
+static int forge_menu_buttons_swapped(void)
+{
+#ifdef HALO_SWITCH
+	return g_forge.active_modal != _forge_modal_none && config_boolean("controls.nintendo_menu_buttons");
+#else
+	return 0;
+#endif
+}
+
 void forge_poll_controller_state(float *out_lx, float *out_ly, float *out_rx, float *out_ry, float *out_lt, float *out_rt)
 {
 	struct forge_pad pad;
@@ -345,8 +369,8 @@ void forge_poll_controller_state(float *out_lx, float *out_ly, float *out_rx, fl
 		int const deadzone = 6200;
 		int const pressed = 30;
 
-		s_gp_btn_down[FORGE_GP_A]          = pad.analog[0] >= pressed;
-		s_gp_btn_down[FORGE_GP_B]          = pad.analog[1] >= pressed;
+		s_gp_btn_down[FORGE_GP_A]          = pad.analog[forge_menu_buttons_swapped() ? 1 : 0] >= pressed;
+		s_gp_btn_down[FORGE_GP_B]          = pad.analog[forge_menu_buttons_swapped() ? 0 : 1] >= pressed;
 		s_gp_btn_down[FORGE_GP_X]          = pad.analog[2] >= pressed;
 		s_gp_btn_down[FORGE_GP_Y]          = pad.analog[3] >= pressed;
 		s_gp_btn_down[FORGE_GP_BACK]       = (pad.buttons & 0x0020) != 0;
@@ -384,6 +408,19 @@ void forge_poll_controller_state(float *out_lx, float *out_ly, float *out_rx, fl
 			(float)fabs((double)s_gp_rx) > 0.12f || (float)fabs((double)s_gp_ry) > 0.12f ||
 			s_gp_lt > 0.15f || s_gp_rt > 0.15f)
 		{
+			any_gp_activity = 1;
+		}
+	}
+
+	/* (the touch controls' stick, which is not the pad's: touch_input_move. It
+	counts with no pad connected, so outside forge_pad_read) */
+	{
+		float forward, strafe;
+
+		if (halo_linux_touch_move(0, &forward, &strafe))
+		{
+			s_gp_lx = -strafe;
+			s_gp_ly = forward;
 			any_gp_activity = 1;
 		}
 	}
@@ -1245,9 +1282,13 @@ static struct bitmap_data *get_xbox_hires_button_bmp(int slot, char const *asset
 	}
 	if (s_xbox_btn_cache[slot].bmp && s_xbox_btn_cache[slot].asset >= 0)
 	{
-		hud_hires_register_placeholder(
-			s_xbox_btn_cache[slot].asset,
-			(unsigned long const *)s_xbox_btn_cache[slot].bmp->hardware_format);
+		/* (only if it is not registered: each registering makes every texture
+		look for its placeholder again, which this did for each icon of each
+		frame) */
+		unsigned long const *texture = (unsigned long const *)s_xbox_btn_cache[slot].bmp->hardware_format;
+
+		if (hud_hires_placeholder_asset(texture[1]) != s_xbox_btn_cache[slot].asset)
+			hud_hires_register_placeholder(s_xbox_btn_cache[slot].asset, texture);
 		return s_xbox_btn_cache[slot].bmp;
 	}
 	return NULL;
@@ -1308,6 +1349,55 @@ static short xbox_icon_advance_px(int icon_id, int use_large_font)
 	return base;
 }
 
+/* the button as the player's controller shows it (Gamepads > Button
+Appearance), the HUD's own artwork, fitted to the cell the Xbox icons have.
+0: this style has none for it (the original Xbox styles, the D-pad, Start and
+Back), and draw_xbox_button_icon draws its own */
+static int draw_controller_glyph(int icon_id, short x0, short y0, short h)
+{
+	struct bitmap_data *bitmap;
+	short bounds[4];
+	short slot;
+	float cell_w, cell_h, width, height, fit, x, y;
+
+	if (icon_id >= FORGE_GP_A && icon_id <= FORGE_GP_WHITE)
+	{
+		slot = (short)(icon_id - FORGE_GP_A);
+		cell_w = (float)h * (21.0f / 22.0f);
+	}
+	else if (icon_id == FORGE_GP_LTRIGGER || icon_id == FORGE_GP_RTRIGGER)
+	{
+		slot = (short)(icon_id == FORGE_GP_LTRIGGER ? 6 : 7);
+		cell_w = (float)h * 1.25f;
+	}
+	else if (icon_id == FORGE_GP_LTHUMB || icon_id == FORGE_GP_RTHUMB)
+	{
+		slot = (short)(icon_id == FORGE_GP_LTHUMB ? 8 : 9);
+		cell_w = (float)h * 1.05f;
+	}
+	else
+	{
+		return 0;
+	}
+	/* (the button that does it in a menu: forge_menu_buttons_swapped) */
+	if (slot < 2 && forge_menu_buttons_swapped())
+		slot = (short)(slot ^ 1);
+	if (!controller_glyph_lookup(controller_glyph_style(), slot, &bitmap, bounds))
+		return 0;
+	cell_h = (float)h + 2.0f;
+	width = (float)(bounds[2] - bounds[0]);
+	height = (float)(bounds[3] - bounds[1]);
+	if (width <= 0.0f || height <= 0.0f)
+		return 0;
+	fit = cell_w / width < cell_h / height ? cell_w / width : cell_h / height;
+	x = (float)x0 + (cell_w - width * fit) * 0.5f - (float)bounds[0] * fit;
+	y = (float)y0 - 1.0f + (cell_h - height * fit) * 0.5f - (float)bounds[1] * fit;
+	draw_ui_png_quad_uv(bitmap, (short)(x + 0.5f), (short)(y + 0.5f),
+		(short)(x + 512.0f * fit + 0.5f), (short)(y + 512.0f * fit + 0.5f),
+		0.0f, 0.0f, 1.0f, 1.0f, 0xFFFFFFFFu);
+	return 1;
+}
+
 static void draw_xbox_button_icon(int icon_id, short x0, short y0, short height, float fit_scale)
 {
 	static char const *const face_assets[6] = {
@@ -1321,6 +1411,8 @@ static void draw_xbox_button_icon(int icon_id, short x0, short y0, short height,
 	short h = (short)((float)height * fit_scale + 0.5f);
 	if (h < 10) h = 10;
 
+	if (draw_controller_glyph(icon_id, x0, y0, h))
+		return;
 	if (icon_id >= FORGE_GP_A && icon_id <= FORGE_GP_WHITE)
 	{
 		int slot = icon_id - FORGE_GP_A;
@@ -2432,6 +2524,7 @@ void forge_3d_saved_object_place(long object_index, float x, float y, float z, f
 	pos.z = z;
 	euler_to_forward_up(yaw, pitch, roll, &fwd, &up);
 	object_set_position(object_index, &pos, &fwd, &up);
+	object_attached_lights_moved(object_index);
 }
 
 static char const *forge_ff_spawn_type_label(int type)
@@ -2809,7 +2902,7 @@ int32_t forge_3d_spawn_object_at_slot(
 		inst->team_designator = strstr(tag_path, "blue") ? 1 : strstr(tag_path, "ffa") ? 2 : 0;
 		inst->netgame_flag_type = (inst->team_designator == 2) ? 13 : 12;
 		sync_live_player_spawns_to_scenario();
-		forge_set_status("Placed %s Player Spawn at (%.1f, %.1f, %.1f) [R Rotate Arrow / X Change Team]",
+		forge_set_status("Placed %s Player Spawn at (%.1f, %.1f, %.1f)",
 			inst->team_designator == 1 ? "Blue Team" : (inst->team_designator == 2 ? "FFA (Yellow)" : "Red Team"),
 			x, y, z);
 	}
@@ -2818,7 +2911,7 @@ int32_t forge_3d_spawn_object_at_slot(
 		inst->netgame_flag_type = FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN;
 		inst->team_designator = (team_designator >= 0) ? team_designator : 0;
 		sync_live_netgame_flags_to_scenario();
-		forge_set_status("Placed Firefight Spawn [%s | %s | %s] (Press X to configure Wave/Round/Vehicle options)",
+		forge_set_status("Placed Firefight Spawn [%s | %s | %s]",
 			forge_ff_spawn_type_label(FORGE_FF_UNPACK_TYPE(inst->team_designator)),
 			forge_ff_round_filter_label(FORGE_FF_UNPACK_ROUND(inst->team_designator)),
 			forge_ff_wave_filter_label(FORGE_FF_UNPACK_WAVE(inst->team_designator)));
@@ -2833,7 +2926,7 @@ int32_t forge_3d_spawn_object_at_slot(
 			return -1;
 		}
 		forge_ai_preview_update(live_idx);
-		forge_set_status("Placed AI Spawn (Press X to set its AI, weapon, team, respawning and game mode)");
+		forge_set_status("Placed AI Spawn");
 	}
 	else if (group_tag == 'tele')
 	{
@@ -2841,7 +2934,7 @@ int32_t forge_3d_spawn_object_at_slot(
 		inst->netgame_flag_type = strstr(tag_path, "destination") ? 7 : 6;
 		inst->team_designator = (team_designator >= 0 && team_designator < 16) ? team_designator : 0;
 		sync_live_netgame_flags_to_scenario();
-		forge_set_status("Placed Teleporter %s [Ref #%d] (Press X while holding to change Reference ID)",
+		forge_set_status("Placed Teleporter %s [Ref #%d]",
 			inst->netgame_flag_type == 6 ? "IN (Origin)" : "OUT (Destination)",
 			(int)inst->team_designator);
 	}
@@ -3087,6 +3180,8 @@ void forge_3d_move_instance_ext(
 			}
 			SET_FLAG(obj->object.flags, _object_outside_of_map_bit, FALSE);
 			SET_FLAG(obj->object.flags, _object_no_collisions_bit, is_held ? TRUE : FALSE);
+			if (inst->group_tag == FORGE_GROUP_AI_SPAWN)
+				forge_ai_preview_protect(inst->object_index);
 			if (!is_held && obj->object.type == _object_type_vehicle)
 			{
 				/* Placed/released vehicle: wake physics on BOTH Host and Clients so it falls to ground and is immediately drivable! */
@@ -3116,6 +3211,8 @@ void forge_3d_move_instance_ext(
 				obj->object.angular_velocity.j = 0.0f;
 				obj->object.angular_velocity.k = 0.0f;
 			}
+			/* (its lights with it: nothing moves a device's or scenery's in the game) */
+			object_attached_lights_moved(inst->object_index);
 		}
 		else
 		{
@@ -5182,11 +5279,224 @@ void forge_3d_reset_session_tracking(void)
 	s_player_last_unit_init = 1;
 }
 
+/* the instance made the grabbed one, as it is now */
+static void forge_select_instance(int best)
+{
+	struct forge_live_instance *inst = &g_forge.live_instances[best];
+	struct object_datum *obj = forge_valid_object_get(inst->object_index);
+	float dx, dy, dz;
+
+	if (obj)
+	{
+		real_vector3d efwd, eup;
+		float df, du;
+		inst->x = obj->object.position.x;
+		inst->y = obj->object.position.y;
+		inst->z = obj->object.position.z;
+		euler_to_forward_up(inst->yaw, inst->pitch, inst->roll, &efwd, &eup);
+		df = (efwd.i - obj->object.forward.i) * (efwd.i - obj->object.forward.i) +
+			(efwd.j - obj->object.forward.j) * (efwd.j - obj->object.forward.j) +
+			(efwd.k - obj->object.forward.k) * (efwd.k - obj->object.forward.k);
+		du = (eup.i - obj->object.up.i) * (eup.i - obj->object.up.i) +
+			(eup.j - obj->object.up.j) * (eup.j - obj->object.up.j) +
+			(eup.k - obj->object.up.k) * (eup.k - obj->object.up.k);
+		if (df > 0.0004f || du > 0.0004f)
+			forward_up_to_euler(&obj->object.forward, &obj->object.up, &inst->yaw, &inst->pitch, &inst->roll);
+	}
+	dx = inst->x - g_forge.cam_x;
+	dy = inst->y - g_forge.cam_y;
+	dz = inst->z - g_forge.cam_z;
+	g_forge.koth_group_placing = 0;
+	g_forge.grabbed_live_index = best;
+	g_forge.grabbed_object_index = inst->object_index;
+	g_forge.grabbed_is_new_spawn = 0;
+	g_forge.grabbed_orig_x = inst->x;
+	g_forge.grabbed_orig_y = inst->y;
+	g_forge.grabbed_orig_z = inst->z;
+	g_forge.grabbed_orig_yaw = inst->yaw;
+	g_forge.grabbed_orig_pitch = inst->pitch;
+	g_forge.grabbed_orig_roll = inst->roll;
+	g_forge.grab_distance = (float)sqrt((double)(dx * dx + dy * dy + dz * dz));
+	if (g_forge.grab_distance < 1.0f) g_forge.grab_distance = 1.0f;
+	if (g_forge.grab_distance > 20.0f) g_forge.grab_distance = 20.0f;
+	g_forge.grab_yaw = inst->yaw;
+	g_forge.grab_pitch = inst->pitch;
+	g_forge.grab_roll = inst->roll;
+}
+
+/* the settings closed on an instance that was not picked up: let go where it
+is, as placing it does, which also tells the other machines what changed */
+static void forge_settings_selection_end(void)
+{
+	int32_t live_idx = g_forge.grabbed_live_index;
+
+	g_forge.grabbed_for_settings = 0;
+	if (live_idx < 0 || live_idx >= g_forge.live_instance_count)
+		return;
+	{
+		struct forge_live_instance *inst = &g_forge.live_instances[live_idx];
+
+		g_forge.grabbed_live_index = -1;
+		g_forge.grabbed_object_index = NONE;
+		g_forge.grabbed_is_new_spawn = 0;
+		if (!inst->active)
+			return;
+		forge_3d_move_instance_ext(live_idx, inst->x, inst->y, inst->z, inst->yaw, inst->pitch, inst->roll, 0, 0);
+		forge_network_send_transform_ext(
+			live_idx, inst->object_index, inst->x, inst->y, inst->z, inst->yaw, inst->pitch, inst->roll, 0, 1);
+	}
+}
+
+/* what the properties were when they were opened, for UNDO */
+static struct
+{
+	struct forge_live_instance inst;
+	enum forge_snap_angle_mode snap_mode;
+	int has_ai;
+	struct forge_ai_spawn_entry ai;
+	int leg_style[2];
+} s_props_opened;
+
+static void forge_props_open(void)
+{
+	struct forge_live_instance const *inst = &g_forge.live_instances[g_forge.grabbed_live_index];
+	int route_id = FF_ROUTE_ID(inst->team_designator);
+
+	g_forge.active_modal = _forge_modal_object_properties;
+	g_forge.props_cursor = 0;
+	s_props_opened.inst = *inst;
+	s_props_opened.snap_mode = g_forge.snap_mode;
+	s_props_opened.has_ai = inst->group_tag == FORGE_GROUP_AI_SPAWN &&
+		forge_ai_spawn_settings_get(g_forge.grabbed_live_index, &s_props_opened.ai);
+	if (forge_ff_is_dropship_zone(inst))
+	{
+		s_props_opened.leg_style[0] = forge_ff_route_leg_style(route_id, FF_ROUTE_APPROACH);
+		s_props_opened.leg_style[1] = forge_ff_route_leg_style(route_id, FF_ROUTE_DEPARTURE);
+	}
+}
+
+/* the properties back as forge_props_open found them, which stay open */
+static void forge_props_undo(void)
+{
+	int32_t live_idx = g_forge.grabbed_live_index;
+	struct forge_live_instance *inst = &g_forge.live_instances[live_idx];
+	struct forge_live_instance const *was = &s_props_opened.inst;
+
+	g_forge.snap_mode = s_props_opened.snap_mode;
+	if (s_props_opened.has_ai)
+	{
+		forge_ai_spawn_settings_set(live_idx, &s_props_opened.ai);
+	}
+	else if (inst->group_tag == 'ffsp')
+	{
+		forge_ff_marker_set_usage(live_idx, was->team_designator);
+		if (forge_ff_is_dropship_zone(inst))
+		{
+			int route_id = FF_ROUTE_ID(inst->team_designator);
+
+			forge_ff_route_set_leg_style(route_id, FF_ROUTE_APPROACH, s_props_opened.leg_style[0]);
+			forge_ff_route_set_leg_style(route_id, FF_ROUTE_DEPARTURE, s_props_opened.leg_style[1]);
+		}
+	}
+	else
+	{
+		inst->team_designator = was->team_designator;
+		inst->gametype_flags = was->gametype_flags;
+		if (inst->group_tag == 'spwn')
+		{
+			sync_live_player_spawns_to_scenario();
+		}
+		else if (inst->group_tag == 'tele' || inst->group_tag == 'flag')
+		{
+			sync_live_netgame_flags_to_scenario();
+		}
+		else if (!inst->is_default_scenario_object && inst->edit_entry_index >= 0 &&
+			inst->edit_entry_index < (int)g_forge.edit_state.placed_object_count)
+		{
+			g_forge.edit_state.placed_objects[inst->edit_entry_index].team_index = inst->team_designator;
+			g_forge.edit_state.placed_objects[inst->edit_entry_index].gametype_flags = inst->gametype_flags;
+		}
+		else if (inst->is_default_scenario_object && inst->edit_entry_index >= 0 &&
+			inst->edit_entry_index < (int)g_forge.edit_state.default_edit_count)
+		{
+			g_forge.edit_state.default_edits[inst->edit_entry_index].gametype_flags = inst->gametype_flags;
+		}
+	}
+	/* (an object in the player's hands is where they hold it) */
+	if (g_forge.grabbed_for_settings)
+		forge_3d_move_instance_ext(live_idx, was->x, was->y, was->z, was->yaw, was->pitch, was->roll, 0, 1);
+	forge_set_status("Properties Restored");
+}
+
+/* DROP TO FLOOR for what is not held, which the held object's update does not move */
+static void forge_settings_selection_drop_to_floor(void)
+{
+	int32_t live_idx = g_forge.grabbed_live_index;
+	struct forge_live_instance const *inst = &g_forge.live_instances[live_idx];
+	real_point3d from;
+	real_vector3d down;
+	struct collision_result collision;
+
+	from.x = inst->x;
+	from.y = inst->y;
+	from.z = inst->z + 2.0f;
+	down.i = 0.0f;
+	down.j = 0.0f;
+	down.k = -200.0f;
+	memset(&collision, 0, sizeof(collision));
+	if (forge_collision_test_vector(
+		FLAG(_collision_test_structure_bit) | FLAG(_collision_test_objects_bit) | FLAG(_collision_test_front_facing_surfaces_bit),
+		&from, &down, forge_valid_object_get(inst->object_index) ? inst->object_index : NONE, &collision))
+	{
+		forge_3d_move_instance_ext(live_idx, inst->x, inst->y, collision.point.z + 0.08f,
+			inst->yaw, inst->pitch, inst->roll, 0, 1);
+	}
+}
+
+/* how far the reticle selects (world units, 3.048 m each) */
+#define FORGE_SELECT_RANGE 10.0f
+/* how long the delete button is held */
+#define FORGE_DELETE_HOLD_MS 800u
+/* the hold's progress, for the HUD: 0 to 1 */
+static float s_delete_hold_fraction;
+/* and UNDO's, the same length */
+static float s_undo_hold_fraction;
+
+/* whether the level's walls and ground leave a point in sight of the camera.
+It stops short of the point, which may be on a surface or just under it */
+static int forge_point_in_sight(float x, float y, float z)
+{
+	real_point3d from;
+	real_vector3d vector;
+	struct collision_result collision;
+	float dx = x - g_forge.cam_x, dy = y - g_forge.cam_y, dz = z - g_forge.cam_z;
+	float distance = (float)sqrt((double)(dx * dx + dy * dy + dz * dz));
+	float reach;
+
+	if (distance < 0.5f)
+		return 1;
+	reach = (distance - 0.25f) / distance;
+	from.x = g_forge.cam_x;
+	from.y = g_forge.cam_y;
+	from.z = g_forge.cam_z;
+	vector.i = dx * reach;
+	vector.j = dy * reach;
+	vector.k = dz * reach;
+	memset(&collision, 0, sizeof(collision));
+	return !collision_test_vector(FLAG(_collision_test_structure_bit) | FLAG(_collision_test_front_facing_surfaces_bit) |
+		FLAG(_collision_test_back_facing_surfaces_bit), &from, &vector, NONE, &collision);
+}
+
 void forge_3d_update(float dt)
 {
 	static int prev_f1, prev_f2, prev_f4, prev_f5, prev_f8, prev_esc, prev_x, prev_bk, prev_lmb;
-	static int prev_up, prev_down, prev_left, prev_right, prev_enter, prev_g, prev_z, prev_f, prev_del, prev_rot;
-	static int prev_copy;
+	static int prev_up, prev_down, prev_left, prev_right, prev_enter, prev_g, prev_z, prev_f, prev_rot;
+	static int prev_copy, prev_look_settings;
+	static uint32_t s_del_hold_start_ms = 0;
+	static int s_del_hold_done = 0;
+	static uint32_t s_undo_hold_start_ms = 0;
+	static int s_undo_hold_done = 0;
+	static int s_gp_a_held_over = 0, s_gp_b_held_over = 0;
 	static uint32_t s_gp_b_hold_start_ms = 0;
 	static int s_gp_b_hold_consumed = 0;
 	static int32_t s_hover_rot_live_idx = -1;
@@ -5194,7 +5504,7 @@ void forge_3d_update(float dt)
 	static int s_prev_modal = 0;
 	struct scenario *scen;
 	int cur_f1, cur_f2, cur_f4, cur_f5, cur_f8, cur_esc, cur_x, cur_bk, cur_lmb, cur_rot;
-	int cur_up, cur_down, cur_left, cur_right, cur_enter, cur_g, cur_z, cur_f, cur_del, cur_copy;
+	int cur_up, cur_down, cur_left, cur_right, cur_enter, cur_g, cur_z, cur_f, cur_del, cur_copy, cur_look_settings;
 	float gp_lx = 0.0f, gp_ly = 0.0f, gp_rx = 0.0f, gp_ry = 0.0f, gp_lt = 0.0f, gp_rt = 0.0f;
 
 	if (!s_player_last_unit_init)
@@ -5208,6 +5518,16 @@ void forge_3d_update(float dt)
 
 	if (g_forge.active_modal == _forge_modal_save_copy_as && s_prev_modal != _forge_modal_save_copy_as)
 		s_save_modal_just_opened = 1;
+	/* (the press that closed a menu acts on nothing more: it is let go first.
+	With the menus' buttons swapped it is even the other button out here) */
+	if (s_prev_modal != _forge_modal_none && g_forge.active_modal == _forge_modal_none)
+		s_gp_a_held_over = s_gp_b_held_over = 1;
+	s_gp_a_held_over = s_gp_a_held_over && g_forge.active_modal == _forge_modal_none && forge_gp_button_down(FORGE_GP_A);
+	s_gp_b_held_over = s_gp_b_held_over && g_forge.active_modal == _forge_modal_none && forge_gp_button_down(FORGE_GP_B);
+	if (s_gp_a_held_over)
+		s_gp_btn_down[FORGE_GP_A] = 0;
+	if (s_gp_b_held_over)
+		s_gp_btn_down[FORGE_GP_B] = 0;
 	s_prev_modal = g_forge.active_modal;
 
 	if (forge_is_main_menu_active())
@@ -5299,9 +5619,6 @@ void forge_3d_update(float dt)
 					g_forge.cam_x, g_forge.cam_y, g_forge.cam_z,
 					g_forge.cam_yaw, g_forge.cam_pitch);
 			}
-			forge_set_status("%s Forge/Spartan   %s Quick Save",
-				forge_action_prompt(FORGE_BIND_TOGGLE_MODE),
-				forge_action_prompt(FORGE_BIND_QUICK_SAVE));
 		}
 		else
 		{
@@ -5539,19 +5856,25 @@ void forge_3d_update(float dt)
 					struct unit_datum *u = (struct unit_datum *)object_try_and_get_and_verify_type(unit_idx, _object_mask_unit);
 					if (u)
 					{
-						real_vector3d fwd, up;
+						real_vector3d fwd, up, look;
 						forge_compute_safe_spartan_stand_pos(g_forge.cam_x, g_forge.cam_y, g_forge.cam_z, &sp_pos);
 						euler_to_forward_up(g_forge.cam_yaw, 0.0f, 0.0f, &fwd, &up);
+						/* (the body stands level, the view stays where the monitor's was) */
+						look.i = (float)(cos((double)g_forge.cam_yaw) * cos((double)g_forge.cam_pitch));
+						look.j = (float)(sin((double)g_forge.cam_yaw) * cos((double)g_forge.cam_pitch));
+						look.k = (float)sin((double)g_forge.cam_pitch);
 						SET_FLAG(u->object.flags, _object_no_collisions_bit, FALSE);
 						SET_FLAG(u->object.flags, _object_at_rest_bit, FALSE);
 						SET_FLAG(u->object.damage_flags, _object_cannot_take_damage_bit, FALSE);
 						forge_hide_spartan_linked_attachments_and_children(unit_idx, 0);
 						object_set_position(unit_idx, &sp_pos, &fwd, &up);
 						u->unit.desired_facing_vector = fwd;
-						u->unit.desired_aiming_vector = fwd;
-						u->unit.aiming_vector = fwd;
-						u->unit.desired_looking_vector = fwd;
-						u->unit.looking_vector = fwd;
+						u->unit.desired_aiming_vector = look;
+						u->unit.aiming_vector = look;
+						u->unit.desired_looking_vector = look;
+						u->unit.looking_vector = look;
+						/* (the player's own angles drive the unit from here on) */
+						player_control_set_facing(0, &look);
 						u->object.translational_velocity.i = 0.0f;
 						u->object.translational_velocity.j = 0.0f;
 						u->object.translational_velocity.k = 0.0f;
@@ -5563,7 +5886,7 @@ void forge_3d_update(float dt)
 				}
 				forge_network_send_monitor_mode(0, g_forge.cam_x, g_forge.cam_y, g_forge.cam_z, g_forge.cam_yaw, g_forge.cam_pitch);
 				forge_ai_forge_mode_changed(0);
-				forge_set_status("Spartan Mode   %s Forge", forge_action_prompt(FORGE_BIND_TOGGLE_MODE));
+				forge_set_status("Spartan Mode");
 			}
 			else
 			{
@@ -5603,10 +5926,7 @@ void forge_3d_update(float dt)
 					}
 					forge_network_send_monitor_mode(1, g_forge.cam_x, g_forge.cam_y, g_forge.cam_z, g_forge.cam_yaw, g_forge.cam_pitch);
 					forge_ai_forge_mode_changed(1);
-					forge_set_status("Forge Mode   %s Objects   %s View   %s Save",
-						forge_action_prompt(FORGE_BIND_PALETTE),
-						forge_action_prompt(FORGE_BIND_THIRD_PERSON),
-						forge_action_prompt(FORGE_BIND_QUICK_SAVE));
+					forge_set_status("Forge Mode");
 				}
 			}
 		}
@@ -5648,14 +5968,15 @@ void forge_3d_update(float dt)
 			}
 			else
 			{
-				forge_set_status("Use [Esc] -> SAVE MAP.. for initial save first");
+				forge_set_status("Save the Map From the Menu First");
 			}
 		}
 		if (cur_x && !prev_x && g_forge.mode == _forge_mode_3d_monitor && g_forge.grabbed_live_index >= 0)
 		{
-			g_forge.active_modal = (modal_before_hotkeys == _forge_modal_object_properties)
-				? _forge_modal_none : _forge_modal_object_properties;
-			g_forge.props_cursor = 0;
+			if (modal_before_hotkeys == _forge_modal_object_properties)
+				g_forge.active_modal = _forge_modal_none;
+			else
+				forge_props_open();
 		}
 		if (((cur_esc && !prev_esc) || (cur_bk && !prev_bk)) &&
 			modal_before_hotkeys != _forge_modal_none &&
@@ -5701,6 +6022,12 @@ void forge_3d_update(float dt)
 	prev_esc = cur_esc;
 	prev_x = cur_x;
 
+	if (g_forge.grabbed_for_settings &&
+		(g_forge.grabbed_live_index < 0 || g_forge.active_modal != _forge_modal_object_properties))
+	{
+		forge_settings_selection_end();
+	}
+
 	if (g_forge.active_modal == _forge_modal_save_copy_as)
 	{
 		update_save_modal_input();
@@ -5733,6 +6060,8 @@ void forge_3d_update(float dt)
 			   ((!cur_rot && forge_action_down(FORGE_BIND_DELETE_OBJECT)) ||
 				(GetAsyncKeyState(VK_BACK) & 0x8000))) != 0;
 	cur_copy = (g_forge.active_modal == _forge_modal_none && !cur_rot) ? forge_action_down(FORGE_BIND_COPY_OBJECT) : 0;
+	cur_look_settings = (g_forge.active_modal == _forge_modal_none && !cur_rot) ?
+		forge_action_down(FORGE_BIND_LOOK_SETTINGS) : 0;
 
 	/* Unified Tabbed Spawn Palette Menu: [<-] / [->] switches category, [Up] / [Down] / Scroll selects item */
 	if (g_forge.active_modal == _forge_modal_spawn_palette)
@@ -5922,7 +6251,7 @@ void forge_3d_update(float dt)
 					g_forge.grab_roll = 0.0f;
 					if (g_forge.koth_group_placing)
 					{
-						forge_set_status("KOTH Hill #%d   [C+Scroll] Radius",
+						forge_set_status("KOTH Hill #%d",
 							g_forge.koth_group_hill_id);
 					}
 					else
@@ -5952,13 +6281,52 @@ void forge_3d_update(float dt)
 		int is_ai_spawn = (inst->group_tag == FORGE_GROUP_AI_SPAWN);
 		int max_props_row = is_ai_spawn ? NUMBER_OF_FORGE_AI_ROWS - 1 :
 			(is_zone ? 9 : (is_route_point ? 6 : ((is_ff_spawn || snap_row) ? 5 : 4)));
+		/* (DONE and UNDO, side by side under the rows) */
+		int props_done = max_props_row + 1;
+		int props_undo = max_props_row + 2;
 		int dir = (cur_left && !prev_left) ? -1 : ((cur_right && !prev_right) || (cur_enter && !prev_enter) ? 1 : 0);
-		if (g_forge.props_cursor > max_props_row)
-			g_forge.props_cursor = max_props_row;
-		if (cur_up && !prev_up && g_forge.props_cursor > 0)
-			g_forge.props_cursor--;
-		if (cur_down && !prev_down && g_forge.props_cursor < max_props_row)
-			g_forge.props_cursor++;
+		if (g_forge.props_cursor > props_undo)
+			g_forge.props_cursor = props_undo;
+		/* (round the panel: up from the first row is DONE, down from the buttons the first row) */
+		if (cur_up && !prev_up)
+		{
+			g_forge.props_cursor = g_forge.props_cursor == 0 ? props_done :
+				g_forge.props_cursor == props_undo ? max_props_row : g_forge.props_cursor - 1;
+		}
+		if (cur_down && !prev_down)
+			g_forge.props_cursor = g_forge.props_cursor >= props_done ? 0 : g_forge.props_cursor + 1;
+		s_undo_hold_fraction = 0.0f;
+		if (g_forge.props_cursor >= props_done)
+		{
+			if ((cur_left && !prev_left) || (cur_right && !prev_right))
+				g_forge.props_cursor = g_forge.props_cursor == props_done ? props_undo : props_done;
+			if (g_forge.props_cursor == props_done && cur_enter && !prev_enter)
+			{
+				g_forge.active_modal = _forge_modal_none;
+				/* (not the press that places what is held, this frame) */
+				prev_enter = 1;
+			}
+			else if (g_forge.props_cursor == props_undo && cur_enter && !s_undo_hold_done)
+			{
+				uint32_t now_ms = (uint32_t)system_milliseconds();
+
+				if (s_undo_hold_start_ms == 0)
+					s_undo_hold_start_ms = now_ms ? now_ms : 1;
+				s_undo_hold_fraction = (float)(now_ms - s_undo_hold_start_ms) / (float)FORGE_DELETE_HOLD_MS;
+				if (s_undo_hold_fraction >= 1.0f)
+				{
+					s_undo_hold_fraction = 0.0f;
+					s_undo_hold_done = 1;
+					forge_props_undo();
+				}
+			}
+			dir = 0;
+		}
+		if (!cur_enter || g_forge.props_cursor != props_undo)
+		{
+			s_undo_hold_start_ms = 0;
+			s_undo_hold_done = 0;
+		}
 		if (dir != 0)
 		{
 			if (is_ai_spawn)
@@ -6155,6 +6523,8 @@ void forge_3d_update(float dt)
 				forge_snap_tag_layout_step(inst->group_tag, inst->tag_path, dir);
 			}
 		}
+		if (cur_z && g_forge.grabbed_for_settings)
+			forge_settings_selection_drop_to_floor();
 	}
 
 	if (g_forge.mode == _forge_mode_3d_monitor)
@@ -6228,6 +6598,19 @@ void forge_3d_update(float dt)
 
 		/* Native Mouse Look + Controller Right Stick Look (when not holding rotate modifier) */
 		halo_linux_mouse_look(0, &dyaw, &dpitch);
+		/* (and the touch controls' swipe and the gyroscope, player_control.c's
+		turn: read here, as the mouse is, for the Monitor's camera) */
+		{
+			float touch_yaw, touch_pitch, gyro_yaw, gyro_pitch;
+
+			if (halo_linux_touch_look(0, &touch_yaw, &touch_pitch, &gyro_yaw, &gyro_pitch))
+			{
+				if (input_abstraction_port_look_inverted(0))
+					touch_pitch = -touch_pitch;
+				dyaw += touch_yaw + gyro_yaw;
+				dpitch += touch_pitch + gyro_pitch;
+			}
+		}
 		if (!rot_holding && ((float)fabs((double)gp_rx) > 0.001f || (float)fabs((double)gp_ry) > 0.001f))
 		{
 			float pad_sens = 2.6f * g_forge.controller_look_sens;
@@ -6242,9 +6625,7 @@ void forge_3d_update(float dt)
 			 * Mouse / Left Stick -> Pitch & Yaw, [Q/E] / Right Stick -> Roll, [C] -> Reset Pitch/Roll */
 			if (cur_rot && !prev_rot)
 			{
-				forge_set_status(g_forge.using_controller
-					? "Rotating Item: Left Stick = Pitch/Yaw  |  Right Stick = Roll"
-					: "Rotating Item: Mouse Up/Down = Pitch, Left/Right = Yaw  |  [Q/E] Roll  |  [C] Reset");
+				forge_set_status("Rotating Item");
 			}
 			g_forge.grab_yaw += dyaw * 1.4f;
 			g_forge.grab_pitch += dpitch * 1.4f;
@@ -6524,6 +6905,8 @@ void forge_3d_update(float dt)
 			float best_marker_score = 1.6f;
 			int best_marker_idx = -1;
 			int direct_obj_hit = 0;
+			/* (how far along the view the first surface is: nothing past it is selected) */
+			float surface_distance = 1000000.0f;
 
 			if (!forge_valid_object_get(ignore_obj))
 				ignore_obj = local_unit;
@@ -6546,8 +6929,14 @@ void forge_3d_update(float dt)
 				g_forge.ray_hit_x = coll.point.x;
 				g_forge.ray_hit_y = coll.point.y;
 				g_forge.ray_hit_z = coll.point.z;
+				{
+					float hit_x = coll.point.x - g_forge.cam_x, hit_y = coll.point.y - g_forge.cam_y,
+						hit_z = coll.point.z - g_forge.cam_z;
+
+					surface_distance = (float)sqrt((double)(hit_x * hit_x + hit_y * hit_y + hit_z * hit_z));
+				}
 				g_forge.hovered_object_index = (coll.type == _collision_result_object) ? coll.object_index : NONE;
-				if (g_forge.hovered_object_index == local_unit)
+				if (g_forge.hovered_object_index == local_unit || surface_distance > FORGE_SELECT_RANGE)
 					g_forge.hovered_object_index = NONE;
 				if (g_forge.hovered_object_index != NONE)
 				{
@@ -6592,18 +6981,20 @@ void forge_3d_update(float dt)
 					vy = obj->object.position.y - g_forge.cam_y;
 					vz = obj->object.position.z - g_forge.cam_z;
 					cam_d2 = vx * vx + vy * vy + vz * vz;
-					/* Point 4: Only objects within 20m (20^2 = 400.0f) can be interacted with */
-					if (cam_d2 > 400.0f)
+					if (cam_d2 > FORGE_SELECT_RANGE * FORGE_SELECT_RANGE)
 						continue;
 
 					dist_along = vx * fwd.i + vy * fwd.j + vz * fwd.k;
-					if (dist_along > 0.6f && dist_along <= 20.0f)
+					if (dist_along > 0.6f && dist_along <= surface_distance + 1.0f)
 					{
 						px = vx - fwd.i * dist_along;
 						py = vy - fwd.j * dist_along;
 						pz = vz - fwd.k * dist_along;
 						perp_d2 = px * px + py * py + pz * pz;
-						if (perp_d2 < 1.8f && perp_d2 < best_obj_score)
+						if (perp_d2 < 1.8f && perp_d2 < best_obj_score &&
+							(forge_point_in_sight(obj->object.bounding_sphere_center.x, obj->object.bounding_sphere_center.y,
+								obj->object.bounding_sphere_center.z) ||
+							forge_point_in_sight(obj->object.position.x, obj->object.position.y, obj->object.position.z + 0.3f)))
 						{
 							best_obj_score = perp_d2;
 							best_obj = oidx;
@@ -6614,7 +7005,10 @@ void forge_3d_update(float dt)
 					hit_dy = obj->object.position.y - g_forge.ray_hit_y;
 					hit_dz = obj->object.position.z - g_forge.ray_hit_z;
 					hit_d2 = hit_dx * hit_dx + hit_dy * hit_dy + hit_dz * hit_dz;
-					if (hit_d2 < 3.2f && hit_d2 < best_obj_score)
+					if (hit_d2 < 3.2f && hit_d2 < best_obj_score &&
+						(forge_point_in_sight(obj->object.bounding_sphere_center.x, obj->object.bounding_sphere_center.y,
+							obj->object.bounding_sphere_center.z) ||
+						forge_point_in_sight(obj->object.position.x, obj->object.position.y, obj->object.position.z + 0.3f)))
 					{
 						best_obj_score = hit_d2;
 						best_obj = oidx;
@@ -6638,17 +7032,18 @@ void forge_3d_update(float dt)
 					vy = inst->y - g_forge.cam_y;
 					vz = (inst->z + 0.15f) - g_forge.cam_z;
 					cam_d2 = vx * vx + vy * vy + vz * vz;
-					if (cam_d2 > 400.0f)
+					if (cam_d2 > FORGE_SELECT_RANGE * FORGE_SELECT_RANGE)
 						continue;
 
 					dist_along = vx * fwd.i + vy * fwd.j + vz * fwd.k;
-					if (dist_along > 0.5f && dist_along <= 20.0f)
+					if (dist_along > 0.5f && dist_along <= surface_distance + 1.0f)
 					{
 						px = vx - fwd.i * dist_along;
 						py = vy - fwd.j * dist_along;
 						pz = vz - fwd.k * dist_along;
 						perp_d2 = px * px + py * py + pz * pz;
-						if (perp_d2 < 1.2f && perp_d2 < best_marker_score)
+						if (perp_d2 < 1.2f && perp_d2 < best_marker_score &&
+							forge_point_in_sight(inst->x, inst->y, inst->z + 0.15f))
 						{
 							best_marker_score = perp_d2;
 							best_marker_idx = i;
@@ -6659,7 +7054,8 @@ void forge_3d_update(float dt)
 					hit_dy = inst->y - g_forge.ray_hit_y;
 					hit_dz = inst->z - g_forge.ray_hit_z;
 					hit_d2 = hit_dx * hit_dx + hit_dy * hit_dy + hit_dz * hit_dz;
-					if (hit_d2 < 1.2f && hit_d2 < best_marker_score)
+					if (hit_d2 < 1.2f && hit_d2 < best_marker_score &&
+						forge_point_in_sight(inst->x, inst->y, inst->z + 0.15f))
 					{
 						best_marker_score = hit_d2;
 						best_marker_idx = i;
@@ -6875,6 +7271,29 @@ void forge_3d_update(float dt)
 			}
 		}
 
+		/* What the reticle is on, its settings: selected, not picked up, so it stays where it is */
+		if (g_forge.active_modal == _forge_modal_none && g_forge.grabbed_live_index < 0 &&
+			cur_look_settings && !prev_look_settings)
+		{
+			int look_idx = -1;
+
+			if (g_forge.hovered_live_index >= 0 && g_forge.hovered_live_index < g_forge.live_instance_count &&
+				g_forge.live_instances[g_forge.hovered_live_index].active)
+			{
+				look_idx = g_forge.hovered_live_index;
+			}
+			else if (g_forge.hovered_object_index != NONE)
+			{
+				look_idx = adopt_default_scenario_object(g_forge.hovered_object_index);
+			}
+			if (look_idx >= 0)
+			{
+				forge_select_instance(look_idx);
+				g_forge.grabbed_for_settings = 1;
+				forge_props_open();
+			}
+		}
+
 		/* Grab / Release / Confirm Placement of Object on Physics Beam (Left Click or Enter when holding) */
 		if ((g_forge.active_modal == _forge_modal_none && cur_lmb && !prev_lmb) ||
 			(g_forge.active_modal == _forge_modal_none && g_forge.grabbed_live_index >= 0 && cur_enter && !prev_enter))
@@ -6932,8 +7351,7 @@ void forge_3d_update(float dt)
 			}
 			else
 			{
-				int i, best = -1;
-				float best_d2 = 25.0f;
+				int best = -1;
 
 				/* 1. If aiming directly at a virtual marker (Player Spawn, CTF Flag, Oddball, KOTH Hill, Race Node, Teleporter), grab it! */
 				if (g_forge.hovered_live_index >= 0 &&
@@ -6949,103 +7367,12 @@ void forge_3d_update(float dt)
 					best = adopt_default_scenario_object(g_forge.hovered_object_index);
 				}
 
-				/* 3. Check virtual markers (Player Spawns, Teleporters In/Out, KOTH Hills, Oddballs, CTF Flags, Race Nodes) within 20m along view ray */
-				if (best < 0)
-				{
-					float best_ray_perp = 1.6f;
-					for (i = 0; i < g_forge.live_instance_count; i++)
-					{
-						struct forge_live_instance const *inst = &g_forge.live_instances[i];
-						float vx, vy, vz, dist_along, px, py, pz, perp_d2;
-						if (!inst->active)
-							continue;
-						vx = inst->x - g_forge.cam_x;
-						vy = inst->y - g_forge.cam_y;
-						vz = (inst->z + 0.15f) - g_forge.cam_z;
-						if (vx * vx + vy * vy + vz * vz > 400.0f)
-							continue;
-						dist_along = vx * fwd.i + vy * fwd.j + vz * fwd.k;
-						if (dist_along > 0.5f && dist_along <= 20.0f)
-						{
-							px = vx - fwd.i * dist_along;
-							py = vy - fwd.j * dist_along;
-							pz = vz - fwd.k * dist_along;
-							perp_d2 = px * px + py * py + pz * pz;
-							if (perp_d2 < best_ray_perp)
-							{
-								best_ray_perp = perp_d2;
-								best = i;
-							}
-						}
-					}
-				}
-
-				/* 4. Fallback: check existing live_instances near ray_hit within 20m of camera */
-				if (best < 0)
-				{
-					for (i = 0; i < g_forge.live_instance_count; i++)
-					{
-						float cx_d, cy_d, cz_d, dx, dy, dz, d2;
-						if (!g_forge.live_instances[i].active)
-							continue;
-						cx_d = g_forge.live_instances[i].x - g_forge.cam_x;
-						cy_d = g_forge.live_instances[i].y - g_forge.cam_y;
-						cz_d = g_forge.live_instances[i].z - g_forge.cam_z;
-						if (cx_d * cx_d + cy_d * cy_d + cz_d * cz_d > 400.0f)
-							continue;
-						dx = g_forge.live_instances[i].x - g_forge.ray_hit_x;
-						dy = g_forge.live_instances[i].y - g_forge.ray_hit_y;
-						dz = g_forge.live_instances[i].z - g_forge.ray_hit_z;
-						d2 = dx * dx + dy * dy + dz * dz;
-						if (d2 < best_d2)
-						{
-							best_d2 = d2;
-							best = i;
-						}
-					}
-				}
-
 				if (best >= 0)
 				{
 					struct forge_live_instance *inst = &g_forge.live_instances[best];
 					struct object_datum *obj = forge_valid_object_get(inst->object_index);
-					float dx, dy, dz;
-					if (obj)
-					{
-						real_vector3d efwd, eup;
-						float df, du;
-						inst->x = obj->object.position.x;
-						inst->y = obj->object.position.y;
-						inst->z = obj->object.position.z;
-						euler_to_forward_up(inst->yaw, inst->pitch, inst->roll, &efwd, &eup);
-						df = (efwd.i - obj->object.forward.i) * (efwd.i - obj->object.forward.i) +
-							(efwd.j - obj->object.forward.j) * (efwd.j - obj->object.forward.j) +
-							(efwd.k - obj->object.forward.k) * (efwd.k - obj->object.forward.k);
-						du = (eup.i - obj->object.up.i) * (eup.i - obj->object.up.i) +
-							(eup.j - obj->object.up.j) * (eup.j - obj->object.up.j) +
-							(eup.k - obj->object.up.k) * (eup.k - obj->object.up.k);
-						if (df > 0.0004f || du > 0.0004f)
-							forward_up_to_euler(&obj->object.forward, &obj->object.up, &inst->yaw, &inst->pitch, &inst->roll);
-					}
-					dx = inst->x - g_forge.cam_x;
-					dy = inst->y - g_forge.cam_y;
-					dz = inst->z - g_forge.cam_z;
-					g_forge.koth_group_placing = 0;
-					g_forge.grabbed_live_index = best;
-					g_forge.grabbed_object_index = inst->object_index;
-					g_forge.grabbed_is_new_spawn = 0;
-					g_forge.grabbed_orig_x = inst->x;
-					g_forge.grabbed_orig_y = inst->y;
-					g_forge.grabbed_orig_z = inst->z;
-					g_forge.grabbed_orig_yaw = inst->yaw;
-					g_forge.grabbed_orig_pitch = inst->pitch;
-					g_forge.grabbed_orig_roll = inst->roll;
-					g_forge.grab_distance = (float)sqrt((double)(dx * dx + dy * dy + dz * dz));
-					if (g_forge.grab_distance < 1.0f) g_forge.grab_distance = 1.0f;
-					if (g_forge.grab_distance > 20.0f) g_forge.grab_distance = 20.0f;
-					g_forge.grab_yaw = inst->yaw;
-					g_forge.grab_pitch = inst->pitch;
-					g_forge.grab_roll = inst->roll;
+
+					forge_select_instance(best);
 					if (obj && obj->object.type == _object_type_vehicle)
 					{
 						forge_eject_all_passengers_from_vehicle(inst->object_index);
@@ -7070,7 +7397,8 @@ void forge_3d_update(float dt)
 		}
 
 		/* Update Grabbed Object Transform */
-		if (g_forge.grabbed_live_index >= 0 && g_forge.grabbed_live_index < g_forge.live_instance_count)
+		if (g_forge.grabbed_live_index >= 0 && g_forge.grabbed_live_index < g_forge.live_instance_count &&
+			!g_forge.grabbed_for_settings)
 		{
 			float tx, ty, tz, syaw, spitch, sroll;
 			long wheel_notches = 0;
@@ -7273,9 +7601,27 @@ void forge_3d_update(float dt)
 			platform_scoreboard_scroll(0, NULL, NULL);
 		}
 
-		/* Delete Grabbed Object */
-		if (cur_del && !prev_del && g_forge.grabbed_live_index >= 0)
+		/* Delete Grabbed Object, once the button has been held */
+		s_delete_hold_fraction = 0.0f;
+		if (!cur_del || g_forge.grabbed_live_index < 0)
 		{
+			s_del_hold_start_ms = 0;
+			if (!cur_del)
+				s_del_hold_done = 0;
+		}
+		else if (!s_del_hold_done)
+		{
+			uint32_t now_ms = (uint32_t)system_milliseconds();
+
+			if (s_del_hold_start_ms == 0)
+				s_del_hold_start_ms = now_ms ? now_ms : 1;
+			s_delete_hold_fraction = (float)(now_ms - s_del_hold_start_ms) / (float)FORGE_DELETE_HOLD_MS;
+		}
+		if (s_delete_hold_fraction >= 1.0f)
+		{
+			s_delete_hold_fraction = 0.0f;
+			s_del_hold_start_ms = 0;
+			s_del_hold_done = 1;
 			if (g_forge.koth_group_placing)
 			{
 				int k;
@@ -7310,8 +7656,8 @@ update_prev_keys:
 	prev_g = cur_g;
 	prev_z = cur_z;
 	prev_f = cur_f;
-	prev_del = cur_del;
 	prev_copy = cur_copy;
+	prev_look_settings = cur_look_settings;
 	prev_rot = cur_rot;
 	prev_bk = cur_bk;
 	prev_lmb = cur_lmb;
@@ -7846,7 +8192,6 @@ void forge_3d_draw_hud(
 		short bar_top_y = (short)(window_y1 - 26);
 		char const *p_toggle = forge_action_prompt(FORGE_BIND_TOGGLE_MODE);
 		char const *p_pal = forge_action_prompt(FORGE_BIND_PALETTE);
-		char const *p_view = forge_action_prompt(FORGE_BIND_THIRD_PERSON);
 		char const *p_qsave = forge_action_prompt(FORGE_BIND_QUICK_SAVE);
 		char const *p_rot = forge_action_prompt(FORGE_BIND_ROTATE_HOLD);
 		char const *p_floor = forge_action_prompt(FORGE_BIND_SNAP_FLOOR);
@@ -7858,7 +8203,7 @@ void forge_3d_draw_hud(
 		char const *p_click = g_forge.using_controller ? "{A}" : "[CLICK]";
 		char const *p_cancel = g_forge.using_controller ? "HOLD {B}" : "[ESC]";
 		char const *p_dist = g_forge.using_controller ? "{LS}" : "[SCROLL]";
-		char const *p_esc_save = g_forge.using_controller ? "{START}" : "[ESC]";
+		char const *p_look_settings = forge_action_prompt(FORGE_BIND_LOOK_SETTINGS);
 
 		/* Spartan Play Mode: Bottom bar dynamically sized to fit text pixel width */
 		if (g_forge.mode == _forge_mode_play && g_forge.active_modal == _forge_modal_none)
@@ -7896,12 +8241,22 @@ void forge_3d_draw_hud(
 			rt.x0 = (short)(cx - 1); rt.y0 = (short)(cy + 6); rt.x1 = (short)(cx + 2); rt.y1 = (short)(cy + 12);
 			draw_quad(&rt, ret_col);
 
+			/* The delete button's hold, filling under the reticle */
+			if (s_delete_hold_fraction > 0.0f)
+			{
+				rt.x0 = (short)(cx - 41); rt.y0 = (short)(cy + 20); rt.x1 = (short)(cx + 41); rt.y1 = (short)(cy + 26);
+				draw_quad(&rt, 0xC0061224u);
+				rt.x0 = (short)(cx - 40); rt.y0 = (short)(cy + 21);
+				rt.x1 = (short)(cx - 40 + (short)(80.0f * s_delete_hold_fraction)); rt.y1 = (short)(cy + 25);
+				draw_quad(&rt, 0xFFFF4040u);
+			}
+
 			/* Show hovered object/marker label right below reticle in base-game UI font */
 			if (g_forge.grabbed_live_index < 0 && g_forge.hovered_object_label[0])
 			{
 				char upper_lbl[96];
 				format_clean_uppercase_item_name(g_forge.hovered_object_label, upper_lbl, sizeof(upper_lbl));
-				snprintf(buf, sizeof(buf), "%s %s   %s COPY", p_click, upper_lbl, p_copy);
+				snprintf(buf, sizeof(buf), "%s %s   %s SETTINGS   %s COPY", p_click, upper_lbl, p_look_settings, p_copy);
 				draw_ce_menu_str_box(0, font_index, (short)(cx - 180), (short)(cy + 16), (short)(cx + 180), (short)(cy + 42), 2, buf, 0xFFFFFFFFu);
 			}
 
@@ -7936,7 +8291,7 @@ void forge_3d_draw_hud(
 						"%s PLACE  %s %.0fM  %s PITCH/YAW  %s SURFACE",
 						p_click, p_dist, g_forge.grab_distance, p_rot, p_surf);
 					snprintf(line2, sizeof(line2),
-						"%s FLOOR  %s OPTIONS  %s DELETE  %s CANCEL",
+						"%s FLOOR  %s OPTIONS  HOLD %s DELETE  %s CANCEL",
 						p_floor, p_opts, p_del, p_cancel);
 					draw_sized_bottom_pill_bar(
 						font_index, window_x0, window_x1, (short)(window_y1 - 2),
@@ -7944,18 +8299,7 @@ void forge_3d_draw_hud(
 				}
 				else
 				{
-					if (g_forge.has_saved_map_once)
-					{
-						snprintf(buf, sizeof(buf),
-							"%s OBJECTS  %s GRAB  %s COPY  %s VIEW  %s SAVE  %s PLAY",
-							p_pal, p_click, p_copy, p_view, p_qsave, p_toggle);
-					}
-					else
-					{
-						snprintf(buf, sizeof(buf),
-							"%s OBJECTS  %s GRAB  %s COPY  %s VIEW  %s SAVE  %s PLAY",
-							p_pal, p_click, p_copy, p_view, p_esc_save, p_toggle);
-					}
+					snprintf(buf, sizeof(buf), "%s OBJECTS  %s GRAB  %s COPY  %s PLAY", p_pal, p_click, p_copy, p_toggle);
 					draw_sized_bottom_pill_bar(
 						font_index, window_x0, window_x1, (short)(window_y1 - 2),
 						buf, NULL, 0, _forge_ui_area_bottom_bar, 0xFF2896FFu, &bar_top_y);
@@ -8103,9 +8447,9 @@ void forge_3d_draw_hud(
 				}
 				snprintf(labels[_forge_ai_row_rot_snap], sizeof(labels[0]), "ROT SNAP:");
 				snprintf(values[_forge_ai_row_rot_snap], sizeof(values[0]), "%s", snap_names[g_forge.snap_mode]);
-				snprintf(labels[_forge_ai_row_floor], sizeof(labels[0]), "%s DROP TO FLOOR", p_floor);
+				snprintf(labels[_forge_ai_row_floor], sizeof(labels[0]), "DROP TO FLOOR");
 				values[_forge_ai_row_floor][0] = 0;
-				snprintf(labels[_forge_ai_row_delete], sizeof(labels[0]), "%s DELETE OBJECT", p_del);
+				snprintf(labels[_forge_ai_row_delete], sizeof(labels[0]), "DELETE OBJECT");
 				values[_forge_ai_row_delete][0] = 0;
 			}
 			else if (is_route_point)
@@ -8126,9 +8470,9 @@ void forge_3d_draw_hud(
 				values[2][0] = 0;
 				snprintf(labels[3], sizeof(labels[3]), "ROT SNAP:");
 				snprintf(values[3], sizeof(values[3]), "%s", snap_names[g_forge.snap_mode]);
-				snprintf(labels[4], sizeof(labels[4]), "%s DROP TO FLOOR", p_floor);
+				snprintf(labels[4], sizeof(labels[4]), "DROP TO FLOOR");
 				values[4][0] = 0;
-				snprintf(labels[5], sizeof(labels[5]), "%s DELETE OBJECT", p_del);
+				snprintf(labels[5], sizeof(labels[5]), "DELETE OBJECT");
 				values[5][0] = 0;
 				snprintf(labels[6], sizeof(labels[6]), "%s", s_route_test_flying ? "STOP TEST FLIGHT" : "TEST FLIGHT");
 				values[6][0] = 0;
@@ -8146,9 +8490,9 @@ void forge_3d_draw_hud(
 					forge_ff_wave_filter_label(FORGE_FF_UNPACK_WAVE(inst->team_designator)));
 				snprintf(labels[3], sizeof(labels[3]), "ROT SNAP:");
 				snprintf(values[3], sizeof(values[3]), "%s", snap_names[g_forge.snap_mode]);
-				snprintf(labels[4], sizeof(labels[4]), "%s DROP TO FLOOR", p_floor);
+				snprintf(labels[4], sizeof(labels[4]), "DROP TO FLOOR");
 				values[4][0] = 0;
-				snprintf(labels[5], sizeof(labels[5]), "%s DELETE OBJECT", p_del);
+				snprintf(labels[5], sizeof(labels[5]), "DELETE OBJECT");
 				values[5][0] = 0;
 				if (is_zone)
 				{
@@ -8199,9 +8543,9 @@ void forge_3d_draw_hud(
 				snprintf(values[1], sizeof(values[1]), "%s", gametype_flags_label(inst->gametype_flags));
 				snprintf(labels[2], sizeof(labels[2]), "ROT SNAP:");
 				snprintf(values[2], sizeof(values[2]), "%s", snap_names[g_forge.snap_mode]);
-				snprintf(labels[3], sizeof(labels[3]), "%s DROP TO FLOOR", p_floor);
+				snprintf(labels[3], sizeof(labels[3]), "DROP TO FLOOR");
 				values[3][0] = 0;
-				snprintf(labels[4], sizeof(labels[4]), "%s DELETE OBJECT", p_del);
+				snprintf(labels[4], sizeof(labels[4]), "DELETE OBJECT");
 				values[4][0] = 0;
 				snprintf(labels[5], sizeof(labels[5]), "SNAP POINTS:");
 				values[5][0] = 0;
@@ -8232,10 +8576,23 @@ void forge_3d_draw_hud(
 				}
 			}
 
-			draw_ce_text_button(font_index, (short)(px0 + 14), (short)(py1 - 32), 136, 24, 1,
-				g_forge.using_controller ? "{A} SELECT" : "[ENTER] SELECT");
-			draw_ce_text_button(font_index, (short)(px1 - 150), (short)(py1 - 32), 136, 24, 0,
-				g_forge.using_controller ? "{B} DONE" : "[ESC] DONE");
+			/* (reached with the arrows, as the rows are: forge_3d_update) */
+			draw_ce_text_button(font_index, (short)(px0 + 14), (short)(py1 - 32), 136, 24,
+				g_forge.props_cursor == row_count, "DONE");
+			draw_ce_text_button(font_index, (short)(px1 - 150), (short)(py1 - 32), 136, 24,
+				g_forge.props_cursor == row_count + 1, g_forge.props_cursor == row_count + 1 ? "HOLD TO UNDO" : "UNDO");
+			if (s_undo_hold_fraction > 0.0f)
+			{
+				rectangle2d undo_bar;
+
+				undo_bar.x0 = (short)(px1 - 148);
+				undo_bar.y0 = (short)(py1 - 13);
+				undo_bar.x1 = (short)(px1 - 16);
+				undo_bar.y1 = (short)(py1 - 9);
+				draw_quad(&undo_bar, 0xC0061224u);
+				undo_bar.x1 = (short)(undo_bar.x0 + (short)(132.0f * s_undo_hold_fraction));
+				draw_quad(&undo_bar, 0xFF2896FFu);
+			}
 		}
 
 		/* ========================================================================

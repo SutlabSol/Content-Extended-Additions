@@ -70,6 +70,7 @@ mutes.
 #include "controller_remap.h"
 #include "cseries.h"
 #include "cseries/errors.h"
+#include "opence_features.h"
 #include "memory/data.h"
 #include "game/game.h"
 #include "game/game_engine.h"
@@ -2025,9 +2026,14 @@ static unsigned long chat_keyboard_buttons(unsigned long buttons)
 	return buttons & ~chat_keyboard.opening_buttons;
 }
 
+#if OPENCE_ENABLE_FORGE
+extern int forge_menu_open(void);
+#endif
+
 void network_chat_update(
 	void)
 {
+	boolean forge_menu_has_keys = FALSE;
 	unsigned long held;
 	unsigned long pressed;
 	unsigned long pad = chat_keyboard_buttons(halo_chat_pad_buttons());
@@ -2051,6 +2057,15 @@ void network_chat_update(
 	}
 
 	chat_keyboard.held = pad;
+#if OPENCE_ENABLE_FORGE
+	/* (Forge's menus have the D-pad and the keys while they are open) */
+	forge_menu_has_keys = forge_menu_open() && !chat_input.active && !social_chat_typing();
+	if (forge_menu_has_keys)
+	{
+		pad_pressed = 0;
+		requested_port = NONE;
+	}
+#endif
 	/* (the host's settings: a client's as the host sends them in each game;
 	and the last game's lines and counts let go as the next starts) */
 	if (!chat_network_game() || !game_in_progress())
@@ -2118,7 +2133,7 @@ void network_chat_update(
 	{
 		held = halo_keyboard_actions(0) &
 			(FLAG(HALO_KEYBOARD_CHAT) | FLAG(HALO_KEYBOARD_TEAM_CHAT));
-		pressed = held & ~chat_actions_held;
+		pressed = forge_menu_has_keys ? 0 : held & ~chat_actions_held;
 		chat_actions_held = held;
 		/* (or the controller's D-pad Up, the touch controls' too, which opens
 		the on-screen keyboard; not while the overlay menu is open, whose up

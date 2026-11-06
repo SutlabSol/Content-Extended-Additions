@@ -3377,11 +3377,12 @@ short social_menu_row_platform(
 
 boolean social_menu_row_emblem(
 	short row,
-	struct firefight_emblem_info *out_emblem)
+	struct firefight_emblem_info *out_emblem,
+	short *out_part)
 {
 	struct social_menu_row const *entry = row_get(row);
 
-	return entry && social_extensions_row_emblem(social_menu.list, entry->kind, entry->value, out_emblem);
+	return entry && social_extensions_row_emblem(social_menu.list, entry->kind, entry->value, out_emblem, out_part);
 }
 
 boolean social_menu_row_person_icons(

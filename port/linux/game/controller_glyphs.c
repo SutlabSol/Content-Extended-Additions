@@ -77,21 +77,13 @@ static short controller_glyph_asset_index(short style, short slot)
     return (short)(32 + family * 10 + slot - 4);
 }
 
-boolean controller_glyph_draw(short style, short index,
-    struct icon_hud_element_definition const *icon, rectangle2d *cursor, pixel32 color)
+/* an entry's bitmap, made and registered the first time it is asked for */
+static struct bitmap_data *controller_glyph_bitmap(short key)
 {
-    struct rasterizer_dynamic_screen_geometry_parameters parameters;
-    struct dynamic_screen_vertex vertices[4];
-    struct controller_glyph_asset const *entry;
+    struct controller_glyph_asset const *entry = &controller_glyph_assets[key];
     struct bitmap_data *bitmap;
-    short slot, key, i;
     long asset;
-    real scale, cell_width, cell_height, width, height, fit, x, y, center;
-    slot = index < 6 ? index : hud_button_control_slot(index,
-        icon->frame_rate > 0 ? game_time_get() / icon->frame_rate : 0);
-    key = controller_glyph_asset_index(style, slot);
-    if (key == NONE) return FALSE;
-    entry = &controller_glyph_assets[key];
+
     if (!controller_glyph_cache[key].attempted)
     {
         controller_glyph_cache[key].attempted = TRUE;
@@ -107,7 +99,36 @@ boolean controller_glyph_draw(short style, short index,
             break;
         }
     }
-    bitmap = controller_glyph_cache[key].bitmap;
+    return controller_glyph_cache[key].bitmap;
+}
+
+boolean controller_glyph_lookup(short style, short slot, struct bitmap_data **bitmap, short bounds[4])
+{
+    short key = controller_glyph_asset_index(style, slot);
+    short i;
+
+    if (key == NONE) return FALSE;
+    *bitmap = controller_glyph_bitmap(key);
+    if (!*bitmap) return FALSE;
+    for (i = 0; i < 4; i++) bounds[i] = controller_glyph_assets[key].bounds[i];
+    return TRUE;
+}
+
+boolean controller_glyph_draw(short style, short index,
+    struct icon_hud_element_definition const *icon, rectangle2d *cursor, pixel32 color)
+{
+    struct rasterizer_dynamic_screen_geometry_parameters parameters;
+    struct dynamic_screen_vertex vertices[4];
+    struct controller_glyph_asset const *entry;
+    struct bitmap_data *bitmap;
+    short slot, key, i;
+    real scale, cell_width, cell_height, width, height, fit, x, y, center;
+    slot = index < 6 ? index : hud_button_control_slot(index,
+        icon->frame_rate > 0 ? game_time_get() / icon->frame_rate : 0);
+    key = controller_glyph_asset_index(style, slot);
+    if (key == NONE) return FALSE;
+    entry = &controller_glyph_assets[key];
+    bitmap = controller_glyph_bitmap(key);
     if (!bitmap) return FALSE;
     scale = local_player_count() > 1 ? 0.75f : 1.0f;
     cell_width = (slot < 6 ? 21.0f : slot < 8 ? 44.0f : 32.0f) * scale;

@@ -17410,15 +17410,16 @@ void menu_functions_text_box_drawn(struct widget_instance *widget, rectangle2d c
 		short platform = social_menu_row_platform(place);
 		struct firefight_mcc_rank_info rk;
 		struct firefight_emblem_info emb;
+		short emblem_part;
 		short size = (short)((bounds->y1 - bounds->y0) * 4 / 5);
 		short y0 = (short)((bounds->y0 + bounds->y1 - size) / 2);
 
 		/* (the emblem in the state's place: CUSTOMISE EMBLEM's rows. Its text
 		is 6 lower than the box, whose bottom is 22 down the 28 of a row) */
-		if (social_menu_row_emblem(place, &emb))
+		if (social_menu_row_emblem(place, &emb, &emblem_part))
 		{
-			firefight_draw_player_emblem((short)((bounds->x0 + bounds->x1 - 22) / 2), (short)(bounds->y1 - 19), 22, &emb,
-				1.0f);
+			firefight_draw_player_emblem_part((short)((bounds->x0 + bounds->x1 - 22) / 2), (short)(bounds->y1 - 19), 22,
+				&emb, 1.0f, emblem_part);
 			return;
 		}
 		if (social_menu_row_person_icons(place, &rk, &emb))

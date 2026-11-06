@@ -241,6 +241,9 @@ def test_ai_spawns_rebuild_the_encounters_and_are_saved_and_shared():
     assert "#undef free" in forge_ai and "#undef malloc" in forge_ai
     # the fields the saved line writes are the fields it reads, in order
     written = re.search(r'"AI_SPAWN\|([^"]+)\\r\\n"', builder).group(1)
+    # (the spawn effect is last and read apart: an empty weapon stops the scan short of it)
+    assert written.endswith("|fx=%d") and 'strstr(cur, "|fx=")' in forge_ai
+    written = written[:-len("|fx=%d")]
     read = re.search(r'"(%f\|%f\|%f\|%f[^"]+)"', forge_ai).group(1)
     assert written.count("%") == read.count("%") == 16
     # not behind the stock maps' condition: a Custom Edition base has AI

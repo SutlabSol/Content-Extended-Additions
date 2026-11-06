@@ -135,6 +135,7 @@ struct forge_ai_spawn_entry
 	int16_t location_index;
 	uint8_t detached;
 	uint8_t active;
+	uint8_t spawn_effect; /* forge_ai.c's s_ai_spawn_effects: as each unit appears */
 };
 
 /* a campaign tag a saved map's spawns use: copied into the level as it loads,

@@ -742,7 +742,7 @@ static int forge_ai_spawn_packet(int32_t live_idx, char *msg, size_t msg_size)
 	forge_ai_spawn_net_settings(live_idx, &variant_hash, &weapon_hash, &entry);
 	if (!entry)
 		return 0;
-	snprintf(msg, msg_size, "!FA:%X:%X:%X:%X:%X:%X:%X:%X:%X:%X",
+	snprintf(msg, msg_size, "!FA:%X:%X:%X:%X:%X:%X:%X:%X:%X:%X:%X",
 		(unsigned int)live_idx,
 		(unsigned int)variant_hash,
 		(unsigned int)weapon_hash,
@@ -752,7 +752,8 @@ static int forge_ai_spawn_packet(int32_t live_idx, char *msg, size_t msg_size)
 		(unsigned int)entry->respawn_delay_seconds,
 		(unsigned int)entry->respawn_total,
 		(unsigned int)entry->gametype_flags,
-		(unsigned int)entry->detached);
+		(unsigned int)entry->detached,
+		(unsigned int)entry->spawn_effect);
 	return 1;
 }
 
@@ -760,10 +761,10 @@ static int forge_ai_spawn_packet(int32_t live_idx, char *msg, size_t msg_size)
 static int forge_ai_spawn_packet_apply(char const *text, int32_t *target_idx)
 {
 	unsigned int live_idx = 0, variant_hash = 0, weapon_hash = 0, team = 0, count = 0, alive = 0, delay = 0, total = 0;
-	unsigned int gametypes = 0, detached = 0;
+	unsigned int gametypes = 0, detached = 0, spawn_effect = 0;
 
-	if (sscanf(text + 4, "%X:%X:%X:%X:%X:%X:%X:%X:%X:%X", &live_idx, &variant_hash, &weapon_hash, &team, &count,
-			&alive, &delay, &total, &gametypes, &detached) != 10)
+	if (sscanf(text + 4, "%X:%X:%X:%X:%X:%X:%X:%X:%X:%X:%X", &live_idx, &variant_hash, &weapon_hash, &team, &count,
+			&alive, &delay, &total, &gametypes, &detached, &spawn_effect) != 11)
 	{
 		return 0;
 	}
@@ -771,8 +772,19 @@ static int forge_ai_spawn_packet_apply(char const *text, int32_t *target_idx)
 	if (*target_idx < 0)
 		return 0;
 	forge_ai_spawn_net_apply(*target_idx, (uint32_t)variant_hash, (uint32_t)weapon_hash, (int)(int16_t)team, (int)count,
-		(int)alive, (int)delay, (int)total, gametypes, (int)detached);
+		(int)alive, (int)delay, (int)total, gametypes, (int)detached, (int)spawn_effect);
 	return 1;
+}
+
+/* (the host's: the AI is its own, so only a unit's appearing has to be told) */
+void forge_network_send_spawn_effect(int effect, union real_point3d const *point)
+{
+	char msg[64];
+
+	if (game_connection() != _game_connection_network_server)
+		return;
+	snprintf(msg, sizeof(msg), "!FE:%X:%.2f:%.2f:%.2f", (unsigned int)effect, point->x, point->y, point->z);
+	forge_broadcast_packet_to_clients(msg, -1);
 }
 
 void forge_network_send_ai_spawn(int32_t live_idx)
@@ -902,6 +914,8 @@ static void forge_client_configure_linked_object(int32_t live_idx, long obj_idx,
 		g_forge.live_instances[live_idx].object_index = obj_idx;
 		if (g_forge.grabbed_live_index == live_idx)
 			g_forge.grabbed_object_index = obj_idx;
+		if (g_forge.live_instances[live_idx].group_tag == FORGE_GROUP_AI_SPAWN)
+			forge_ai_preview_protect(obj_idx);
 	}
 }
 
@@ -1291,6 +1305,20 @@ int forge_network_intercept_chat_packet(long machine_index, char const *text, in
 						(float)pitch_cr / 100.0f);
 				}
 			}
+		}
+		return 1;
+	}
+
+	/* A spawned unit's effect, from the host */
+	if (strncmp(text, "!FE:", 4) == 0)
+	{
+		if (!is_from_client_to_host && game_connection() == _game_connection_network_client)
+		{
+			unsigned int effect = 0;
+			union real_point3d point;
+
+			if (sscanf(text + 4, "%X:%f:%f:%f", &effect, &point.x, &point.y, &point.z) == 4)
+				forge_ai_spawn_effect_play((int)effect, &point);
 		}
 		return 1;
 	}

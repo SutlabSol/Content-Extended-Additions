@@ -1727,7 +1727,8 @@ static char const *const s_forge_bind_labels[FORGE_BIND_COUNT] = {
 	"ROTATION SNAP",
 	"OBJECT OPTIONS",
 	"DELETE OBJECT",
-	"COPY OBJECT"
+	"COPY OBJECT",
+	"OBJECT SETTINGS"
 };
 
 static struct forge_widget_instance *fw_screen_of(struct forge_widget_instance *w)
@@ -3729,6 +3730,12 @@ extern boolean social_chat_typing(void);
 int forge_chat_typing(void)
 {
 	return orig_network_chat_typing() || social_chat_typing();
+}
+
+int forge_menu_open(void)
+{
+	return g_forge_session_enabled && g_forge.initialized && g_forge.active_modal != _forge_modal_none &&
+		!forge_is_main_menu_active();
 }
 
 short forge_key_state(int vk)

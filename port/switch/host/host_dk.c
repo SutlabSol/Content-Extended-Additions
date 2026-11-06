@@ -15,7 +15,7 @@ It keeps:
   window (host_memory.c says which; DEKO3D.md, phase 3), so the GPU reads
   the game's vertex and index data where the game keeps it;
 - a ring slice of upload memory for vertex and index data that is not in
-  the window (CreateIndexBuffer's, immediate mode's);
+  the window (the dynamic index buffer's, immediate mode's);
 - the swapchain, on the console's default window, which the host leaves
   without an EGL surface under deko3d (host_sdl2.c).
 
@@ -89,7 +89,7 @@ it can be, HALO_GUEST_WINDOW_MAXIMUM (512 MB), is 32 of them */
 #define WINDOW_CHUNK_SIZE (16 * 1024 * 1024)
 #define WINDOW_CHUNKS (HALO_GUEST_WINDOW_MAXIMUM / WINDOW_CHUNK_SIZE)
 
-/* what a frame can upload (CreateIndexBuffer's index data, immediate-mode
+/* what a frame can upload (the dynamic index buffer's data, immediate-mode
 vertices, quad lists' indices); one slice per ring frame */
 #define UPLOAD_SLICE_SIZE (4 * 1024 * 1024)
 #define UPLOAD_ALIGNMENT 256
@@ -207,6 +207,8 @@ static struct
 	DkGpuAddr upload_gpu;
 	uint32_t upload_used;
 	int upload_overflowed;
+	/* the copies that did not fit, and the frames that had any, since last said */
+	uint32_t upload_refused, upload_refused_frames, upload_refused_this_frame;
 
 	/* the window ranges cleaned for the submission being recorded */
 	struct
@@ -1177,6 +1179,9 @@ static void frame_begin(void)
 	/* the upload slice is reused the same way, behind the same fence */
 	dk.upload_used = 0;
 	dk.upload_generation++;
+	if (dk.upload_refused_this_frame)
+		dk.upload_refused_frames++;
+	dk.upload_refused_this_frame = 0;
 	textures_frame_begin();
 	dk.color = dk.depth = NULL;
 	/* the queue is not trusted to be as the draws were told: put it back */
@@ -1370,6 +1375,8 @@ static DkGpuAddr upload_copy(const void *data, uint32_t size)
 				"be missing", (unsigned)UPLOAD_SLICE_SIZE);
 			dk.upload_overflowed = 1;
 		}
+		dk.upload_refused++;
+		dk.upload_refused_this_frame = 1;
 		return 0;
 	}
 	memcpy((char *)dk.upload_cpu + dk.frame * UPLOAD_SLICE_SIZE + offset, data, size);
@@ -1937,6 +1944,10 @@ static void present(const struct dk_command_present *command)
 			host_logf(HOST_LOG_INFO, "deko3d: GPU busy %.2f ms a frame on average, %.2f ms the longest (%u frames)",
 				(double)dk.gpu_busy_total_ns / dk.gpu_frames / 1e6, (double)dk.gpu_busy_peak_ns / 1e6,
 				(unsigned)dk.gpu_frames);
+		if (dk.upload_refused)
+			host_logf(HOST_LOG_ERROR, "deko3d: uploads: %u copies did not fit in %u of the last 60 frames, their draws "
+				"missing", (unsigned)dk.upload_refused, (unsigned)dk.upload_refused_frames);
+		dk.upload_refused = dk.upload_refused_frames = 0;
 		dk.gpu_busy_total_ns = dk.gpu_busy_peak_ns = 0;
 		dk.gpu_frames = 0;
 		dk.command_peak_bytes = 0;

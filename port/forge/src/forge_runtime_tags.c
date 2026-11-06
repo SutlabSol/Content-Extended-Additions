@@ -28,6 +28,7 @@
 #include "rasterizer/rasterizer_models.h"
 #include "rasterizer/rasterizer_swizzle.h"
 #include "render/render.h"
+#include "render/render_cameras_internal.h"
 #include "shaders/shader_definitions.h"
 #include "shaders/shaders.h"
 #include "sound/sound_definitions.h"
@@ -64,6 +65,7 @@
 
 extern unsigned long system_milliseconds(void);
 extern void rasterizer_set_frustum_z(real z_near, real z_far);
+extern void WINAPI D3DDevice_GetViewport(D3DVIEWPORT8 *viewport);
 extern void *cache_files_tag_instances(long *count);
 extern void cache_files_set_tag_instances(void *instances, long count);
 extern void progress_bar_begin(boolean skip_frame_capture);
@@ -5310,7 +5312,7 @@ int forge_ui_save_copy_as(char const *new_map_name)
 		}
 		else
 		{
-			forge_set_status("Initial save complete: 'custom_maps/%s.map'! Press F5 anytime to quick-update.",
+			forge_set_status("Initial save complete: 'custom_maps/%s.map'",
 				clean_name);
 		}
 		return 1;
@@ -7312,6 +7314,20 @@ static void draw_dropship_route_piece(float const *from, float const *to, int ki
 	p1.x = to[0];
 	p1.y = to[1];
 	p1.z = to[2];
+	/* (a piece out of view: the sphere around it, and the beam's width) */
+	{
+		union real_point3d middle;
+		float dx = p1.x - p0.x, dy = p1.y - p0.y, dz = p1.z - p0.z;
+
+		middle.x = (p0.x + p1.x) * 0.5f;
+		middle.y = (p0.y + p1.y) * 0.5f;
+		middle.z = (p0.z + p1.z) * 0.5f;
+		if (!render_frustum_sphere_visible(&render.frustum, &middle,
+				(float)sqrt((double)(dx * dx + dy * dy + dz * dz)) * 0.5f + 3.0f))
+		{
+			return;
+		}
+	}
 	draw_translucent_beam_3d(&p0, &p1, colors[kind], 3.0f);
 }
 
@@ -7379,6 +7395,19 @@ static void render_world_objective_and_spawn_markers(void)
 		pos.x = inst->x;
 		pos.y = inst->y;
 		pos.z = inst->z;
+		/* (only what this view shows: the engine culls its objects, but these
+		are drawn here, up to 70000 triangles each. The radius is the mesh's
+		about its middle, and pos may be its foot, so a margin) */
+		if (!is_hi)
+		{
+			float cull_radius = s_marker_meshes.meshes[mesh_kind].radius * 1.5f + 0.5f;
+
+			if (!render_frustum_sphere_visible(&render.frustum, &pos, cull_radius) ||
+				render_frustum_sphere_diameter_in_pixels(&render.frustum, &pos, cull_radius) < 2.0f)
+			{
+				continue;
+			}
+		}
 		fwd.i = (float)cosine(inst->yaw);
 		fwd.j = (float)sine(inst->yaw);
 		fwd.k = 0.0f;
@@ -7405,6 +7434,41 @@ static void render_world_objective_and_spawn_markers(void)
 		return;
 
 	forge_3d_dropship_routes_render(draw_dropship_route_piece);
+
+	/* An AI spawn's other units, where they will start: models, not objects, so
+	nothing can pick them up and they cost none of the level's objects */
+	for (i = 0; i < g_forge.live_instance_count; i++)
+	{
+		struct forge_live_instance const *inst = &g_forge.live_instances[i];
+		int units, unit;
+		long unit_definition;
+		union real_vector3d fwd, up;
+
+		if (!inst->active || inst->group_tag != FORGE_GROUP_AI_SPAWN)
+			continue;
+		units = forge_ai_spawn_grid_count(i);
+		if (units < 2)
+			continue;
+		unit_definition = forge_ai_actor_unit_definition(inst->tag_path);
+		if (unit_definition == NONE)
+			continue;
+		fwd.i = (float)cosine(inst->yaw);
+		fwd.j = (float)sine(inst->yaw);
+		fwd.k = 0.0f;
+		up.i = 0.0f;
+		up.j = 0.0f;
+		up.k = 1.0f;
+		for (unit = 1; unit < units; unit++)
+		{
+			union real_point3d point;
+
+			if (forge_ai_spawn_grid_point(i, unit, &point) &&
+				render_frustum_sphere_visible(&render.frustum, &point, 2.0f))
+			{
+				draw_native_object_model_at(unit_definition, NONE, NULL, &point, &fwd, &up, 0, 0, 0);
+			}
+		}
+	}
 
 	for (hill_id = 0; hill_id < 16; hill_id++)
 	{
@@ -7627,7 +7691,22 @@ void forge_render_world_3d_overlays(void const *lighting_ptr)
 	}
 	s_local_monitor_drawn_this_frame = 0;
 	render_world_objective_and_spawn_markers();
-	render_spawn_palette_3d_preview(NONE, lighting_ptr);
+	/* (the palette's model on top of everything: drawn in the front sliver of
+	the depth range, so nothing of the level is nearer, its own parts still in
+	order. The first-person flag does not do it: the weapon is drawn before the
+	level, which a stencil keeps off it, and this after) */
+	if (g_forge.active_modal == _forge_modal_spawn_palette)
+	{
+		D3DVIEWPORT8 viewport, front;
+
+		D3DDevice_GetViewport(&viewport);
+		front = viewport;
+		front.MinZ = 0.0f;
+		front.MaxZ = 0.01f;
+		D3DDevice_SetViewport(&front);
+		render_spawn_palette_3d_preview(NONE, lighting_ptr);
+		D3DDevice_SetViewport(&viewport);
+	}
 }
 
 int forge_monitor_render_player_unit(long object_index, void const *lighting_ptr, unsigned long flags)

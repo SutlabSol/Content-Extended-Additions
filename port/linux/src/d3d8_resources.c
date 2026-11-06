@@ -133,8 +133,15 @@ ULONG WINAPI D3DResource_Release(D3DResource *resource)
 			xgpu_static_buffer_remove(resource, (fields[0] & D3DCOMMON_TYPE_MASK) == D3DCOMMON_TYPE_INDEXBUFFER);
 		}
 #endif
+		/* (an index buffer's Data is virtual, and a static one's on the Switch
+		is contiguous: D3DDevice_CreateIndexBuffer) */
 		if ((fields[0] & D3DCOMMON_TYPE_MASK) == D3DCOMMON_TYPE_INDEXBUFFER)
-			free((void *)fields[1]);
+		{
+			if (fields[1] && platform_is_contiguous((const void *)fields[1]))
+				platform_contiguous_free((void *)fields[1]);
+			else
+				free((void *)fields[1]);
+		}
 		else if (fields[1])
 			platform_contiguous_free(PLATFORM_PHYSICAL_TO_VIRTUAL(fields[1]));
 		free(resource);
@@ -615,7 +622,22 @@ HRESULT WINAPI D3DDevice_CreateIndexBuffer(UINT length, DWORD usage, D3DFORMAT f
 	if (!buffer)
 		return E_OUTOFMEMORY;
 	/* index data stays in ordinary memory on the Xbox too; Data is virtual */
-	memory = calloc(1, length ? length : 1);
+	memory = NULL;
+#ifdef HALO_SWITCH
+	/* (but a static buffer's where the GPU reads it, as a vertex buffer's. In
+	ordinary memory each draw copied it into the command stream and the
+	frame's uploads, and meshes built at run time - Forge's, the Tag
+	Injector's, a mod's - filled those: the frame's last draws went missing.
+	The dynamic buffer stays there, rewritten as it is drawn from) */
+	if (!(usage & D3DUSAGE_DYNAMIC))
+	{
+		memory = allocate_resource_memory(length ? length : 1);
+		if (memory)
+			memset(memory, 0, length ? length : 1);
+	}
+#endif
+	if (!memory)
+		memory = calloc(1, length ? length : 1);
 	if (!memory)
 	{
 		free(buffer);
