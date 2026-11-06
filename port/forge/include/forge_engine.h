@@ -585,6 +585,9 @@ void forge_ai_forge_mode_changed(int forge_mode);
 void forge_ai_preview_update(int32_t live_idx);
 /* the unit an actor is, to draw; NONE when the level has not got it */
 long forge_ai_actor_unit_definition(char const *path);
+/* how a tag's object looks with no object made of it */
+void forge_model_look_get(long object_definition, char const *actor_path, float colors[4][3], int colored[4],
+	short *forced_shader);
 
 /* ---------- Prototypes: forge_3d_mode.c */
 

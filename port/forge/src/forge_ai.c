@@ -19,6 +19,7 @@
 #include "tag_files/tag_groups.h"
 #include "tag_files/tag_files.h"
 #include "objects/objects.h"
+#include "objects/object_definitions.h"
 #include "units/units.h"
 #include "ai/ai.h"
 #include "ai/actors.h"
@@ -2327,6 +2328,75 @@ Forge mode shows each spawn's AI as a model on its marker: a real unit with no
 actor, so the engine plays its idle, armed as it will be, and it moves and
 goes with the marker as any placed object does. Spartan mode plays the AI, from
 the spawns as they stand. The host's mode decides, as it runs the AI. */
+
+/* (actors.c's own: an actor variant's change_colors block) */
+struct forge_ai_variant_change_colors
+{
+	real_rgb_color color_lower_bound;
+	real_rgb_color color_upper_bound;
+	long pad[2];
+};
+
+typedef char forge_ai_variant_change_colors_size_assert[sizeof(struct forge_ai_variant_change_colors) == 0x20 ? 1 : -1];
+
+/* how a tag's object looks with no object made of it, as the Tag Injector's
+preview has it (tag_injector.c's preview_change_colors): an actor's change
+colors, the middle of each's bounds, and for those it has not, its unit's, the
+middle of each's first permutation's; and the shader permutation that is its
+rank's armor (actor_customize_unit). actor_path is NULL for any other object */
+void forge_model_look_get(long object_definition, char const *actor_path, float colors[4][3], int colored[4],
+	short *forced_shader)
+{
+	struct object_definition const *object = object_definition != NONE ?
+		(struct object_definition const *)tag_get(tag_get_group_tag(object_definition), object_definition) : NULL;
+	long variant_index = actor_path ? forge_ai_tag_find('actv', actor_path) : NONE;
+	struct actor_variant_definition const *variant = variant_index != NONE ?
+		(struct actor_variant_definition const *)tag_get('actv', variant_index) : NULL;
+	short index, channel;
+
+	memset(colors, 0, sizeof(float) * 4 * 3);
+	memset(colored, 0, sizeof(int) * 4);
+	*forced_shader = object ? object->object.forced_shader_permutation_index : 0;
+	for (index = 0; object && index < MIN(object->object.change_colors.count, 4); index++)
+	{
+		struct object_change_color_definition const *change_color = TAG_BLOCK_GET_ELEMENT(
+			&object->object.change_colors, index, struct object_change_color_definition);
+		struct object_change_color_permutation const *permutation;
+
+		if (change_color->permutations.count <= 0)
+			continue;
+		permutation = TAG_BLOCK_GET_ELEMENT(&change_color->permutations, 0, struct object_change_color_permutation);
+		colors[index][0] = (permutation->color_lower_bound.red + permutation->color_upper_bound.red) * 0.5f;
+		colors[index][1] = (permutation->color_lower_bound.green + permutation->color_upper_bound.green) * 0.5f;
+		colors[index][2] = (permutation->color_lower_bound.blue + permutation->color_upper_bound.blue) * 0.5f;
+		colored[index] = 1;
+	}
+	if (variant)
+	{
+		if (variant->unit.forced_shader_permutation_index)
+			*forced_shader = variant->unit.forced_shader_permutation_index;
+		for (index = 0; index < MIN(variant->change_colors.count, 4); index++)
+		{
+			struct forge_ai_variant_change_colors const *change_colors = TAG_BLOCK_GET_ELEMENT(
+				&variant->change_colors, index, struct forge_ai_variant_change_colors);
+
+			colors[index][0] = (change_colors->color_lower_bound.red + change_colors->color_upper_bound.red) * 0.5f;
+			colors[index][1] = (change_colors->color_lower_bound.green + change_colors->color_upper_bound.green) * 0.5f;
+			colors[index][2] = (change_colors->color_lower_bound.blue + change_colors->color_upper_bound.blue) * 0.5f;
+			colored[index] = 1;
+		}
+	}
+	for (index = 0; index < 4; index++)
+	{
+		/* (a NaN fails every comparison) */
+		for (channel = 0; channel < 3; channel++)
+		{
+			if (!(colors[index][channel] >= 0.0f))
+				colors[index][channel] = 0.0f;
+			colors[index][channel] = MIN(colors[index][channel], 1.0f);
+		}
+	}
+}
 
 long forge_ai_actor_unit_definition(char const *path)
 {

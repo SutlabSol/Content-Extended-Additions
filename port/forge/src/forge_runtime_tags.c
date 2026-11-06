@@ -6652,6 +6652,23 @@ void forge_load_saved_map_state_if_present(char const *map_name)
  *   previews directly through OpenCE's native orig_render_model!
  * ============================================================================ */
 
+/* the next draw_native_object_model_at's colors and armor, as the tag's (not a
+real object's, which has its own): set by forge_model_look_use, gone once drawn */
+static struct
+{
+	int active;
+	float colors[4][3];
+	int colored[4];
+	short forced_shader;
+} s_model_look;
+
+static void forge_model_look_use(long object_definition, char const *actor_path)
+{
+	forge_model_look_get(object_definition, actor_path, s_model_look.colors, s_model_look.colored,
+		&s_model_look.forced_shader);
+	s_model_look.active = 1;
+}
+
 static int draw_native_object_model_at(
 	long obj_def_idx,
 	long unique_id,
@@ -6759,6 +6776,18 @@ static int draw_native_object_model_at(
 	}
 	change_colors[2] = change_colors[0];
 	change_colors[3] = change_colors[1];
+	if (s_model_look.active)
+	{
+		for (n = 0; n < 4; n++)
+		{
+			if (s_model_look.colored[n])
+			{
+				change_colors[n].red = s_model_look.colors[n][0];
+				change_colors[n].green = s_model_look.colors[n][1];
+				change_colors[n].blue = s_model_look.colors[n][2];
+			}
+		}
+	}
 
 	function_values[0] = 1.0f;
 	function_values[1] = 1.0f;
@@ -6797,8 +6826,9 @@ static int draw_native_object_model_at(
 		radius,
 		NULL,
 		(is_monitor || is_preview) ? NONE : unique_id,
-		0,
+		s_model_look.active ? s_model_look.forced_shader : 0,
 		is_preview ? (flags | (1u << 3)) /* _render_model_first_person_bit */ : flags);
+	s_model_look.active = 0;
 	return 1;
 }
 
@@ -7561,6 +7591,7 @@ static void render_world_objective_and_spawn_markers(void)
 			if (forge_ai_spawn_grid_point(i, unit, &point) &&
 				render_frustum_sphere_visible(&render.frustum, &point, 2.0f))
 			{
+				forge_model_look_use(unit_definition, inst->tag_path);
 				draw_native_object_model_at(unit_definition, NONE, NULL, &point, &fwd, &up, 0, 0, 0);
 			}
 		}
@@ -7635,6 +7666,9 @@ static void render_world_objective_and_spawn_markers(void)
 	}
 }
 
+/* how long RANDOM's preview shows each rank */
+#define FORGE_RANDOM_PREVIEW_MILLISECONDS 1200u
+
 static void render_spawn_palette_3d_preview(long object_index, void const *lighting_ptr)
 {
 	int i, match_count = 0, chosen_idx = -1;
@@ -7658,11 +7692,28 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 		if (g_forge.palette_cursor >= 0 && g_forge.palette_cursor < count)
 			chosen_idx = filtered[g_forge.palette_cursor];
 		(void)match_count;
-		/* (a group's row, or RANDOM, is no tag to read) */
-		if (chosen_idx >= 0 && (g_forge.catalog[chosen_idx].group_tag == FORGE_GROUP_AI_MENU ||
-			forge_ai_row_is_random(&g_forge.catalog[chosen_idx])))
-		{
+		/* (a group's row is no tag to read) */
+		if (chosen_idx >= 0 && g_forge.catalog[chosen_idx].group_tag == FORGE_GROUP_AI_MENU)
 			chosen_idx = -1;
+		/* (RANDOM shows each of its group's ranks in turn) */
+		if (chosen_idx >= 0 && forge_ai_row_is_random(&g_forge.catalog[chosen_idx]))
+		{
+			int group = forge_ai_row_group(&g_forge.catalog[chosen_idx]);
+			int ranks[32];
+			int rank_count = 0;
+
+			for (i = 0; i < g_forge.catalog_count && rank_count < (int)NUMBEROF(ranks); i++)
+			{
+				struct forge_catalog_entry const *row = &g_forge.catalog[i];
+
+				if (row->group_tag == FORGE_GROUP_AI_SPAWN && !forge_ai_row_is_random(row) &&
+					forge_ai_row_group(row) == group && forge_catalog_entry_allowed(row))
+				{
+					ranks[rank_count++] = i;
+				}
+			}
+			chosen_idx = rank_count > 0 ?
+				ranks[(system_milliseconds() / FORGE_RANDOM_PREVIEW_MILLISECONDS) % (unsigned long)rank_count] : -1;
 		}
 	}
 	if (chosen_idx < 0)
@@ -7673,8 +7724,10 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 	/* An actor shows as the unit it is, read as any other palette tag is */
 	load_group = entry->group_tag == FORGE_GROUP_AI_SPAWN ? 'actv' : entry->group_tag;
 
-	/* Check if this catalog entry is one of our 3D Translucent Spawn/Teleporter/Objective Markers! */
-	if (load_group != 'actv' &&
+	/* Check if this catalog entry is one of our 3D Translucent Spawn/Teleporter/Objective Markers!
+	(A vehicle's, a weapon's or a powerup's marker is where it goes back to in
+	the world: here it is shown as itself) */
+	if (load_group != 'actv' && load_group != 'vehi' && load_group != 'weap' && load_group != 'eqip' &&
 		resolve_marker_kind_and_color(entry->group_tag, entry->tag_path, -1, -1, &marker_kind, &marker_color))
 	{
 		ensure_objective_marker_meshes_loaded();
@@ -7765,6 +7818,7 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 	preview_up.j = 0.0f;
 	preview_up.k = 1.0f;
 
+	forge_model_look_use(obj_def_idx, load_group == 'actv' ? entry->tag_path : NULL);
 	draw_native_object_model_at(
 		obj_def_idx,
 		object_index,

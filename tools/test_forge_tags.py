@@ -332,3 +332,20 @@ def test_origins_are_noted_early_and_marked():
     assert "s_origins_note_frames < FORGE_ORIGINS_NOTE_FRAMES" in forge
     marker = runtime[runtime.index("static int resolve_marker_kind_and_color"):]
     assert "group_tag == 'vehi' || group_tag == 'weap' || group_tag == 'eqip'" in marker[:500]
+
+
+def test_previews_draw_the_real_model_in_its_own_colors():
+    """the palette shows an object as itself, its marker being for the world, and
+    a model drawn with no object has its tag's colors and rank's armor"""
+    runtime = RUNTIME.read_text()
+    preview = runtime[runtime.index("static void render_spawn_palette_3d_preview"):]
+    guard = preview[preview.index("resolve_marker_kind_and_color") - 160:preview.index("resolve_marker_kind_and_color")]
+    assert all(f"load_group != '{group}'" in guard for group in ("actv", "vehi", "weap", "eqip"))
+    assert "forge_model_look_use(obj_def_idx" in preview
+    assert "s_model_look.active ? s_model_look.forced_shader : 0" in runtime
+
+
+def test_a_random_rows_preview_cycles_its_ranks():
+    preview = RUNTIME.read_text()
+    preview = preview[preview.index("static void render_spawn_palette_3d_preview"):]
+    assert "system_milliseconds() / FORGE_RANDOM_PREVIEW_MILLISECONDS" in preview
