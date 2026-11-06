@@ -1749,12 +1749,15 @@ static void forge_ai_corpses_delete(void)
 	}
 }
 
-/* (a map with no AI and no spawns has nothing to stop or start) */
+/* (a map with no AI and no spawns has nothing to stop or start, but the AI
+still counts as held: the first spawn placed there shows its model at once) */
 void forge_ai_forge_mode_changed(int forge_mode)
 {
-	if (game_connection() == _game_connection_network_client || !forge_ai_map_editable() ||
-		(!forge_ai_map_supported() && g_forge.edit_state.ai_spawn_count == 0))
+	if (game_connection() == _game_connection_network_client || !forge_ai_map_editable())
+		return;
+	if (!forge_ai_map_supported() && g_forge.edit_state.ai_spawn_count == 0)
 	{
+		s_ai_held = forge_mode;
 		return;
 	}
 	if (forge_mode)
