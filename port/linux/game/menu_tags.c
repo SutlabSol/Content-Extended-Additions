@@ -525,7 +525,7 @@ static char const *const port_game_data_input_names[] =
 	/* (Gamepad Setup's BUTTON LAYOUT, and the profile settings' picture of
 	it: a controller, and what the layout puts on its buttons) */
 	"port gamepad layout overlay",
-	"gamemode menu update", "mp type screen update", "service record update",
+	"mp type screen update", "service record update",
 };
 
 static struct

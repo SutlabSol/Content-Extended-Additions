@@ -2766,14 +2766,9 @@ BITMAP_FRAME_PATCHES = {
     "main_menu/settings_select/multiplayer_setup/playlist_edit/game_type_select/rules_options":
         {5: ("ce/port/gamemode/firefight_logo__0.png", 256, 256)},
 }
-# the port's bitmaps made of PNGs (frames as BITMAP_FRAME_PATCHES'): Content
-# Extended's Multiplayer modes' pictures (the PC version's multiplayer
-# options picture first) and Forge's name box
+# the port's bitmaps made of PNGs (frames as BITMAP_FRAME_PATCHES'): Forge's
+# name box
 PORT_BITMAPS = {
-    "main_menu/multiplayer_type_select/gamemode/gamemode_options": [
-        ("ce/shell/main_menu/multiplayer_type_select/mp_options__0.png", 512, 256),
-        ("ce/port/gamemode/firefight_logo__0.png", 256, 256),
-        ("ce/port/gamemode/forge_logo__0.png", 256, 256)],
     "main_menu/multiplayer_type_select/gamemode/forge_name_input_box": [
         # (its PNGs' own size: drawn at one pixel each)
         ("ce/port/gamemode/name_input_box__0.png", 184, 28),
@@ -5048,7 +5043,24 @@ MENU_ITEM_SPACES = {"MO": 3.17, "OD": 2.8, "DS": 2.3,
                     # of the same shapes: OR as ON, RG as RO, IR as IP, RE as
                     # PR, EF as ER, GH as GN, HT as NT)
                     "FO": 1.6, "OR": 3.18, "RG": 1.6, "FI": 2.73, "IR": 4.13, "RE": 2.76, "EF": 3.24,
-                    "IG": 3.47, "GH": 3.39, "HT": 1.66}
+                    "IG": 3.47, "GH": 3.39, "HT": 1.66,
+                    # (Firefight's and Forge's menus' rows, MENU_ITEMS: set
+                    # by eye from the pairs above of the same shapes)
+                    "SO": 2.6, "OL": 3.0, "LO": 0.4, "T V": 8.5, "VA": -3.5, "AR": 1.0, "RI": 3.2, "IA": 1.2,
+                    "AN": 1.1, "NT": 1.7, "TS": 1.6, "SI": 3.3, "IN": 4.2, "GL": 3.3, "E P": 12.0, "YE": 0.5,
+                    "ED": 3.3, "DI": 3.4, "IT": 2.0, "T M": 11.0, "MA": 1.2, "AP": 1.0, "PS": 2.0, "TA": 0.4,
+                    "AG": 1.0, "G I": 13.0, "NJ": 3.0, "JE": 3.8, "EC": 2.9, "CT": 1.5, "TO": 1.4}
+# letters no redraw has, drawn from theirs: V from A's strokes, J from L's
+MENU_ITEM_LETTERS = {"V": "M0,0L4.67,0L11.44,16.6L18.21,0L22.88,0L14.11,21.5L8.77,21.5Z",
+                     "J": "M10.24,0L14.92,0L14.92,14.24C14.92,18.25 11.67,21.5 7.66,21.5L0,21.5L0,17.66L6.79,17.66"
+                          "C8.69,17.66 10.24,16.12 10.24,14.22Z"}
+# Firefight's and Forge's menus' rows, as Campaign's: each picture's name, its
+# words and its width (content_extended_menus.py centres them by it)
+MENU_ITEMS = [("main_menu/menu_solo", "SOLO", 256),
+              ("main_menu/menu_firefight_variants", "FIREFIGHT VARIANTS", 384),
+              ("main_menu/menu_single_player", "SINGLE PLAYER", 320),
+              ("main_menu/menu_edit_maps", "EDIT MAPS", 256),
+              ("main_menu/menu_tag_injector", "TAG INJECTOR", 320)]
 # the mods' status icons (port/assets/icons/lucide): a mod out of the order it
 # asks for, and one that cannot be played (another mod says it cannot be
 # played with it, or this build cannot play it): menu_functions.c's
@@ -5078,7 +5090,7 @@ def menu_item_frames(text: str, redraws: Path, width: int = 256, disabled: bool 
     from fontTools.pens.boundsPen import BoundsPen
     from fontTools.svgLib.path import parse_path
 
-    letters = redraw_letters(redraws)
+    letters = {**MENU_ITEM_LETTERS, **redraw_letters(redraws)}
     glyphs = text.replace(" ", "")
     widths = []
     for letter in glyphs:

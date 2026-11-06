@@ -760,6 +760,9 @@ reached, and (map_data) a saved game on the level */
 #define LEVEL_UNAVAILABLE 10
 #define LEVEL_IN_PROGRESS 11
 #define ROW_TEXT_LENGTH 64
+/* a gametype's rules, as the panel beside its list shows them: every write
+to that text box must give this length (text_set_length) */
+#define GAMETYPE_RULES_LENGTH 192
 #define MAXIMUM_PROFILES 32
 #define SOUND_ERROR 4
 #define SOUND_CURSOR 1
@@ -11500,6 +11503,61 @@ static void gametype_bank_read(short bank)
 
 /* a gametype's kind and rules, for the description beside a list: its game
 engine's name (or its OpenCE gametype's), teams, and what wins */
+/* the enemies a Firefight variant's waves are of, as its rules' FACTION
+(firefight_spawner.c's faction_relevant_unit_mask) */
+static wchar_t const *firefight_faction_summary(byte faction)
+{
+	switch (faction)
+	{
+	case _firefight_faction_covenant:
+	case _firefight_faction_grunts:
+	case _firefight_faction_elites_heavies:
+		return L"Covenant";
+	case _firefight_faction_flood:
+		return L"Flood";
+	case _firefight_faction_sentinels:
+		return L"Sentinels";
+	case _firefight_faction_covenant_flood:
+		return L"Covenant + Flood";
+	case _firefight_faction_covenant_sentinels:
+		return L"Cov + Sentinels";
+	case _firefight_faction_flood_sentinels:
+		return L"Flood + Sentinels";
+	case _firefight_faction_unsc_humans:
+		return L"UNSC";
+	default:
+		return L"All factions";
+	}
+}
+
+static wchar_t const *firefight_skull_mode_summary(byte mode)
+{
+	switch (mode)
+	{
+	case _firefight_skull_prog_off:
+		return L"Disabled";
+	case _firefight_skull_prog_random_round:
+		return L"Random";
+	case _firefight_skull_prog_custom_pool:
+		return L"Custom";
+	default:
+		return L"Reach";
+	}
+}
+
+/* (bitmaps/game_type_grafix's frames of the crown and of Slayer's figure) */
+#define GAMETYPE_PICTURE_KING 1
+#define GAMETYPE_PICTURE_SLAYER 2
+
+/* a gametype's frame of bitmaps/game_type_grafix: a Firefight variant's is
+Slayer's, or King of the Hill's if it has generators to defend */
+static short gametype_picture_frame(struct game_variant const *variant)
+{
+	if (variant->game_engine_index == game_engine_firefight)
+		return variant->game_engine_variant.firefight.generator_count > 0 ? GAMETYPE_PICTURE_KING : GAMETYPE_PICTURE_SLAYER;
+	return (short)PIN(variant->game_engine_index, 0, 6);
+}
+
 static void gametype_rules_text(long profile_index, wchar_t *text, short size)
 {
 	struct game_variant variant;
@@ -11517,8 +11575,11 @@ static void gametype_rules_text(long profile_index, wchar_t *text, short size)
 	{
 		short sets = variant.game_engine_variant.firefight.set_limit;
 		short lives = variant.game_engine_variant.firefight.starting_lives;
+		short generators = variant.game_engine_variant.firefight.generator_count;
 		wchar_t set_buf[16];
 		wchar_t life_buf[16];
+		wchar_t round_buf[24];
+		wchar_t objective_buf[24];
 
 		if (sets <= 0)
 			usnprintf(set_buf, NUMBEROF(set_buf) - 1, L"Unlimited");
@@ -11532,9 +11593,24 @@ static void gametype_rules_text(long profile_index, wchar_t *text, short size)
 			usnprintf(life_buf, NUMBEROF(life_buf) - 1, L"%d", (int)lives);
 		life_buf[NUMBEROF(life_buf) - 1] = 0;
 
-		usnprintf(text, size - 1, L"%s\r\nSets: %s\r\nLives: %s | Gen: %d",
-			engine_names[engine], set_buf, life_buf,
-			(int)variant.game_engine_variant.firefight.generator_count);
+		if (sets <= 0)
+			usnprintf(round_buf, NUMBEROF(round_buf) - 1, L"%d per set", (int)FIREFIGHT_ROUNDS_PER_SET);
+		else
+			usnprintf(round_buf, NUMBEROF(round_buf) - 1, L"%d (%d per set)",
+				(int)sets * FIREFIGHT_ROUNDS_PER_SET, (int)FIREFIGHT_ROUNDS_PER_SET);
+		round_buf[NUMBEROF(round_buf) - 1] = 0;
+
+		if (generators > 0)
+			usnprintf(objective_buf, NUMBEROF(objective_buf) - 1, generators == 1 ? L"%d generator" : L"%d generators",
+				(int)generators);
+		else
+			usnprintf(objective_buf, NUMBEROF(objective_buf) - 1, L"Survive");
+		objective_buf[NUMBEROF(objective_buf) - 1] = 0;
+
+		usnprintf(text, size - 1, L"%s\r\nSets: %s\r\nRounds: %s\r\nEnemies: %s\r\nObjective: %s\r\nSkulls: %s\r\nLives: %s",
+			engine_names[engine], set_buf, round_buf,
+			firefight_faction_summary(variant.game_engine_variant.firefight.wave_faction), objective_buf,
+			firefight_skull_mode_summary(options.firefight_skull_progression_mode), life_buf);
 		text[size - 1] = 0;
 		return;
 	}
@@ -11750,6 +11826,7 @@ static void gametype_list_update(struct widget_instance *list)
 	if (multiplayer.gametype_chosen < multiplayer.bank_count)
 	{
 		wchar_t text[ROW_TEXT_LENGTH * 2];
+		wchar_t rules[GAMETYPE_RULES_LENGTH];
 		long profile = multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]];
 		struct game_variant const *variant = gametype_shown_get(profile);
 
@@ -11757,13 +11834,11 @@ static void gametype_list_update(struct widget_instance *list)
 		text_set(named(description, "gametype_right_name", 0), text);
 		if (variant)
 		{
-			long engine = PIN(variant->game_engine_index, 0, 6);
-
 			if ((widget = named(description, "gametype_right_pic", 0)) != NULL)
-				widget->animation.current_frame_index = (short)engine;
-			gametype_rules_text(multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]], text,
-				NUMBEROF(text));
-			text_set(named(description, "gametype_right_data", 0), text);
+				widget->animation.current_frame_index = gametype_picture_frame(variant);
+			gametype_rules_text(multiplayer.gametypes[multiplayer.bank[multiplayer.gametype_chosen]], rules,
+				NUMBEROF(rules));
+			text_set_length(named(description, "gametype_right_data", 0), rules, GAMETYPE_RULES_LENGTH);
 		}
 	}
 	profile_name_show(description);
@@ -18997,6 +19072,7 @@ static void gametype_edit_list_update(struct widget_instance *list)
 		long profile_index = gametype_edit.gametypes[gametype_edit.chosen];
 		struct game_variant const *variant = gametype_shown_get(profile_index);
 		wchar_t text[ROW_TEXT_LENGTH * 2];
+		wchar_t rules[GAMETYPE_RULES_LENGTH];
 
 		visible_set(named(description, "locked_gametype_icon", 0),
 			((unsigned long)profile_index & PLAYLIST_READ_ONLY_BIT) != 0);
@@ -19004,12 +19080,10 @@ static void gametype_edit_list_update(struct widget_instance *list)
 		text_set(named(description, "gametype_right_name", 0), text);
 		if (variant)
 		{
-			long engine = PIN(variant->game_engine_index, 0, 6);
-
 			if ((widget = named(description, "gametype_right_pic", 0)) != NULL)
-				widget->animation.current_frame_index = (short)engine;
-			gametype_rules_text(profile_index, text, NUMBEROF(text));
-			text_set(named(description, "gametype_right_data", 0), text);
+				widget->animation.current_frame_index = gametype_picture_frame(variant);
+			gametype_rules_text(profile_index, rules, NUMBEROF(rules));
+			text_set_length(named(description, "gametype_right_data", 0), rules, GAMETYPE_RULES_LENGTH);
 		}
 	}
 	profile_name_show(description);
@@ -19484,9 +19558,6 @@ static boolean gamemode_menu_init(struct widget_instance *list)
 	return TRUE;
 }
 
-/* (gamemode_options' frame: PORT_BITMAPS, tools/port_settings.py) */
-#define GAMEMODE_PICTURE_FIREFIGHT 1
-
 boolean multiplayer_firefight_mode(void)
 {
 	return multiplayer.firefight_mode || multiplayer.gamemode == _gamemode_firefight;
@@ -19514,69 +19585,6 @@ static boolean gamemode_select_forge(void)
 	multiplayer.firefight_mode = FALSE;
 	gametype_edit.stale = TRUE;
 	return TRUE;
-}
-
-static void gamemode_menu_update(struct widget_instance *list)
-{
-	struct widget_instance *desc = list ? list->parameters.list.extended_description : NULL;
-
-	if (!list)
-		return;
-
-	if (list->name && !strcmp(list->name, "firefight_menu_select_list"))
-	{
-		if (desc)
-		{
-			struct widget_instance *pic = named(desc, "gamemode_options_pic", 0);
-			struct widget_instance *txt = named(desc, "gamemode_options_txt", 0);
-			char const *fc = (list->focused_child && list->focused_child->name) ? list->focused_child->name : "";
-
-			if (pic)
-				pic->animation.current_frame_index = GAMEMODE_PICTURE_FIREFIGHT;
-			if (txt)
-			{
-				text_set_length(
-					txt,
-					!strcmp(fc, "firefight_item_multiplayer") ?
-						L"MULTIPLAYER FIREFIGHT\r\nHOST OR JOIN GAMES\r\nOF FIREFIGHT" :
-					!strcmp(fc, "firefight_item_variants") ?
-						L"FIREFIGHT VARIANTS\r\nMAKE YOUR OWN RULESETS\r\nFROM NEW OR FROM ANY\r\nOF THE BUILT-IN ONES" :
-					!strcmp(fc, "firefight_item_tag_injector") ?
-						L"TAG INJECTOR\r\nPROFILES OF TAGS FROM\r\nCUSTOM MAPS, TO ADD\r\nTO A VARIANT" :
-						L"SOLO FIREFIGHT\r\nA LOCAL GAME ON THIS\r\nMACHINE, WITH BOTS\r\nIF YOU WANT THEM",
-					160);
-			}
-			profile_name_show(desc);
-		}
-		return;
-	}
-	if (list->name && !strcmp(list->name, "forge_menu_select_list"))
-	{
-		if (desc)
-		{
-			struct widget_instance *pic = named(desc, "gamemode_options_pic", 0);
-			struct widget_instance *txt = named(desc, "gamemode_options_txt", 0);
-			char const *fc = (list->focused_child && list->focused_child->name) ? list->focused_child->name : "";
-
-			if (pic)
-				pic->animation.current_frame_index = 2;
-			if (txt)
-			{
-				text_set_length(
-					txt,
-					!strcmp(fc, "forge_item_multiplayer") ?
-						L"MULTIPLAYER FORGE\r\nHOST OR JOIN LIVE\r\nCO-OP MAP EDITING\r\nSESSIONS" :
-					!strcmp(fc, "forge_item_edit_maps") ?
-						L"SAVED FORGE MAPS\r\nBROWSE & LOAD SAVED\r\nFORGE & CUSTOM MAPS" :
-					!strcmp(fc, "forge_item_tag_injector") ?
-						L"TAG INJECTOR\r\nPROFILES OF TAGS FROM\r\nCUSTOM MAPS, FOR FORGE,\r\nCAMPAIGN & MULTIPLAYER" :
-						L"SINGLE PLAYER SANDBOX\r\nEDIT ANY STOCK,\r\nCUSTOM OR FORGE\r\nMAP SOLO",
-					160);
-			}
-			profile_name_show(desc);
-		}
-		return;
-	}
 }
 
 static void mp_type_screen_update(struct widget_instance *list)
@@ -20625,8 +20633,6 @@ void pc_menu_game_data_function_invoke(
 		coop_friendly_fire_text(widget);
 	else if (!strcmp(name, "port playlist edit desc"))
 		playlist_edit_description(widget);
-	else if (!strcmp(name, "gamemode menu update"))
-		gamemode_menu_update(widget);
 	else if (!strcmp(name, "mp type screen update"))
 		mp_type_screen_update(widget);
 }

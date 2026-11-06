@@ -2835,6 +2835,17 @@ void menu_tags_unloaded(void)
 	orig_menu_tags_unloaded();
 }
 
+/* the level loading is a Forge game's: by the test menu_tags_loaded makes just
+after its tags, which a client that joined one has not made yet */
+int forge_level_is_session(void)
+{
+	struct game_variant const *v = game_engine_get_variant();
+
+	return g_forge_session_enabled || (v &&
+		(_wcsicmp(v->human_readable_game_description, L"Forge") == 0 ||
+		 v->universal_variant.score_to_win == 0x3FFFFFFF));
+}
+
 void menu_tags_loaded(char const *map_name)
 {
 	orig_menu_tags_loaded(map_name);

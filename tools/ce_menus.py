@@ -785,6 +785,9 @@ def main() -> None:
     lines.append(art.port_picture("main_menu/menu_forge", port_settings.menu_item_frames("FORGE", art.redraws)))
     lines.append(art.port_picture("main_menu/menu_firefight",
                                   port_settings.menu_item_frames("FIREFIGHT", art.redraws)))
+    # (and the rows of their menus, as Campaign's)
+    lines += [art.port_picture(name, port_settings.menu_item_frames(text, art.redraws, width))
+              for name, text, width in port_settings.MENU_ITEMS]
     # (and its pictures of PNGs: port_settings.PORT_BITMAPS)
     lines += [art.port_frames(name, frames) for name, frames in port_settings.PORT_BITMAPS.items()]
     lines.append(art.port_picture("mods/status", port_settings.mod_status_frames(ROOT / "port/assets/icons/lucide")))

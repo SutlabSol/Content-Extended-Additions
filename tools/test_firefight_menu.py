@@ -35,9 +35,38 @@ def test_the_menus_are_as_the_generators_write_them():
 
 def test_play_opens_firefight_s_menu_and_its_rows_are_forge_s():
     assert 'run="gamemode select firefight" open="main_menu/firefight_select/firefight_menu"' in menu("main_menu.play.xml")
-    rows = re.findall(r'firefight_select/(firefight_item_[a-z_]+)" y="\d+"', menu("main_menu.forge_select.port.xml"))
-    assert rows == ["firefight_item_create_local", "firefight_item_multiplayer", "firefight_item_variants",
-                    "firefight_item_tag_injector"]
+    rows = re.findall(r'firefight_select/(firefight_item_[a-z_]+)" x="\d+" y="\d+"', menu("main_menu.forge_select.port.xml"))
+    assert rows == ["firefight_item_create_local", "firefight_item_multiplayer", "firefight_item_variants"]
+
+
+def test_firefight_s_and_forge_s_menus_are_laid_out_as_campaign_s():
+    """no background, header or picture: the logo and rows about the same
+    middle (menu_item_frames: 130 of a 256 wide row, the rest half each way)"""
+    forge = menu("main_menu.forge_select.port.xml")
+    for screen, rows in (("main_menu/firefight_select/firefight_menu", "firefight_menu_select_list"),
+                         ("main_menu/forge_select/forge_menu", "forge_menu_select_list")):
+        widget = re.search(rf'<widget name="{screen}".*?</widget>', forge, re.S).group(0)
+        assert "bitmap=" not in widget.split(">")[0] and "header_" not in widget and "blueline" not in widget
+        assert 'widget="main_menu/halo_logo"' in widget
+        items = re.search(rf'<widget name="[^"]*/{rows}".*?</widget>', forge, re.S).group(0)
+        assert "description=" not in items and "button_bar" not in items
+        assert 'widget="main_menu/campaign_select/menu_item_back"' in items
+        for name, x in re.findall(r'child widget="([^"]+_item_[^"]+)" x="(\d+)"', items):
+            if name.endswith("menu_item_back"):
+                continue
+            width = int(re.search(rf'<widget name="{name}"[^>]* width="(\d+)"', forge).group(1))
+            assert int(x) + width / 2 == 320
+
+
+def test_a_variant_s_picture_and_summary():
+    """Slayer's figure, the crown if it has generators (frames, not engines:
+    game_type_grafix's order is its own), and what the rules say of it"""
+    assert "#define GAMETYPE_PICTURE_KING 1" in MENU_C and "#define GAMETYPE_PICTURE_SLAYER 2" in MENU_C
+    assert "generator_count > 0 ? GAMETYPE_PICTURE_KING : GAMETYPE_PICTURE_SLAYER" in MENU_C
+    assert MENU_C.count('text_set_length(named(description, "gametype_right_data", 0), rules, GAMETYPE_RULES_LENGTH)') == 2
+    assert 'text_set(named(description, "gametype_right_data"' not in MENU_C
+    for words in ("Sets: %s", "Rounds: %s", "Enemies: %s", "Objective: %s", "Skulls: %s"):
+        assert words in MENU_C
 
 
 def test_solo_is_a_local_game_by_its_name():

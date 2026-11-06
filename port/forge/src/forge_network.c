@@ -2,6 +2,7 @@
  * OpenCE : Faber ("OpenCE - Faber.exe")
  * Collaborative P2P Forge Network Synchronization:
  * - Bidirectional Spawn (!FS: / !FH:), Transform (!FM:), Delete (!FD:) and Firefight marker usage (!FU:) replication
+ * - AI spawn settings (!FA:)
  * - Per-Player Monitor vs. Spartan mode & 3D Monitor flight state synchronization (!FT:)
  * - Late-join / full-session state synchronization (!FQ)
  * - Automatic client-side external tag & .ocetags faulting on object creation
@@ -729,6 +730,69 @@ void forge_network_send_marker_usage(int32_t live_idx, int16_t usage)
 	}
 }
 
+static int32_t forge_resolve_target_live_idx(int live_idx, int obj_abs);
+
+/* an AI spawn's settings: everything but where it stands, which !FM: carries.
+(the chat line's 64 bytes hold it, the actor and weapon by their hashes) */
+static int forge_ai_spawn_packet(int32_t live_idx, char *msg, size_t msg_size)
+{
+	struct forge_ai_spawn_entry const *entry = NULL;
+	uint32_t variant_hash = 0, weapon_hash = 0;
+
+	forge_ai_spawn_net_settings(live_idx, &variant_hash, &weapon_hash, &entry);
+	if (!entry)
+		return 0;
+	snprintf(msg, msg_size, "!FA:%X:%X:%X:%X:%X:%X:%X:%X:%X:%X",
+		(unsigned int)live_idx,
+		(unsigned int)variant_hash,
+		(unsigned int)weapon_hash,
+		(unsigned int)entry->team & 0xFFFFu,
+		(unsigned int)entry->unit_count,
+		(unsigned int)entry->respawn_alive,
+		(unsigned int)entry->respawn_delay_seconds,
+		(unsigned int)entry->respawn_total,
+		(unsigned int)entry->gametype_flags,
+		(unsigned int)entry->detached);
+	return 1;
+}
+
+/* 1 with the settings of a !FA: applied, and its marker in *target_idx */
+static int forge_ai_spawn_packet_apply(char const *text, int32_t *target_idx)
+{
+	unsigned int live_idx = 0, variant_hash = 0, weapon_hash = 0, team = 0, count = 0, alive = 0, delay = 0, total = 0;
+	unsigned int gametypes = 0, detached = 0;
+
+	if (sscanf(text + 4, "%X:%X:%X:%X:%X:%X:%X:%X:%X:%X", &live_idx, &variant_hash, &weapon_hash, &team, &count,
+			&alive, &delay, &total, &gametypes, &detached) != 10)
+	{
+		return 0;
+	}
+	*target_idx = forge_resolve_target_live_idx((int)live_idx, -1);
+	if (*target_idx < 0)
+		return 0;
+	forge_ai_spawn_net_apply(*target_idx, (uint32_t)variant_hash, (uint32_t)weapon_hash, (int)(int16_t)team, (int)count,
+		(int)alive, (int)delay, (int)total, gametypes, (int)detached);
+	return 1;
+}
+
+void forge_network_send_ai_spawn(int32_t live_idx)
+{
+	char msg[64];
+
+	if (!forge_is_multiplayer_session() || !forge_ai_spawn_packet(live_idx, msg, sizeof(msg)))
+		return;
+	if (game_connection() == _game_connection_network_client)
+	{
+		/* (one the host has not answered for yet says so once it has) */
+		if ((g_forge.live_instances[live_idx].pad_inst & 0x80u) == 0)
+			forge_send_packet_to_host(msg);
+	}
+	else if (game_connection() == _game_connection_network_server)
+	{
+		forge_broadcast_packet_to_clients(msg, -1);
+	}
+}
+
 static long forge_find_live_object_by_abs_index(int obj_abs)
 {
 	if (obj_abs < 0 || !object_header_data)
@@ -858,6 +922,8 @@ static void forge_client_handle_host_spawn(
 	int32_t match_idx = -1;
 	int matched_client_unlinked = 0;
 	int matched_existing = 0;
+	/* (a spawn this machine placed: the host has only its defaults) */
+	int link_ai_settings = 0;
 	int is_net_obj;
 	int i;
 
@@ -874,7 +940,8 @@ static void forge_client_handle_host_spawn(
 		forge_init_map_scenario_entities();
 
 	actual_grp = ce->group_tag;
-	if (ce->group_tag != 'spwn' && ce->group_tag != 'tele' && ce->group_tag != 'flag' && ce->group_tag != 'ffsp')
+	if (ce->group_tag != 'spwn' && ce->group_tag != 'tele' && ce->group_tag != 'flag' && ce->group_tag != 'ffsp' &&
+		ce->group_tag != FORGE_GROUP_AI_SPAWN)
 	{
 		/* Fault in external Xbox campaign tags or .ocetags packages on the client before object creation! */
 		def_idx = forge_resolve_engine_tag(ce->group_tag, ce->tag_path, &actual_grp);
@@ -961,6 +1028,7 @@ static void forge_client_handle_host_spawn(
 	if (matched_client_unlinked && match_idx >= 0 && match_idx < g_forge.live_instance_count)
 	{
 		g_forge.live_instances[match_idx].pad_inst &= (uint8_t)~0x80u;
+		link_ai_settings = g_forge.live_instances[match_idx].group_tag == FORGE_GROUP_AI_SPAWN;
 		if (host_live_idx >= 0 && host_live_idx < FORGE_MAX_LIVE_INSTANCES && match_idx != host_live_idx)
 		{
 			if (host_live_idx >= g_forge.live_instance_count)
@@ -985,6 +1053,8 @@ static void forge_client_handle_host_spawn(
 				match_idx = host_live_idx;
 			}
 		}
+		if (link_ai_settings)
+			forge_network_send_ai_spawn(match_idx);
 	}
 
 	/* 4. Check if already linked to obj_abs, at host_live_idx, or at the exact position */
@@ -1243,7 +1313,20 @@ int forge_network_intercept_chat_packet(long machine_index, char const *text, in
 	/* 3. Client -> Host Packets (!FS:, !FM:, !FD:, !FU:) */
 	if (is_from_client_to_host && game_connection() == _game_connection_network_server)
 	{
-		if (strncmp(text, "!FU:", 4) == 0)
+		if (strncmp(text, "!FA:", 4) == 0)
+		{
+			int32_t target_idx = -1;
+
+			if (forge_ai_spawn_packet_apply(text, &target_idx))
+			{
+				char relay[64];
+
+				if (forge_ai_spawn_packet(target_idx, relay, sizeof(relay)))
+					forge_broadcast_packet_to_clients(relay, machine_index);
+			}
+			return 1;
+		}
+		else if (strncmp(text, "!FU:", 4) == 0)
 		{
 			int live_idx = -1, usage = 0;
 			if (sscanf(text + 4, "%d:%d", &live_idx, &usage) == 2)
@@ -1369,7 +1452,14 @@ int forge_network_intercept_chat_packet(long machine_index, char const *text, in
 	/* 4. Host -> Client Packets (!FH:, !FM:, !FD:, !FU:) */
 	else if (!is_from_client_to_host && game_connection() == _game_connection_network_client)
 	{
-		if (strncmp(text, "!FU:", 4) == 0)
+		if (strncmp(text, "!FA:", 4) == 0)
+		{
+			int32_t target_idx = -1;
+
+			forge_ai_spawn_packet_apply(text, &target_idx);
+			return 1;
+		}
+		else if (strncmp(text, "!FU:", 4) == 0)
 		{
 			int live_idx = -1, usage = 0;
 			if (sscanf(text + 4, "%d:%d", &live_idx, &usage) == 2)

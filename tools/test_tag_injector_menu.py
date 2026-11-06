@@ -20,7 +20,7 @@ def test_forge_opens_the_tag_injector():
     assert "TAG INJECTOR" not in gameplay
     forge = "\n".join(port_settings.multiplayer_files()["main_menu.forge_select.port.xml"])
     assert f'open="{port_settings.TAG_INJECTOR}/tag_injector_screen"' in forge
-    assert 'text="TAG INJECTOR"' in forge
+    assert 'bitmap="main_menu/menu_tag_injector"' in forge
     for gone in ("forge_item_add_tags", "forge_item_installed_tags", "forge_add_tags", "forge_installed_tag"):
         assert gone not in forge
     # (its file is one the game embeds)

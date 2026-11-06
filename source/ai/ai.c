@@ -201,6 +201,7 @@ symbols in this file:
 #define REAL_MATH_EXTERNAL_NORMALIZE3D
 #define COLLISIONS_EXTERNAL_COLLISION_TEST_LINE
 #include "cseries.h"
+#include "opence_features.h"
 #include "cseries/errors.h"
 #include "cseries/profile.h"
 
@@ -1897,6 +1898,15 @@ boolean ai_consider_major_upgrade(
 void ai_initialize_for_new_map(
 	void)
 {
+	/* port: the encounters as a Forge map's AI spawns have them
+	(port/forge/src/forge_ai.c) */
+#if OPENCE_ENABLE_FORGE
+	{
+		extern void forge_ai_encounters_apply(void);
+
+		forge_ai_encounters_apply();
+	}
+#endif
 	csmemset(ai_globals, 0, sizeof(struct ai_globals));
 
 	ai_globals->ai_active = TRUE;

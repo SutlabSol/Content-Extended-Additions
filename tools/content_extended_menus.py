@@ -6,9 +6,9 @@ beside the PC version's (content_extended_files):
   port_settings.WIDGET_PATCHES) and Firefight's rules, a screen of five
   buttons (FIREFIGHT_PAGES), each with its own screen of rows (FIREFIGHT_ROWS:
   "mp profile init/set firefight rules", its option table's ff_ rows);
-- Firefight's menu (FIREFIGHT_MENU: SOLO, MULTIPLAYER, its variants, the Tag
-  Injector), as Forge's is;
-- Multiplayer's headers and pictures for the mode chosen (STANDARD, FIREFIGHT
+- Firefight's menu (FIREFIGHT_MENU: SOLO, MULTIPLAYER, its variants), as
+  Forge's is;
+- Multiplayer's headers for the mode chosen (STANDARD, FIREFIGHT
   or FORGE: menu_functions.c's "mp type screen update") and Forge's menus,
   whose screens port/forge (forge_hooks.c) runs: FORGE_WIDGETS, as the fork
   laid them out, with the Tag Injector in the fork's tag screens' place.
@@ -372,7 +372,7 @@ FIREFIGHT_CHOICES = {'var_ff_set_limit': ['UNLIMITED', '1 SET', '2 SETS', '3 SET
                        'STYLE MEDALS 2',
                        'MAP RECORDS'],
  'var_ff_stats_action': ['PRESS A: EXPORT', 'PRESS A: WEB URL', 'PRESS A: COPY ID']}
-# Multiplayer's mode headers and pictures, and Forge's menus: each widget's
+# Multiplayer's mode headers, and Forge's menus: each widget's
 # name, attributes and what it holds
 FORGE_WIDGETS = [('main_menu/multiplayer_type_select/header_standard',
   [('controller', '1'),
@@ -398,35 +398,6 @@ FORGE_WIDGETS = [('main_menu/multiplayer_type_select/header_standard',
    ('height', '59'),
    ('bitmap', 'main_menu/multiplayer_type_select/header_forge')],
   []),
- ('main_menu/multiplayer_type_select/gamemode/gamemode_options_pic',
-  [('controller', '1'),
-   ('left', '307'),
-   ('top', '90'),
-   ('width', '256'),
-   ('height', '250'),
-   ('bitmap', 'main_menu/multiplayer_type_select/gamemode/gamemode_options')],
-  []),
- ('main_menu/multiplayer_type_select/gamemode/gamemode_options_txt',
-  [('type', 'text'),
-   ('controller', '1'),
-   ('left', '290'),
-   ('top', '285'),
-   ('width', '290'),
-   ('height', '105'),
-   ('font', 'ui\\large_ui'),
-   ('color', '#FF2896FF')],
-  []),
- ('main_menu/multiplayer_type_select/gamemode/gamemode_ext_desc',
-  [('controller', '1'),
-   ('left', '275'),
-   ('top', '78'),
-   ('width', '320'),
-   ('height', '322'),
-   ('bitmap', 'bitmaps/list_field'),
-   ('color', '#FF0080FF')],
-  [('child', [('widget', 'main_menu/multiplayer_type_select/gamemode/gamemode_options_pic')]),
-   ('child', [('widget', 'main_menu/multiplayer_type_select/gamemode/gamemode_options_txt')]),
-   ('child', [('widget', 'main_menu/current_profile_name')])]),
  ('main_menu/multiplayer_type_select/gamemode/gamemode_button_bar',
   [('type', 'column_list'),
    ('width', '640'),
@@ -436,57 +407,33 @@ FORGE_WIDGETS = [('main_menu/multiplayer_type_select/header_standard',
    ('child', [('widget', 'common_button_back'), ('x', '510'), ('y', '1')])]),
  ('main_menu/forge_select/forge_item_single_player',
   [('type', 'text'),
-   ('left', '51'),
-   ('width', '232'),
-   ('height', '32'),
-   ('bitmap', 'bitmaps/list_item_bkd_top'),
-   ('text', 'SINGLE PLAYER'),
-   ('font', 'ui\\large_ui'),
-   ('color', '#FF2896FF'),
-   ('text_x', '13'),
-   ('text_y', '5')],
+   ('width', '320'),
+   ('height', '33'),
+   ('bitmap', 'main_menu/menu_single_player')],
   [('on', [('event', 'a'), ('open', 'main_menu/solo_level_select/solo_level_select_screen')]),
    ('on', [('event', 'start'), ('open', 'main_menu/solo_level_select/solo_level_select_screen')]),
    ('on', [('event', 'left_mouse'), ('run', 'mouse emit accept event')])]),
  ('main_menu/forge_select/forge_item_multiplayer',
   [('type', 'text'),
-   ('left', '51'),
-   ('width', '232'),
-   ('height', '32'),
-   ('bitmap', 'bitmaps/list_item_bkd'),
-   ('text', 'MULTIPLAYER'),
-   ('font', 'ui\\large_ui'),
-   ('color', '#FF2896FF'),
-   ('text_x', '13'),
-   ('text_y', '5')],
+   ('width', '256'),
+   ('height', '33'),
+   ('bitmap', 'main_menu/menu_multiplayer')],
   [('on', [('event', 'a'), ('open', 'main_menu/forge_select/forge_mp_type_select_screen')]),
    ('on', [('event', 'start'), ('open', 'main_menu/forge_select/forge_mp_type_select_screen')]),
    ('on', [('event', 'left_mouse'), ('run', 'mouse emit accept event')])]),
  ('main_menu/forge_select/forge_item_edit_maps',
   [('type', 'text'),
-   ('left', '51'),
-   ('width', '232'),
-   ('height', '32'),
-   ('bitmap', 'bitmaps/list_item_bkd'),
-   ('text', 'EDIT MAPS'),
-   ('font', 'ui\\large_ui'),
-   ('color', '#FF2896FF'),
-   ('text_x', '13'),
-   ('text_y', '5')],
+   ('width', '256'),
+   ('height', '33'),
+   ('bitmap', 'main_menu/menu_edit_maps')],
   [('on', [('event', 'a'), ('open', 'main_menu/forge_select/forge_edit_maps_screen')]),
    ('on', [('event', 'start'), ('open', 'main_menu/forge_select/forge_edit_maps_screen')]),
    ('on', [('event', 'left_mouse'), ('run', 'mouse emit accept event')])]),
  ('main_menu/forge_select/forge_item_tag_injector',
   [('type', 'text'),
-   ('left', '51'),
-   ('width', '232'),
-   ('height', '32'),
-   ('bitmap', 'bitmaps/list_item_bkd'),
-   ('text', 'TAG INJECTOR'),
-   ('font', 'ui\\large_ui'),
-   ('color', '#FF2896FF'),
-   ('text_x', '13'),
-   ('text_y', '5')],
+   ('width', '320'),
+   ('height', '33'),
+   ('bitmap', 'main_menu/menu_tag_injector')],
   [('on', [('event', 'a'), ('open', TAG_INJECTOR_SCREEN)]),
    ('on', [('event', 'start'), ('open', TAG_INJECTOR_SCREEN)]),
    ('on', [('event', 'left_mouse'), ('run', 'mouse emit accept event')])]),
@@ -494,22 +441,19 @@ FORGE_WIDGETS = [('main_menu/multiplayer_type_select/header_standard',
   [('type', 'column_list'),
    ('width', '640'),
    ('height', '480'),
-   ('flags', 'pass_unhandled_to_focused_child up_down_tabs_items'),
-   ('description', 'main_menu/multiplayer_type_select/gamemode/gamemode_ext_desc')],
-  [('data', [('input', 'gamemode menu update')]),
-   ('on', [('event', 'created'), ('run', 'gamemode menu init')]),
-   ('child', [('widget', 'main_menu/forge_select/forge_item_single_player'), ('y', '78')]),
-   ('child', [('widget', 'main_menu/forge_select/forge_item_multiplayer'), ('y', '111')]),
-   ('child', [('widget', 'main_menu/forge_select/forge_item_edit_maps'), ('y', '144')]),
-   ('child', [('widget', 'main_menu/forge_select/forge_item_tag_injector'), ('y', '177')]),
-   ('child', [('widget', 'main_menu/multiplayer_type_select/gamemode/gamemode_button_bar'), ('y', '414')])]),
+   ('flags', 'pass_unhandled_to_focused_child up_down_tabs_items')],
+  [('on', [('event', 'created'), ('run', 'gamemode menu init')]),
+   ('child', [('widget', 'main_menu/forge_select/forge_item_single_player'), ('x', '160'), ('y', '208')]),
+   ('child', [('widget', 'main_menu/forge_select/forge_item_multiplayer'), ('x', '192'), ('y', '240')]),
+   ('child', [('widget', 'main_menu/forge_select/forge_item_edit_maps'), ('x', '192'), ('y', '272')]),
+   ('child', [('widget', 'main_menu/forge_select/forge_item_tag_injector'), ('x', '160'), ('y', '304')]),
+   ('child', [('widget', 'main_menu/campaign_select/menu_item_back'), ('x', '192'), ('y', '336')])]),
  ('main_menu/forge_select/forge_menu',
-  [('width', '640'), ('height', '480'), ('flags', 'pass_unhandled_to_focused_child'), ('bitmap', 'bitmaps/gradient')],
+  [('width', '640'), ('height', '480'), ('flags', 'pass_unhandled_to_focused_child')],
   [('on', [('event', 'b'), ('back', 'true')]),
    ('on', [('event', 'back'), ('back', 'true')]),
-   ('child', [('widget', 'main_menu/multiplayer_type_select/header_forge')]),
-   ('child', [('widget', 'main_menu/forge_select/forge_menu_select_list')]),
-   ('child', [('widget', 'main_menu/blueline'), ('x', '64'), ('y', '349')])]),
+   ('child', [('widget', 'main_menu/halo_logo'), ('y', '-44')]),
+   ('child', [('widget', 'main_menu/forge_select/forge_menu_select_list')])]),
  ('main_menu/forge_select/forge_browser_button_choose',
   [('type', 'text'),
    ('width', '128'),
@@ -847,10 +791,9 @@ def firefight_editor() -> list:
     return lines
 
 
-def _menu_item(name: str, text: str, bitmap: str, events: list) -> list:
+def _menu_item(name: str, bitmap: str, width: int, events: list) -> list:
     return widget(f"{FIREFIGHT_SELECT}/{name}",
-                  [("type", "text"), ("left", 51), ("width", 232), ("height", 32), ("bitmap", bitmap), ("text", text),
-                   ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 5)],
+                  [("type", "text"), ("width", width), ("height", 33), ("bitmap", bitmap)],
                   [*events, '<on event="left_mouse" run="mouse emit accept event"/>'])
 
 
@@ -862,39 +805,32 @@ def firefight_menu() -> list:
     """PLAY's FIREFIGHT, as Forge's menu: SOLO, a LOCAL game at once (its
     name is what makes it one: menu_functions.c's multiplayer_mode_set, as
     port_settings.py's _create_local), MULTIPLAYER, Multiplayer's screen and
-    browser for Firefight's games, FIREFIGHT VARIANTS, the gametype editor
-    for its variants alone, and the Tag Injector for their profiles"""
+    browser for Firefight's games, and FIREFIGHT VARIANTS, the gametype
+    editor for its variants alone"""
     solo = [line for event in ("a", "start") for line in
             (f'<on event="{event}" run="join controller to mp game"/>',
              f'<on event="{event}" run="mp type set mode" open="{LOCAL_MAP_SCREEN}"/>')]
-    lines = _menu_item("firefight_item_create_local", "SOLO", "bitmaps/list_item_bkd_top", solo)
-    lines += _menu_item("firefight_item_multiplayer", "MULTIPLAYER", "bitmaps/list_item_bkd", _opens(MULTIPLAYER_SCREEN))
-    lines += _menu_item("firefight_item_variants", "FIREFIGHT VARIANTS", "bitmaps/list_item_bkd", _opens(VARIANTS_SCREEN))
-    lines += _menu_item("firefight_item_tag_injector", "TAG INJECTOR", "bitmaps/list_item_bkd",
-                        _opens(TAG_INJECTOR_SCREEN))
-    items = ["firefight_item_create_local", "firefight_item_multiplayer", "firefight_item_variants",
-             "firefight_item_tag_injector"]
+    lines = _menu_item("firefight_item_create_local", "main_menu/menu_solo", 256, solo)
+    lines += _menu_item("firefight_item_multiplayer", "main_menu/menu_multiplayer", 256, _opens(MULTIPLAYER_SCREEN))
+    lines += _menu_item("firefight_item_variants", "main_menu/menu_firefight_variants", 384, _opens(VARIANTS_SCREEN))
+    # (each centred, as Campaign's rows are: its places)
+    items = [("firefight_item_create_local", 192), ("firefight_item_multiplayer", 192), ("firefight_item_variants", 128)]
     lines += widget(f"{FIREFIGHT_SELECT}/firefight_menu_select_list",
                     [("type", "column_list"), ("width", 640), ("height", 480),
-                     ("flags", "pass_unhandled_to_focused_child up_down_tabs_items"),
-                     ("description", "main_menu/multiplayer_type_select/gamemode/gamemode_ext_desc")],
-                    ['<data input="gamemode menu update"/>',
-                     *[f'<child widget="{FIREFIGHT_SELECT}/{item}" y="{78 + 33 * index}"/>'
-                       for index, item in enumerate(items)],
-                     '<child widget="main_menu/multiplayer_type_select/gamemode/gamemode_button_bar" y="414"/>'])
+                     ("flags", "pass_unhandled_to_focused_child up_down_tabs_items")],
+                    [*[f'<child widget="{FIREFIGHT_SELECT}/{item}" x="{x}" y="{283 + 36 * index}"/>'
+                       for index, (item, x) in enumerate(items)],
+                     '<child widget="main_menu/campaign_select/menu_item_back" x="192" y="391"/>'])
     lines += widget(f"{FIREFIGHT_SELECT}/firefight_menu",
-                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
-                     ("bitmap", "bitmaps/gradient")],
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child")],
                     ['<on event="created" run="mp type menu initialize"/>', '<on event="b" back="true"/>',
-                     '<on event="back" back="true"/>',
-                     '<child widget="main_menu/multiplayer_type_select/header_firefight"/>',
-                     f'<child widget="{FIREFIGHT_SELECT}/firefight_menu_select_list"/>',
-                     '<child widget="main_menu/blueline" x="64" y="349"/>'])
+                     '<on event="back" back="true"/>', '<child widget="main_menu/halo_logo" y="28"/>',
+                     f'<child widget="{FIREFIGHT_SELECT}/firefight_menu_select_list"/>'])
     return lines
 
 
 def forge_menus() -> list:
-    """Multiplayer's mode headers and pictures, and Forge's menus
+    """Multiplayer's mode headers, and Forge's menus
     (FORGE_WIDGETS), then Firefight's"""
     lines = []
     for name, pairs, inner in FORGE_WIDGETS:

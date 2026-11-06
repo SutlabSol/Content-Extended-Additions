@@ -661,6 +661,9 @@ int forge_catalog_entry_allowed(struct forge_catalog_entry const *entry)
 {
 	if (!entry)
 		return 0;
+	/* (the Actors tab decides its own, a Tag Injector actor's among them) */
+	if (entry->category == _forge_cat_ai_squads)
+		return forge_ai_palette_entry_allowed(entry);
 	if (entry->source_cache_id == 2)
 		return 1;
 	/* Allow map-local tags (source_cache_id == 0) populated by forge_SyncScenarioTagsWithLoadedMap() */
@@ -669,7 +672,8 @@ int forge_catalog_entry_allowed(struct forge_catalog_entry const *entry)
 		if (entry->group_tag == 'scen' || entry->group_tag == 'vehi' ||
 		    entry->group_tag == 'weap' || entry->group_tag == 'eqip' ||
 		    entry->group_tag == 'garb' || entry->group_tag == 'mach' ||
-		    entry->group_tag == 'ctrl' || entry->group_tag == 'lifi')
+		    entry->group_tag == 'ctrl' || entry->group_tag == 'lifi' ||
+		    entry->group_tag == FORGE_GROUP_AI_SPAWN)
 		{
 			return 1;
 		}
@@ -886,7 +890,7 @@ static void scan_cached_tags_manifest(char const *manifest_path)
 					cat_id = _forge_cat_scenery;
 				else if (grp == 'bipd')
 					cat_id = _forge_cat_bipeds;
-				else if (grp == 'actv')
+				else if (grp == 'actv' || grp == FORGE_GROUP_AI_SPAWN)
 					cat_id = _forge_cat_ai_squads;
 				else
 					continue;
@@ -933,6 +937,8 @@ with the map it is first in. Reading every map's tags takes a while, so what
 is found is kept in PALETTE_FILE, whose first line is the pack's content */
 #define FORGE_PACK_PALETTE_FILE "Faber_data/cached_tags/pack_palette.txt"
 
+extern int forge_campaign_actor_wanted(char const *name);
+
 static void forge_pack_palette_add(struct tag_import_donor *donor, char const *map, FILE *out)
 {
 	long count = tag_import_tag_count(donor);
@@ -947,6 +953,13 @@ static void forge_pack_palette_add(struct tag_import_donor *donor, char const *m
 
 		if (!tname || !tname[0] || is_excluded_scenery_or_effect_tag(tname))
 			continue;
+		/* (an actor is no object, and places as a spawn: forge_ai.c) */
+		if (grp == 'actv')
+		{
+			if (forge_campaign_actor_wanted(tname))
+				fprintf(out, "aisp|%d|0|%s|%s\n", (int)_forge_cat_ai_squads, tname, map);
+			continue;
+		}
 		if (grp == 'weap')
 		{
 			if (!is_excluded_weapon_or_equipment_tag(tname))
@@ -3139,8 +3152,9 @@ static long load_native_xbox_tag_runtime(
 		return NONE;
 	for (i = 0; i < g_forge.catalog_count; i++)
 	{
-		if (g_forge.catalog[i].group_tag == req_group && g_forge.catalog[i].pad &&
-			_stricmp(g_forge.catalog[i].tag_path, req_path) == 0)
+		if ((g_forge.catalog[i].group_tag == req_group ||
+			 (req_group == 'actv' && g_forge.catalog[i].group_tag == FORGE_GROUP_AI_SPAWN)) &&
+			g_forge.catalog[i].pad && _stricmp(g_forge.catalog[i].tag_path, req_path) == 0)
 		{
 			known = (int)g_forge.catalog[i].pad - 1;
 			break;
@@ -5271,6 +5285,7 @@ int forge_ui_save_copy_as(char const *new_map_name)
 	CreateDirectoryA("custom_maps", NULL);
 #endif
 
+	forge_ai_saved_tags_collect();
 	ok = forge_export_scenario_map(
 		base_map_path,
 		&g_forge.edit_state,
@@ -5279,6 +5294,8 @@ int forge_ui_save_copy_as(char const *new_map_name)
 	if (ok)
 	{
 		extern void custom_edition_maps_look_again(void);
+		platform_log("Forge: saved %s with %d campaign tags for its AI, %d AI spawns", clean_name,
+			(int)g_forge.edit_state.ai_actor_count, (int)g_forge.edit_state.ai_spawn_count);
 		custom_edition_maps_look_again();
 		snprintf(g_forge.save_map_name, sizeof(g_forge.save_map_name), "%s", clean_name);
 		g_forge.save_map_name_len = (int)strlen(g_forge.save_map_name);
@@ -5508,17 +5525,6 @@ static void parse_forge_state_text_buffer(char const *text_buf, char const *leaf
 				}
 			}
 		}
-		else if (in_forge_state && strncmp(line, "AI|", 3) == 0)
-		{
-			float x = 0, y = 0, z = 0, yaw = 0;
-			int team = 0;
-			char tpath[256];
-			tpath[0] = 0;
-			if (sscanf(line + 3, "%f|%f|%f|%f|%d|%255[^\r\n]", &x, &y, &z, &yaw, &team, tpath) == 6 && tpath[0])
-			{
-				forge_3d_spawn_object_at('actv', tpath, 0, x, y, z, yaw, 0.0f, 0.0f, (int16_t)team, 0);
-			}
-		}
 		else if (in_forge_state && strncmp(line, "FF_SPAWN|", 9) == 0)
 		{
 			float x = 0, y = 0, z = 0, yaw = 0;
@@ -5739,7 +5745,7 @@ int forge_baked_archive_make(
 {
 	long baked = tag_injector_level_baked_profile();
 	long playing = tag_injector_level_profile();
-	int capacity = edits ? edits->placed_object_count + edits->ai_spawn_count : 0;
+	int capacity = edits ? edits->placed_object_count + edits->ai_spawn_count * 2 : 0;
 	long *profiles;
 	long *tags;
 	int count = 0;
@@ -5760,8 +5766,12 @@ int forge_baked_archive_make(
 	for (i = 0; i < capacity; i++)
 	{
 		int is_ai = i >= edits->placed_object_count;
-		uint32_t group = is_ai ? 'actv' : edits->placed_objects[i].group_tag;
-		char const *name = is_ai ? edits->ai_spawns[i - edits->placed_object_count].actor_variant_path :
+		/* (an AI spawn's actor, then its weapon) */
+		int ai_index = (i - edits->placed_object_count) / 2;
+		int is_ai_weapon = is_ai && ((i - edits->placed_object_count) & 1);
+		uint32_t group = is_ai_weapon ? 'weap' : is_ai ? 'actv' : edits->placed_objects[i].group_tag;
+		char const *name = is_ai_weapon ? edits->ai_spawns[ai_index].weapon_path :
+			is_ai ? edits->ai_spawns[ai_index].actor_variant_path :
 			edits->placed_objects[i].tag_path;
 		long profile = baked;
 		long tag = NONE;
@@ -5835,6 +5845,7 @@ static void forge_saved_markers_apply(char const *text)
 	int replace_flags = strstr(text, "NETGAME_FLAGS_SAVED\r\n") != NULL;
 	char const *cur = text;
 
+	forge_ai_saved_parse(text);
 	if (!replace_spawns && !replace_flags)
 		return;
 	spawns = (struct forge_player_spawn_entry *)calloc(FORGE_MAX_PLAYER_SPAWNS, sizeof(*spawns));
@@ -5895,10 +5906,40 @@ static void forge_saved_markers_apply(char const *text)
 	free(flags);
 }
 
+/* the map of Forge's pack a tag is read from, as its palette has it */
+int forge_campaign_tag_map(uint32_t group_tag, char const *path, char *map, size_t map_size)
+{
+	long pack = port_tag_packs_find(FORGE_PACK);
+	uint32_t palette_group = group_tag == 'actv' ? FORGE_GROUP_AI_SPAWN : group_tag;
+	int i;
+
+	for (i = 0; pack >= 0 && i < g_forge.catalog_count; i++)
+	{
+		struct forge_catalog_entry const *entry = &g_forge.catalog[i];
+
+		if (entry->group_tag == palette_group && entry->pad && !_stricmp(entry->tag_path, path))
+		{
+			snprintf(map, map_size, "%s", port_tag_packs_map(pack, (long)entry->pad - 1));
+			return 1;
+		}
+	}
+	return 0;
+}
+
+/* the level loading is a multiplayer map's (the game's global scenario is not
+set yet) */
+int forge_level_loading_multiplayer(void)
+{
+	struct scenario *scen = forge_loading_scenario();
+
+	return scen && scen->type == _scenario_type_multiplayer;
+}
+
 static void forge_SyncScenarioTagsWithLoadedMap(void)
 {
 	int r, w = 0;
 	long total = 0, i;
+	int ai_map = forge_ai_map_editable();
 	struct forge_cache_file_tag_instance *instances;
 
 	/* 1. Strip any transient map-local entries (source_cache_id == 0) from previous map loads */
@@ -5953,6 +5994,14 @@ static void forge_SyncScenarioTagsWithLoadedMap(void)
 		{
 			cat_id = _forge_cat_lights;
 		}
+		else if (grp == 'actv')
+		{
+			/* (placed as a spawn: a vehicle's gunner is not one to place) */
+			if (!ai_map || !strncmp(tpath, "vehicles\\", 9))
+				continue;
+			grp = FORGE_GROUP_AI_SPAWN;
+			cat_id = _forge_cat_ai_squads;
+		}
 		else if (grp == 'mach' || grp == 'ctrl')
 		{
 			cat_id = is_forge_light_beacon_emitter_tag(grp, tpath)
@@ -5983,7 +6032,7 @@ static void forge_SyncScenarioTagsWithLoadedMap(void)
 		}
 		if (!exists && g_forge.catalog_count < FORGE_MAX_CATALOG_ENTRIES)
 		{
-			add_catalog_entry(grp, cat_id, 0, tpath, "[MAP]");
+			add_catalog_entry(grp, cat_id, 0, tpath, grp == FORGE_GROUP_AI_SPAWN ? "" : "[MAP]");
 		}
 	}
 }
@@ -7056,6 +7105,14 @@ static int resolve_marker_kind_and_color(
 	int *out_mesh_kind,
 	int *out_color_preset)
 {
+	if (group_tag == FORGE_GROUP_AI_SPAWN)
+	{
+		*out_mesh_kind = _marker_mesh_firefight_spawn;
+		*out_color_preset = team_designator == 1 || team_designator == 2 ? _marker_color_tele_green :
+			team_designator == 3 ? _marker_color_red_team :
+			team_designator == 4 ? _marker_color_race_orange : _marker_color_koth_gold;
+		return 1;
+	}
 	if (group_tag == 'ffsp' ||
 		netgame_flag_type == FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN ||
 		(tag_path && _stricmp(tag_path, "spawn\\firefight_spawn") == 0))
@@ -7275,7 +7332,8 @@ static void render_world_objective_and_spawn_markers(void)
 
 		if (!inst->active)
 			continue;
-		if (inst->group_tag != 'spwn' && inst->group_tag != 'tele' && inst->group_tag != 'flag' && inst->group_tag != 'ffsp')
+		if (inst->group_tag != 'spwn' && inst->group_tag != 'tele' && inst->group_tag != 'flag' && inst->group_tag != 'ffsp' &&
+			inst->group_tag != FORGE_GROUP_AI_SPAWN)
 			continue;
 		if (!resolve_marker_kind_and_color(
 				inst->group_tag,
@@ -7426,6 +7484,7 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 	float dist, angle;
 	int marker_kind = -1, marker_color = 0;
 	uint32_t actual_grp = 0;
+	uint32_t load_group;
 	long obj_def_idx;
 
 	if (g_forge.active_modal != _forge_modal_spawn_palette || g_forge.h3_menu_stage != 1)
@@ -7449,8 +7508,12 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 
 	entry = &g_forge.catalog[chosen_idx];
 
+	/* An actor shows as the unit it is, read as any other palette tag is */
+	load_group = entry->group_tag == FORGE_GROUP_AI_SPAWN ? 'actv' : entry->group_tag;
+
 	/* Check if this catalog entry is one of our 3D Translucent Spawn/Teleporter/Objective Markers! */
-	if (resolve_marker_kind_and_color(entry->group_tag, entry->tag_path, -1, -1, &marker_kind, &marker_color))
+	if (load_group != 'actv' &&
+		resolve_marker_kind_and_color(entry->group_tag, entry->tag_path, -1, -1, &marker_kind, &marker_color))
 	{
 		ensure_objective_marker_meshes_loaded();
 		if (marker_kind >= 0 && marker_kind < NUMBER_OF_MARKER_MESH_KINDS &&
@@ -7495,23 +7558,23 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 
 		for (di = 0; di < s_dyn_tags.count; di++)
 		{
-			if (s_dyn_tags.entries[di].group_tag == entry->group_tag &&
+			if (s_dyn_tags.entries[di].group_tag == load_group &&
 				_stricmp(s_dyn_tags.entries[di].tag_path, entry->tag_path) == 0)
 			{
 				already_in_ram = 1;
 				break;
 			}
 		}
-		if (!already_in_ram && find_native_or_mp_variant_tag(entry->group_tag, entry->tag_path) != NONE)
+		if (!already_in_ram && find_native_or_mp_variant_tag(load_group, entry->tag_path) != NONE)
 			already_in_ram = 1;
 
 		if (!already_in_ram)
 		{
 			unsigned long now_ms = system_milliseconds();
-			if (s_preview_debounce_group != entry->group_tag ||
+			if (s_preview_debounce_group != load_group ||
 				_stricmp(s_preview_debounce_path, entry->tag_path) != 0)
 			{
-				s_preview_debounce_group = entry->group_tag;
+				s_preview_debounce_group = load_group;
 				snprintf(s_preview_debounce_path, sizeof(s_preview_debounce_path), "%s", entry->tag_path);
 				s_preview_debounce_ms = now_ms;
 				return;
@@ -7521,7 +7584,8 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 		}
 	}
 
-	obj_def_idx = forge_resolve_engine_tag(entry->group_tag, entry->tag_path, &actual_grp);
+	obj_def_idx = load_group == 'actv' ? forge_ai_actor_unit_definition(entry->tag_path) :
+		forge_resolve_engine_tag(entry->group_tag, entry->tag_path, &actual_grp);
 	if (obj_def_idx == NONE)
 		return;
 

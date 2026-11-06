@@ -474,11 +474,78 @@ void forge_render_world_3d_overlays(void const *lighting);
 
 /* ---------- Prototypes: forge_ai.c */
 
+/* an AI spawn's marker: a live instance whose edit_entry_index is its
+edit_state.ai_spawns entry, and tag_path its actor variant */
+#define FORGE_GROUP_AI_SPAWN 'aisp'
+/* the rows of an AI spawn's properties: its own, then the panel's */
+enum forge_ai_spawn_row
+{
+	_forge_ai_row_variant = 0,
+	_forge_ai_row_weapon,
+	_forge_ai_row_team,
+	_forge_ai_row_start_count,
+	_forge_ai_row_respawn_alive,
+	_forge_ai_row_respawn_delay,
+	_forge_ai_row_respawn_total,
+	_forge_ai_row_game_mode,
+	NUMBER_OF_FORGE_AI_SETTING_ROWS,
+	_forge_ai_row_rot_snap = NUMBER_OF_FORGE_AI_SETTING_ROWS,
+	_forge_ai_row_floor,
+	_forge_ai_row_delete,
+	NUMBER_OF_FORGE_AI_ROWS
+};
+
 int32_t forge_ai_spawn_unit_live(
 	char const *actor_variant_path,
 	float x, float y, float z, float yaw,
 	int16_t team_designator,
 	int32_t *out_unit_index);
+/* AI is a multiplayer map's alone: never a campaign level's, or any solo map's */
+int forge_ai_map_editable(void);
+/* a multiplayer map with encounters of its own */
+int forge_ai_map_supported(void);
+int forge_ai_palette_entry_allowed(struct forge_catalog_entry const *entry);
+/* the campaign tags a save names: the spawns' */
+void forge_ai_saved_tags_collect(void);
+/* which campaign map has a tag (forge_runtime_tags.c); 0: none does */
+int forge_campaign_tag_map(uint32_t group_tag, char const *path, char *map, size_t map_size);
+/* the tags a saved map brings in, read as its tags load */
+int forge_ai_saved_actor_count(void);
+unsigned long forge_ai_saved_actor_group(int index);
+void forge_ai_saved_clear(void);
+char const *forge_ai_saved_actor_path(int index);
+char const *forge_ai_saved_actor_map(int index);
+void forge_ai_saved_parse(char const *text);
+void forge_ai_markers_scan(void);
+int forge_ai_spawn_entry_new(int32_t live_idx, char const *variant_path, float x, float y, float z, float yaw, int16_t team);
+void forge_ai_spawn_moved(struct forge_live_instance const *inst);
+void forge_ai_spawn_deleted(struct forge_live_instance const *inst);
+void forge_ai_spawn_copy_settings(int source_entry, int32_t live_idx);
+void forge_ai_spawn_row_text(int32_t live_idx, int row, char *label, size_t label_size, char *value, size_t value_size);
+void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir);
+void forge_ai_spawn_label(struct forge_live_instance const *inst, char *text, size_t text_size);
+void forge_ai_spawn_net_apply(
+	int32_t live_idx,
+	uint32_t variant_hash,
+	uint32_t weapon_hash,
+	int team,
+	int unit_count,
+	int respawn_alive,
+	int respawn_delay_seconds,
+	int respawn_total,
+	unsigned int gametype_flags,
+	int detached);
+void forge_ai_spawn_net_settings(
+	int32_t live_idx,
+	uint32_t *variant_hash,
+	uint32_t *weapon_hash,
+	struct forge_ai_spawn_entry const **settings);
+/* entering Forge mode stops the AI and shows it as models on its markers,
+leaving it plays the AI from them (the host's: it runs the AI) */
+void forge_ai_forge_mode_changed(int forge_mode);
+void forge_ai_preview_update(int32_t live_idx);
+/* the unit an actor is, to draw; NONE when the level has not got it */
+long forge_ai_actor_unit_definition(char const *path);
 
 /* ---------- Prototypes: forge_3d_mode.c */
 
@@ -546,6 +613,7 @@ void forge_network_send_transform_ext(
 	int immediate);
 void forge_network_send_delete_ext(int32_t live_idx, long obj_idx);
 void forge_network_send_marker_usage(int32_t live_idx, int16_t usage);
+void forge_network_send_ai_spawn(int32_t live_idx);
 int forge_network_intercept_chat_packet(long machine_index, char const *text, int is_from_client_to_host);
 void forge_network_pre_handle_object_changes(void const *entries, short count);
 void forge_network_post_handle_object_changes(void const *entries, short count);

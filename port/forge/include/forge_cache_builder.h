@@ -24,7 +24,8 @@ extern "C" {
 #define FORGE_MAX_PLAYER_SPAWNS 512
 #define FORGE_MAX_NETGAME_FLAGS 512
 #define FORGE_MAX_NETGAME_EQUIPMENT 200
-#define FORGE_MAX_AI_SPAWNS 128
+#define FORGE_MAX_AI_SPAWNS 256
+#define FORGE_MAX_AI_ACTORS 64
 #define FORGE_MAX_DEFAULT_OBJECT_EDITS 256
 #define FORGE_TAG_PATH_MAX 256
 
@@ -113,14 +114,36 @@ struct forge_netgame_equipment_entry
 	char item_collection_path[FORGE_TAG_PATH_MAX]; /* 'itmc' tag path */
 };
 
+/* an AI spawn, a Forge marker: the map's own starting location of a squad
+(encounter_index on), or one of its own, whose squad the level makes for it
+(forge_ai_encounters_apply). The map's own takes its squad's numbers until one
+is changed: then it is `detached`, and has its own squad too */
 struct forge_ai_spawn_entry
 {
 	char actor_variant_path[FORGE_TAG_PATH_MAX]; /* 'actv' tag path */
+	char weapon_path[FORGE_TAG_PATH_MAX]; /* 'weap' tag path, empty for the AI's own */
 	float x, y, z;
 	float yaw;
-	int16_t team_designator; /* enum forge_ai_team_designator (0=Friendly, 1=Enemy Covenant, 2=Enemy Flood, etc.) */
-	int16_t unit_count; /* Number of units in this squad marker (1..8) */
-	int16_t respawn_time_ticks; /* 0 = no respawn, >0 = respawn delay */
+	int16_t team; /* the game's team (_game_team_*), 0: the unit's own */
+	int16_t unit_count; /* placed when the game starts */
+	int16_t respawn_alive; /* kept alive by respawning, 0: no respawning */
+	int16_t respawn_delay_seconds;
+	int16_t respawn_total; /* 0: endless */
+	uint16_t gametype_flags; /* 0 = All Modes, bit0=CTF, bit1=Slayer, bit2=Oddball, bit3=KOTH, bit4=Race, bit5=Firefight */
+	int16_t encounter_index; /* the map's own starting location, or -1 */
+	int16_t squad_index;
+	int16_t location_index;
+	uint8_t detached;
+	uint8_t active;
+};
+
+/* a campaign tag a saved map's spawns use: copied into the level as it loads,
+on every machine, from the map named (randomizer.c) */
+struct forge_ai_actor_entry
+{
+	uint32_t group_tag; /* 'actv' or 'weap' */
+	char path[FORGE_TAG_PATH_MAX];
+	char map[32]; /* the campaign map it is copied from */
 };
 
 struct forge_scenario_edit_state
@@ -131,7 +154,8 @@ struct forge_scenario_edit_state
 	int replace_netgame_flags;
 	int replace_netgame_equipment;
 	int replace_placed_objects;
-	int replace_ai_spawns;
+	int replace_ai_spawns; /* the map's own squads are in ai_spawns: one left out is gone */
+	int ai_spawns_edited; /* (nothing is saved of a map's AI that was not touched) */
 
 	int32_t player_spawn_count;
 	struct forge_player_spawn_entry player_spawns[FORGE_MAX_PLAYER_SPAWNS];
@@ -147,6 +171,9 @@ struct forge_scenario_edit_state
 
 	int32_t ai_spawn_count;
 	struct forge_ai_spawn_entry ai_spawns[FORGE_MAX_AI_SPAWNS];
+
+	int32_t ai_actor_count;
+	struct forge_ai_actor_entry ai_actors[FORGE_MAX_AI_ACTORS];
 
 	int32_t default_edit_count;
 	struct forge_default_object_edit default_edits[FORGE_MAX_DEFAULT_OBJECT_EDITS];

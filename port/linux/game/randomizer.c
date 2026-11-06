@@ -1744,14 +1744,131 @@ static int vault_profile_has_enabled_tags(long profile)
 
 /* a Forge level's tags: the map's bake (tag_injector_tags_baked_set, which
 the injector reads first) and the profile, either of which may be none */
+extern int forge_ai_saved_actor_count(void);
+extern void forge_ai_saved_clear(void);
+
+/* a Forge map's AI's tags come from Forge's own pack, else (a player who has
+never opened Forge's menu) the randomizer's: the same maps' same tags */
+#define FORGE_TAG_PACK "watanoge_forge"
+
+static struct tag_import_donor *forge_actors_donor(char const *map)
+{
+	struct tag_import_donor *donor = tag_import_open(FORGE_TAG_PACK, map);
+
+	if (!donor)
+		donor = tag_import_open(RANDOMIZER_PACK, map);
+	if (!donor)
+		platform_log("Forge: %s's actors cannot be read: is Forge's pack written?", map);
+	return donor;
+}
+
+/* an actor Forge's palette offers: of the kinds the randomizer knows */
+int forge_campaign_actor_wanted(char const *name)
+{
+	return name && classify(name) != TYPE_NONE;
+}
+
+/* a Forge game played online has every actor and hand weapon, in the level's
+one import (tag_import.h), the same on every machine: the units its encounters
+make must be the same tags on the host and its clients, which Forge's reading
+one tag as it is placed cannot promise. About 6,000 tags and 17 MB at the very
+most, of IMPORT_MAX and COPY_BUDGET */
+static void gather_forge_session_tags(void)
+{
+	long copied = 0;
+	int level;
+
+	for (level = 0; level < 10; level++)
+	{
+		char const *leaf = tag_name_strip_path(main_get_solo_level_name((short)level));
+		struct tag_import_donor *donor = forge_actors_donor(leaf);
+		long tag;
+
+		if (!donor)
+			continue;
+		for (tag = 0; tag < tag_import_tag_count(donor); tag++)
+		{
+			long group = tag_import_tag_group(donor, tag);
+			char const *name = tag_import_tag_name(donor, tag);
+
+			if (name && tag_loaded(group, name) == NONE &&
+				((group == ACTOR_VARIANT_DEFINITION_TAG && forge_campaign_actor_wanted(name)) ||
+				 (group == WEAPON_DEFINITION_TAG && !_strnicmp(name, "weapons\\", 8))))
+			{
+				copied += tag_import_want(donor, tag);
+			}
+		}
+		tag_import_release(donor);
+	}
+	platform_log("Forge: the actors and weapons of this online game: %ld roots", copied);
+}
+
+/* the tags a saved Forge map's spawns use, gathered into the level's import
+(a level has only the one: tag_import.h), on every machine the same: its
+encounters' units are then the same tags on a host and its clients */
+static void gather_forge_actors(void)
+{
+	extern char const *forge_ai_saved_actor_path(int index);
+	extern char const *forge_ai_saved_actor_map(int index);
+	extern unsigned long forge_ai_saved_actor_group(int index);
+	int count = forge_ai_saved_actor_count();
+	int first;
+
+	for (first = 0; first < count; first++)
+	{
+		char const *map = forge_ai_saved_actor_map(first);
+		struct tag_import_donor *donor;
+		int other;
+
+		/* (each map once, with all its tags) */
+		for (other = 0; other < first && _stricmp(forge_ai_saved_actor_map(other), map); other++)
+		{
+		}
+		if (other < first)
+			continue;
+		donor = forge_actors_donor(map);
+		if (!donor)
+			continue;
+		for (other = first; other < count; other++)
+		{
+			char const *path = forge_ai_saved_actor_path(other);
+			long group = (long)forge_ai_saved_actor_group(other);
+			long tag;
+
+			if (_stricmp(forge_ai_saved_actor_map(other), map) || tag_loaded(group, path) != NONE)
+				continue;
+			for (tag = 0; tag < tag_import_tag_count(donor); tag++)
+			{
+				char const *name = tag_import_tag_name(donor, tag);
+
+				if (tag_import_tag_group(donor, tag) == group && name && !_stricmp(name, path))
+				{
+					platform_log("Forge: copying %s from %s: %d", path, map, tag_import_want(donor, tag));
+					break;
+				}
+			}
+			if (tag == tag_import_tag_count(donor))
+				platform_log("Forge: %s has no %s", map, path);
+		}
+		tag_import_release(donor);
+	}
+}
+
+/* (set as the level's tags are chosen: forge_level_tags) */
+static int forge_session_import;
+
 static void forge_vault_tags_loaded(char const *scenario_name, long profile)
 {
 	custom_profile = profile;
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", tag_name_strip_path(scenario_name));
 	stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
-	if (stock_hud_count && tag_import_begin())
+	if ((stock_hud_count || forge_session_import || forge_ai_saved_actor_count() > 0) && tag_import_begin())
 	{
 		gather_stock_huds(map_name_leaf);
+		if (forge_session_import)
+			gather_forge_session_tags();
+		else
+			gather_forge_actors();
 		tag_import_run();
 		tag_import_end();
 	}
@@ -1782,11 +1899,28 @@ static int forge_level_tags(char const *scenario_name, int firefight, long *forg
 	long baked;
 	long profile = NONE;
 
+	/* (a client that joined a Forge game is told so a moment later: as
+	menu_tags_loaded tells, for the same tags as its host) */
+	{
+		extern int forge_level_loading_multiplayer(void);
+		extern int forge_level_is_session(void);
+
+		forge_session_import = forge_level_is_session() && !firefight && network_game_get_game() &&
+			forge_level_loading_multiplayer();
+	}
+	if (g_forge_session_enabled || saved)
+		platform_log("Forge: level %s, saved map: %d, all actors: %d", scenario_name ? scenario_name : "?", saved,
+			forge_session_import);
 	*forge_profile = NONE;
 	*forge_baked = NONE;
-	if (!g_forge_session_enabled && !saved)
+	/* (the last level's actors are not this one's) */
+	if (!saved)
+		forge_ai_saved_clear();
+	if (!g_forge_session_enabled && !saved && !forge_session_import)
 		return 0;
 	baked = saved ? forge_level_baked_open(scenario_name) : NONE;
+	if (saved)
+		platform_log("Forge: %d actors to copy in", forge_ai_saved_actor_count());
 	if (network_game_get_game())
 		profile = tag_multiplayer_forge_level_profile(scenario_name);
 	else if (g_forge_session_enabled && forge_tag_profile_folder()[0])
@@ -1803,7 +1937,7 @@ static int forge_level_tags(char const *scenario_name, int firefight, long *forg
 		*forge_baked = baked;
 		return 0;
 	}
-	if (profile != NONE || baked != NONE)
+	if (profile != NONE || baked != NONE || forge_session_import || (saved && forge_ai_saved_actor_count() > 0))
 		forge_vault_tags_loaded(scenario_name, profile);
 	return 1;
 }
@@ -2273,6 +2407,9 @@ void randomizer_tags_loaded(char const *scenario_name)
 	{
 		if (firefight)
 			gather_firefight(leaf);
+#if OPENCE_ENABLE_FORGE
+		gather_forge_actors();
+#endif
 		if (randomize)
 			gather_campaign(leaf);
 		skulls_tag_import(skull, outbreak, scarab);
@@ -2922,13 +3059,24 @@ static struct
 
 /* units.c's: the nth label to try a weapon's animations under in place of
 its own, or NULL. Only actors' units (not a player's), in a level the
-randomizer swaps the actors' weapons in with game.randomizer_crazy_weapons */
+randomizer swaps the actors' weapons in with game.randomizer_crazy_weapons,
+or Forge's AI spawns arm: after the table, those fall back on the animations
+of the weapon their actor carries, so any AI can hold any weapon */
 char const *randomizer_borrowed_weapon_label(long unit_index, char const *label, int nth)
 {
 	struct unit_datum *unit;
 	int index;
+	int forge = 0;
+	int table_count = 0;
 
-	if (!loaded || !current.any_weapon || !current.weapons || !label || nth < 0 || nth >= 3)
+#if OPENCE_ENABLE_FORGE
+	{
+		extern int forge_ai_weapons_borrowed(void);
+
+		forge = forge_ai_weapons_borrowed();
+	}
+#endif
+	if ((!forge && (!loaded || !current.any_weapon || !current.weapons)) || !label || nth < 0)
 		return NULL;
 	unit = unit_try_and_get(unit_index);
 	if (!unit || unit->unit.player_index != NONE)
@@ -2936,8 +3084,21 @@ char const *randomizer_borrowed_weapon_label(long unit_index, char const *label,
 	for (index = 0; index < (int)NUMBEROF(borrowed_labels); index++)
 	{
 		if (!_stricmp(label, borrowed_labels[index].label))
-			return borrowed_labels[index].borrowed[nth];
+		{
+			if (nth < 3)
+				return borrowed_labels[index].borrowed[nth];
+			table_count = 3;
+			break;
+		}
 	}
+#if OPENCE_ENABLE_FORGE
+	if (forge && nth == table_count)
+	{
+		extern char const *forge_ai_unit_own_weapon_label(long unit_index);
+
+		return forge_ai_unit_own_weapon_label(unit_index);
+	}
+#endif
 
 	return NULL;
 }

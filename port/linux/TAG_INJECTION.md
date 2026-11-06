@@ -44,6 +44,10 @@ Forge (`port/forge/src/forge_runtime_tags.c`) reads its pack differently: it
 copies nothing as the level loads, as a level has room for only so much of a
 palette (8192 tags, 64 MB), and instead reads one tag as it is placed, through
 `tag_import_pack_open`, a reader with a pack of its own that no level closes.
+Its actors are the exception that proves it: a unit an encounter makes must be
+the same tag on a host and its clients, so a saved map's actors, and every actor
+in a Forge game played online, are copied in as the level loads, from this same
+pack (`randomizer.c`'s `gather_forge_actors`, `gather_forge_session_tags`).
 
 ## Making a pack
 

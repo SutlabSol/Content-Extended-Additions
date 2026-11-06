@@ -29,7 +29,7 @@ def test_the_menus_are_as_the_generators_write_them():
 
 def test_forge_lists_the_tag_injector_and_has_no_tag_options():
     menu = forge_menu()
-    rows = re.findall(r'forge_select/(forge_item_[a-z_]+)" y="(\d+)"', menu)
+    rows = re.findall(r'forge_select/(forge_item_[a-z_]+)" x="\d+" y="(\d+)"', menu)
     assert [name for name, _ in rows] == ["forge_item_single_player", "forge_item_multiplayer",
                                           "forge_item_edit_maps", "forge_item_tag_injector"]
     hooks = HOOKS.read_text()
@@ -221,3 +221,70 @@ def test_vehicle_drivers_ride_as_their_tag_says():
     assert '_stricmp(seat->label, "stand") != 0' in spawner
     assert "object_set_visibility(driver_unit, FALSE);" in spawner
     assert spawner.count("vehicle_seat_driver(driver_unit, vehicle_index, seat0);") == 2
+
+
+def test_ai_spawns_rebuild_the_encounters_and_are_saved_and_shared():
+    """A map's AI as markers: the level's encounters rebuilt from them as the AI
+    starts, a weapon given as a unit is placed, on every base map's trailer."""
+    ai = (ROOT / "source/ai/ai.c").read_text(encoding="latin-1")
+    actors = (ROOT / "source/ai/actors.c").read_text(encoding="latin-1")
+    forge_ai = (ROOT / "port/forge/src/forge_ai.c").read_text(encoding="latin-1")
+    builder = BUILDER.read_text(encoding="latin-1")
+    network = (ROOT / "port/forge/src/forge_network.c").read_text(encoding="latin-1")
+    limits = (ROOT / "port/linux/include/halo_port_limits.h").read_text(encoding="latin-1")
+    # (without the features header, #if OPENCE_ENABLE_FORGE quietly drops the hooks)
+    for source, hook in ((ai, "forge_ai_encounters_apply();"), (actors, "forge_ai_unit_placed(unit_index")):
+        assert hook in source
+        assert '#include "opence_features.h"' in source
+    assert ai.index("forge_ai_encounters_apply();") < ai.index("encounters_initialize_for_new_map();\n\tai_script")
+    # (cseries.h's free is the debug allocator's, which asserts on calloc's memory)
+    assert "#undef free" in forge_ai and "#undef malloc" in forge_ai
+    # the fields the saved line writes are the fields it reads, in order
+    written = re.search(r'"AI_SPAWN\|([^"]+)\\r\\n"', builder).group(1)
+    read = re.search(r'"(%f\|%f\|%f\|%f[^"]+)"', forge_ai).group(1)
+    assert written.count("%") == read.count("%") == 16
+    # not behind the stock maps' condition: a Custom Edition base has AI
+    assert "if (edits->ai_spawns_edited)" in builder
+    assert "!ce_base_map && edits->ai_spawns_edited" not in builder
+    assert "!FA:" in network
+    assert int(re.search(r"#define HALO_PORT_MOD_NETWORK_VERSION (\d+)", limits).group(1)) >= 13
+
+
+def test_actors_are_a_multiplayer_maps_and_in_its_one_import():
+    """A Forge game on a multiplayer map has every campaign actor; a saved map
+    copies in those its spawns use; both in the level's one import."""
+    forge_ai = (ROOT / "port/forge/src/forge_ai.c").read_text(encoding="latin-1")
+    randomizer = (ROOT / "port/linux/game/randomizer.c").read_text(encoding="latin-1")
+    assert "scen->type == _scenario_type_multiplayer" in forge_ai
+    assert "!entries || scen->type != _scenario_type_multiplayer" in forge_ai
+    # a level's second import would lose its table (tag_import.h: one begin, one run)
+    for name in ("gather_forge_actors", "gather_forge_session_tags"):
+        gather = randomizer[randomizer.index("static void " + name):]
+        gather = gather[:gather.index("\n}\n")]
+        assert "tag_import_begin" not in gather and "tag_import_run" not in gather
+    assert "gather_forge_session_tags();" in randomizer
+    # solo Forge reads actors as placed, from Forge's pack: no level load cost
+    assert "forge_session_import = forge_level_is_session() && !firefight && network_game_get_game() &&" in randomizer
+    assert 'FORGE_TAG_PACK "watanoge_forge"' in randomizer
+    manifest = tomllib.loads((ROOT / "port/assets/tag_packs/watanoge_forge.toml").read_text())
+    assert "sound\\dialog\\elite\\" in manifest["keep"]["include_prefixes"]
+    assert "characters\\" in manifest["keep"]["include_prefixes"]
+    # the Firefight level's import, and a Forge level's
+    assert "if (firefight)\n\t\t\tgather_firefight(leaf);\n#if OPENCE_ENABLE_FORGE\n\t\tgather_forge_actors();" in randomizer
+    # a save names only what its spawns use
+    assert "forge_ai_saved_tags_collect();" in (ROOT / "port/forge/src/forge_runtime_tags.c").read_text(encoding="latin-1")
+
+
+def test_forge_mode_holds_the_ai_and_any_ai_holds_any_weapon():
+    mode = (ROOT / "port/forge/src/forge_3d_mode.c").read_text(encoding="latin-1")
+    forge_ai = (ROOT / "port/forge/src/forge_ai.c").read_text(encoding="latin-1")
+    randomizer = (ROOT / "port/linux/game/randomizer.c").read_text(encoding="latin-1")
+    assert "forge_ai_forge_mode_changed(0);" in mode and "forge_ai_forge_mode_changed(1);" in mode
+    assert "CACHE TAG" not in mode
+    # the engine's respawning stops with the encounters hidden, not only the actors erased
+    assert "scen->ai_encounters.count = 0;" in forge_ai
+    # the scripts' takes an object list, not an object: the engine then never returns
+    assert "object_cannot_take_damage(" not in forge_ai.replace("(object_cannot_take_damage is", "")
+    assert "forge_ai_weapons_borrowed" in randomizer
+    # (a bracketed name is cut to nothing by the palette's tidying)
+    assert 'FORGE_GROUP_AI_SPAWN ? "[AI]"' not in (ROOT / "port/forge/src/forge_runtime_tags.c").read_text(encoding="latin-1")

@@ -5409,20 +5409,51 @@ static int append_forge_map_metadata_and_preview_trailer(
 				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
 			}
 		}
-		for (i = 0; i < edits->ai_spawn_count; i++)
+		/* the campaign's tags its spawns use, which the level copies in as it loads */
+		for (i = 0; i < edits->ai_actor_count; i++)
 		{
-			struct forge_ai_spawn_entry const *ai = &edits->ai_spawns[i];
-			if (!ai->actor_variant_path[0])
-				continue;
-			line_len = snprintf(line, sizeof(line),
-				"AI|%.4f|%.4f|%.4f|%.4f|%d|%s\r\n",
-				ai->x, ai->y, ai->z, ai->yaw,
-				(int)ai->team_designator,
-				ai->actor_variant_path);
+			char actor_line[512];
+
+			line_len = snprintf(actor_line, sizeof(actor_line), "%s|%s|%s\r\n",
+				edits->ai_actors[i].group_tag == 'weap' ? "AI_WEAPON" : "AI_ACTOR",
+				edits->ai_actors[i].map, edits->ai_actors[i].path);
 			if (line_len > 0 && state_buf.data)
 			{
 				uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
-				if (state_buf.data) memcpy(state_buf.data + o, line, (size_t)line_len);
+				if (state_buf.data) memcpy(state_buf.data + o, actor_line, (size_t)line_len);
+			}
+		}
+		/* the AI's spawns, on any base map: the level plays them from here
+		(forge_ai_saved_parse), its encounters left as the map has them */
+		if (edits->ai_spawns_edited)
+		{
+			char ai_line[1024];
+
+			line_len = snprintf(ai_line, sizeof(ai_line), "AI_SPAWNS_SAVED|%d\r\n", edits->replace_ai_spawns);
+			if (line_len > 0 && state_buf.data)
+			{
+				uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+				if (state_buf.data) memcpy(state_buf.data + o, ai_line, (size_t)line_len);
+			}
+			for (i = 0; i < edits->ai_spawn_count; i++)
+			{
+				struct forge_ai_spawn_entry const *ai = &edits->ai_spawns[i];
+
+				if (!ai->active || !ai->actor_variant_path[0])
+					continue;
+				line_len = snprintf(ai_line, sizeof(ai_line),
+					"AI_SPAWN|%.4f|%.4f|%.4f|%.4f|%d|%d|%d|%d|%d|%u|%d|%d|%d|%d|%s|%s\r\n",
+					ai->x, ai->y, ai->z, ai->yaw,
+					(int)ai->team, (int)ai->unit_count,
+					(int)ai->respawn_alive, (int)ai->respawn_delay_seconds, (int)ai->respawn_total,
+					(unsigned)ai->gametype_flags,
+					(int)ai->encounter_index, (int)ai->squad_index, (int)ai->location_index, (int)ai->detached,
+					ai->actor_variant_path, ai->weapon_path);
+				if (line_len > 0 && state_buf.data)
+				{
+					uint32_t o = buf_alloc(&state_buf, (uint32_t)line_len, 1);
+					if (state_buf.data) memcpy(state_buf.data + o, ai_line, (size_t)line_len);
+				}
 			}
 		}
 		/* a stock map's spawns and flags (a Custom Edition base has them in
