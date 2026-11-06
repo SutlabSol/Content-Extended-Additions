@@ -284,6 +284,7 @@ symbols in this file:
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
 #include "network_replay.h" /* port: port/linux/game/network_replay_playback.c */
+#include "randomizer.h" /* port: port/linux/game/randomizer.c */
 
 /* network_game_globals.c's */
 boolean network_game_distributed_client(void);
@@ -4805,6 +4806,7 @@ void player_add_equipment(
 	struct scenario *scenario;
 	long weapon_index;
 	short grenade_index;
+	boolean loadout;
 
 	if (unit_index != NONE && starting_profile_index != NONE)
 	{
@@ -4825,7 +4827,11 @@ void player_add_equipment(
 				*(short *)unit->unit.grenade_counts = 0;
 			}
 
-			if (starting_profile->primary_weapon.weapon.index != NONE)
+			/* port: the randomizer's SPAWN LOADOUT, in the profile's weapons'
+			place (randomizer.c) */
+			loadout = randomizer_player_loadout(unit_index, reset_equipment);
+
+			if (!loadout && starting_profile->primary_weapon.weapon.index != NONE)
 			{
 				weapon_index = create_weapon(
 					&starting_profile->primary_weapon,
@@ -4841,7 +4847,7 @@ void player_add_equipment(
 				}
 			}
 
-			if (starting_profile->secondary_weapon.weapon.index != NONE)
+			if (!loadout && starting_profile->secondary_weapon.weapon.index != NONE)
 			{
 				weapon_index = create_weapon(
 					&starting_profile->secondary_weapon,

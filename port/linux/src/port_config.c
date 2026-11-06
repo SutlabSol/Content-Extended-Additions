@@ -739,7 +739,7 @@ static const struct config_setting config_settings[] =
 		"The randomizer screen. true: a squad's actors are taken from the\n"
 		"pool, except one with a command list or in a conversation." },
 	{ "game.randomizer_allies", _config_boolean, "false", "HALO_RANDOMIZER_ALLIES", _environment_value, _platform_all,
-		"The randomizer screen, with game.randomizer_enemies. true: the marines\n"
+		"The randomizer's AI REPLACEMENT page. true: the marines\n"
 		"and crew who fight beside the player are swapped too (one a scene seats\n"
 		"in a vehicle it has no animations for rides as the actor the level gave\n"
 		"it, until it is out and on its feet). false: they stay the actors the\n"
@@ -823,6 +823,60 @@ static const struct config_setting config_settings[] =
 		"to 32), as co-op's static multiplier (network.coop_enemies_multiplier)\n"
 		"makes them; a co-op game's extra enemies come on top of it. Played\n"
 		"alone or as a co-op host, never in a daily challenge." },
+	{ "game.randomizer_ally_pool", _config_string, "\"as_enemies\"", "HALO_RANDOMIZER_ALLY_POOL", _environment_value,
+		_platform_all,
+		"The randomizer's AI REPLACEMENT page, with game.randomizer_allies.\n"
+		"Which actors the allies may become: \"as_enemies\" (the choices of\n"
+		"game.randomizer_pool and its rows, ENEMIES on or off), or a choice of\n"
+		"game.randomizer_pool (\"one\": game.randomizer_ally_type)." },
+	{ "game.randomizer_ally_type", _config_string, "\"marine\"", "HALO_RANDOMIZER_ALLY_TYPE", _environment_value,
+		_platform_all,
+		"AI REPLACEMENT, when the ally pool is \"one\": a choice of\n"
+		"game.randomizer_type (\"tag_injector\":\n"
+		"game.randomizer_ally_custom_type)." },
+	{ "game.randomizer_ally_custom_type", _config_string, "\"\"", "HALO_RANDOMIZER_ALLY_CUSTOM_TYPE",
+		_environment_value, _platform_all,
+		"AI REPLACEMENT, when the ally type is \"tag_injector\": the custom\n"
+		"type of the Tag Injector profile's actor variants the allies may\n"
+		"become." },
+	{ "game.randomizer_ally_grunt_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_ALLY_GRUNT_RANK",
+		_environment_value, _platform_all,
+		"AI REPLACEMENT, when the ally type is \"grunt\": as\n"
+		"game.randomizer_grunt_rank." },
+	{ "game.randomizer_ally_elite_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_ALLY_ELITE_RANK",
+		_environment_value, _platform_all,
+		"AI REPLACEMENT, when the ally type is \"elite\": as\n"
+		"game.randomizer_elite_rank." },
+	{ "game.randomizer_ally_jackal_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_ALLY_JACKAL_RANK",
+		_environment_value, _platform_all,
+		"AI REPLACEMENT, when the ally type is \"jackal\": as\n"
+		"game.randomizer_jackal_rank." },
+	{ "game.randomizer_ally_hunter_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_ALLY_HUNTER_RANK",
+		_environment_value, _platform_all,
+		"AI REPLACEMENT, when the ally type is \"hunter\": as\n"
+		"game.randomizer_hunter_rank." },
+	{ "game.randomizer_ally_flood_combat_rank", _config_string, "\"any\"", "HALO_RANDOMIZER_ALLY_FLOOD_COMBAT_RANK",
+		_environment_value, _platform_all,
+		"AI REPLACEMENT, when the ally type is \"flood_combat\": as\n"
+		"game.randomizer_flood_combat_rank." },
+	{ "game.randomizer_loadout", _config_string, "\"default\"", "HALO_RANDOMIZER_LOADOUT", _environment_value,
+		_platform_all,
+		"The randomizer's PLAYER LOADOUT page: the weapons a player\n"
+		"starts a campaign level with. \"default\": the level's. \"random\": two at\n"
+		"random for each player, from the pickups' pool with\n"
+		"game.randomizer_pickups, else the campaign's hand weapons and the Tag\n"
+		"Injector profile's. \"set\": game.randomizer_loadout_primary and\n"
+		"_secondary. Played alone or as a co-op host (who gives only weapons the\n"
+		"level has), never in a daily challenge." },
+	{ "game.randomizer_loadout_primary", _config_string, "\"assault_rifle\"", "HALO_RANDOMIZER_LOADOUT_PRIMARY",
+		_environment_value, _platform_all,
+		"PLAYER LOADOUT's PRIMARY, with game.randomizer_loadout \"set\":\n"
+		"a choice of game.randomizer_pickup_type, or a Tag Injector profile's\n"
+		"weapon as the screen writes it." },
+	{ "game.randomizer_loadout_secondary", _config_string, "\"pistol\"", "HALO_RANDOMIZER_LOADOUT_SECONDARY",
+		_environment_value, _platform_all,
+		"The PLAYER LOADOUT screen's SECONDARY: as\n"
+		"game.randomizer_loadout_primary, or \"none\"." },
 	{ "game.randomizer_crazy", _config_boolean, "false", "HALO_RANDOMIZER_CRAZY", _environment_value, _platform_all,
 		"Settings > Gameplay > Randomizer's Go Crazy. true: the parts of it on\n"
 		"(game.randomizer_crazy_weapons, _enemies, _flamethrower), and as many\n"

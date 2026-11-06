@@ -1555,7 +1555,7 @@ def _gameplay_profile_item() -> list:
 
 
 def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: list,
-                        label_width: int = 300) -> list:
+                        labels: str = "labels", label_width: int = 300) -> list:
     """one row of the randomizer screen: its label and the setting it shows.
     Every row's spinner is as wide as the widest choice needs, so the arrows
     of all of them line up, OFF/ON's too"""
@@ -1567,7 +1567,7 @@ def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: 
                     f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", x), ("y", 1)])}/>']) + \
         _widget(f"{base}/{key}_label",
                 [("type", "text"), ("controller", 1), ("width", label_width), ("height", 22),
-                 ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
+                 ("string_list", f"{base}/{labels}"), ("string_index", index), ("font", "ui\\large_ui"),
                  ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
         _widget(f"{base}/{key}_spinner",
                 [("type", "spinner"), ("left", 3), ("top", 2), ("width", width), ("height", 20),
@@ -1592,72 +1592,96 @@ TAG_INJECTOR_CHOICE = ("TAG INJECTOR", "tag_injector")
 RANDOMIZER_WEAPON_POOLS = [("ANY", "any"), ("COVENANT", "covenant"), ("HUMAN", "human"),
                            ("PRECISION", "precision"), ("AUTOMATIC", "automatic"), ("POWER", "power"),
                            ("ONE TYPE", "one"), TAG_INJECTOR_CHOICE]
-# the space under the randomizer screen's first row, EXTRA ENEMIES, above
-# the rest (menu_functions.c's randomizer_screen_update, a third of a row)
-RANDOMIZER_FIRST_GAP = 26 // 3
 # EXTRA ENEMIES' multipliers, as co-op's STATIC MULTIPLIER has them
 # (COOP_ENEMIES_MULTIPLIERS)
 RANDOMIZER_EXTRA_ENEMIES = [2, 4, 8, 16, 32]
-# the randomizer screen's rows, top to bottom. menu_functions.c's
-# randomizer_rows_show shows a row only while what it depends on is chosen
-# (a pool's type with ONE TYPE, a rank with its type, a custom type with
-# TAG INJECTOR) and closes the gaps. A row of no choices (None) is a custom
-# type's: the Tag Injector profile's, which menu_functions.c shows and steps
-# through (_randomizer_value_row)
-RANDOMIZER_ROWS = [
-    # (co-op's STATIC MULTIPLIER, for the randomizer's level: coop_enemies.c)
-    ("extra_enemies", "EXTRA ENEMIES:", "game.randomizer_extra_enemies",
-     [("OFF", "1"), *[(f"{value}X", str(value)) for value in RANDOMIZER_EXTRA_ENEMIES]],
-     "Each squad of enemies that many times as large,\nwith co-op's extra enemies on top of it."),
-    ("enemies", "ENEMIES:", "game.randomizer_enemies", OFF_ON,
-     "On: a squad's actors are taken from the pool."),
-    ("allies", "ALLIES TOO:", "game.randomizer_allies", OFF_ON,
-     "On: the marines beside you are swapped too,\\nonce out of any vehicle. Off: they stay."),
-    ("pool", "ENEMY POOL:", "game.randomizer_pool",
-     [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"), ("ONE TYPE", "one"),
-      TAG_INJECTOR_CHOICE],
-     "Which actors a squad may become. Tag Injector:\\nthe profile's AI alone."),
-    ("type", "ENEMY TYPE:", "game.randomizer_type",
-     [("GRUNT", "grunt"), ("ELITE", "elite"), ("JACKAL", "jackal"), ("HUNTER", "hunter"),
-      ("COMBAT FORM", "flood_combat"), ("CARRIER FORM", "flood_carrier"), ("MARINE", "marine"),
-      ("ENGINEER", "engineer"), ("SENTINEL", "sentinel"), TAG_INJECTOR_CHOICE],
-     "The only actor a squad may become."),
-    ("custom_type", "CUSTOM TYPE:", "game.randomizer_custom_type", None,
-     "The Tag Injector profile's AI of this type alone.\\nLeft and right choose another."),
-    ("grunt_rank", "RANK:", "game.randomizer_grunt_rank",
-     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops")],
-     "Which grunts."),
-    ("elite_rank", "RANK:", "game.randomizer_elite_rank",
-     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops"), ("ZEALOT", "zealot"),
-      ("STEALTH", "stealth")],
-     "Which elites. Zealots are the gold commanders."),
-    ("jackal_rank", "RANK:", "game.randomizer_jackal_rank",
-     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "Which jackals."),
-    ("hunter_rank", "RANK:", "game.randomizer_hunter_rank",
-     [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "Which hunters."),
-    ("flood_combat_rank", "FORM OF:", "game.randomizer_flood_combat_rank",
-     [("ANY", "any"), ("HUMAN", "human"), ("ELITE", "elite")], "Which combat forms."),
-    ("pickups", "WEAPON PICKUPS:", "game.randomizer_pickups", OFF_ON,
-     "On: a weapon lying in the level is swapped.\\nOne a script names stays."),
-    ("pickup_pool", "PICKUP POOL:", "game.randomizer_pickup_pool", RANDOMIZER_WEAPON_POOLS,
-     "Which weapons a pickup may become. A weapon\\nthe level lacks comes from another level."),
-    ("pickup_type", "PICKUP TYPE:", "game.randomizer_pickup_type", RANDOMIZER_WEAPONS + [TAG_INJECTOR_CHOICE],
-     "The only weapon a pickup may become."),
-    ("pickup_custom", "CUSTOM TYPE:", "game.randomizer_pickup_custom", None,
-     "The Tag Injector profile's weapons of this type\\nalone. Left and right choose another."),
-    ("enemy_weapons", "ENEMY WEAPONS:", "game.randomizer_enemy_weapons", OFF_ON,
-     "On: an actor's weapon is swapped for one it\\ncan hold; one that can hold none keeps its own."),
-    ("weapon_pool", "WEAPON POOL:", "game.randomizer_weapon_pool", RANDOMIZER_WEAPON_POOLS,
-     "Which weapons an actor may be given. An actor\\nthat can hold none of them keeps its own."),
-    ("weapon_type", "WEAPON TYPE:", "game.randomizer_weapon_type",
-     RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword"), TAG_INJECTOR_CHOICE],
-     "Only enemies that can hold it get it; others\\nkeep theirs (Go Crazy lends them the hands)."),
-    ("weapon_custom", "CUSTOM TYPE:", "game.randomizer_weapon_custom", None,
-     "The Tag Injector profile's weapons of this type\\nalone, for those that can hold them."),
+
+
+def _randomizer_actor_rows(prefix: str, who: str, pool_choices: list, pool_help: str) -> list:
+    """a pool of actors' rows: the pool, its one type, and that type's custom
+    type or rank. The enemies' (prefix "") and the allies' ("ally_") are the
+    same rows, each of its own settings"""
+    def row(key: str, label: str, choices, help_text: str) -> tuple:
+        return (f"{prefix}{key}", label, f"game.randomizer_{prefix}{key}", choices, help_text)
+
+    return [
+        row("pool", f"{who} POOL:", pool_choices, pool_help),
+        row("type", f"{who} TYPE:",
+            [("GRUNT", "grunt"), ("ELITE", "elite"), ("JACKAL", "jackal"), ("HUNTER", "hunter"),
+             ("COMBAT FORM", "flood_combat"), ("CARRIER FORM", "flood_carrier"), ("MARINE", "marine"),
+             ("ENGINEER", "engineer"), ("SENTINEL", "sentinel"), TAG_INJECTOR_CHOICE],
+            "The only actor a squad may become."),
+        row("custom_type", "CUSTOM TYPE:", None,
+            "The Tag Injector profile's AI of this type alone.\\nLeft and right choose another."),
+        row("grunt_rank", "RANK:", [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops")],
+            "Which grunts."),
+        row("elite_rank", "RANK:",
+            [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major"), ("SPEC OPS", "specops"), ("ZEALOT", "zealot"),
+             ("STEALTH", "stealth")],
+            "Which elites. Zealots are the gold commanders."),
+        row("jackal_rank", "RANK:", [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "Which jackals."),
+        row("hunter_rank", "RANK:", [("ANY", "any"), ("MINOR", "minor"), ("MAJOR", "major")], "Which hunters."),
+        row("flood_combat_rank", "FORM OF:", [("ANY", "any"), ("HUMAN", "human"), ("ELITE", "elite")],
+            "Which combat forms."),
+    ]
+
+
+RANDOMIZER_ACTOR_POOLS = [("ANY", "any"), ("COVENANT", "covenant"), ("FLOOD", "flood"), ("HUMAN", "human"),
+                          ("ONE TYPE", "one"), TAG_INJECTOR_CHOICE]
+# the randomizer's pages, each a screen the randomizer's opens: its key, its
+# title, the help of its row there, and its rows, top to bottom.
+# menu_functions.c's randomizer_screen_update shows a row only while what it
+# depends on is chosen (a pool's type with ONE TYPE, a rank with its type, a
+# custom type with TAG INJECTOR) and closes the gaps. A row of no choices
+# (None) is a custom type's: the Tag Injector profile's, which
+# menu_functions.c shows and steps through (_randomizer_value_row)
+RANDOMIZER_PAGES = [
+    ("ai", "AI REPLACEMENT", "Which actors the enemies and your allies become.", [
+        # (co-op's STATIC MULTIPLIER, for the randomizer's level: coop_enemies.c)
+        ("extra_enemies", "EXTRA ENEMIES:", "game.randomizer_extra_enemies",
+         [("OFF", "1"), *[(f"{value}X", str(value)) for value in RANDOMIZER_EXTRA_ENEMIES]],
+         "Each squad of enemies that many times as large,\nwith co-op's extra enemies on top of it."),
+        ("enemies", "ENEMIES:", "game.randomizer_enemies", OFF_ON,
+         "On: a squad's actors are taken from the pool."),
+        *_randomizer_actor_rows("", "ENEMY", RANDOMIZER_ACTOR_POOLS,
+                                "Which actors a squad may become. Tag Injector:\\nthe profile's AI alone."),
+        ("allies", "ALLIES:", "game.randomizer_allies", OFF_ON,
+         "On: the marines beside you are swapped too,\\nonce out of any vehicle. Off: they stay."),
+        *_randomizer_actor_rows("ally_", "ALLY", [("AS ENEMIES", "as_enemies"), *RANDOMIZER_ACTOR_POOLS],
+                                "Which actors your allies may become. As enemies:\\nthe enemy pool's, ENEMIES on or off."),
+    ]),
+    ("weapons", "AI WEAPONS", "The weapons the AI is given.", [
+        ("enemy_weapons", "AI WEAPONS:", "game.randomizer_enemy_weapons", OFF_ON,
+         "On: an actor's weapon is swapped for one it\\ncan hold; one that can hold none keeps its own."),
+        ("weapon_pool", "WEAPON POOL:", "game.randomizer_weapon_pool", RANDOMIZER_WEAPON_POOLS,
+         "Which weapons an actor may be given. An actor\\nthat can hold none of them keeps its own."),
+        ("weapon_type", "WEAPON TYPE:", "game.randomizer_weapon_type",
+         RANDOMIZER_WEAPONS + [("FUEL ROD", "fuel_rod"), ("ENERGY SWORD", "energy_sword"), TAG_INJECTOR_CHOICE],
+         "Only enemies that can hold it get it; others\\nkeep theirs (Go Crazy lends them the hands)."),
+        ("weapon_custom", "CUSTOM TYPE:", "game.randomizer_weapon_custom", None,
+         "The Tag Injector profile's weapons of this type\\nalone, for those that can hold them."),
+    ]),
+    ("pickups", "WEAPON PICKUPS", "The weapons lying in the level.", [
+        ("pickups", "WEAPON PICKUPS:", "game.randomizer_pickups", OFF_ON,
+         "On: a weapon lying in the level is swapped.\\nOne a script names stays."),
+        ("pickup_pool", "PICKUP POOL:", "game.randomizer_pickup_pool", RANDOMIZER_WEAPON_POOLS,
+         "Which weapons a pickup may become. A weapon\\nthe level lacks comes from another level."),
+        ("pickup_type", "PICKUP TYPE:", "game.randomizer_pickup_type", RANDOMIZER_WEAPONS + [TAG_INJECTOR_CHOICE],
+         "The only weapon a pickup may become."),
+        ("pickup_custom", "CUSTOM TYPE:", "game.randomizer_pickup_custom", None,
+         "The Tag Injector profile's weapons of this type\\nalone. Left and right choose another."),
+    ]),
 ]
+RANDOMIZER_ROWS = [row for *_, rows in RANDOMIZER_PAGES for row in rows]
+# the pages' rows: where the first is, and how far apart (menu_functions.c's
+# RANDOMIZER_PAGE_TOP and _PITCH, which move them up past those hidden)
+RANDOMIZER_PAGE_TOP = 104
+RANDOMIZER_PAGE_PITCH = 26
+RANDOMIZER_PAGE_HELP = "OK keeps what this page shows. Cancel goes back\\nwithout it."
 
 
-def _randomizer_value_row(base: str, key: str, index: int) -> list:
+def _randomizer_value_row(base: str, key: str, index: int, labels: str = "labels",
+                          left: str = "randomizer custom left", right: str = "randomizer custom right") -> list:
     """a custom type's row of the randomizer screen: its label, and the value
     menu_functions.c shows (the Tag Injector profile's custom types, which no
     spinner's choices could be: they are the profile's), where a spinner's
@@ -1665,17 +1689,17 @@ def _randomizer_value_row(base: str, key: str, index: int) -> list:
     "right")"""
     return _widget(f"{base}/op_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                         ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
-                   ['<on event="left" run="randomizer custom left"/>',
-                    '<on event="stick_left" run="randomizer custom left"/>',
-                    '<on event="right" run="randomizer custom right"/>',
-                    '<on event="stick_right" run="randomizer custom right"/>',
-                    '<on event="a" run="randomizer custom right"/>',
+                   [f'<on event="left" run="{left}"/>',
+                    f'<on event="stick_left" run="{left}"/>',
+                    f'<on event="right" run="{right}"/>',
+                    f'<on event="stick_right" run="{right}"/>',
+                    f'<on event="a" run="{right}"/>',
                     '<on event="left_mouse" run="mouse emit accept event"/>',
                     f'<child widget="{base}/{key}_label"/>',
                     f'<child{attributes([("widget", f"{base}/{key}_value"), ("x", 259), ("y", 3)])}/>']) + \
         _widget(f"{base}/{key}_label",
                 [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
-                 ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
+                 ("string_list", f"{base}/{labels}"), ("string_index", index), ("font", "ui\\large_ui"),
                  ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
         _widget(f"{base}/{key}_value",
                 # (as tall as the label: the large font's line is drawn only
@@ -1685,10 +1709,95 @@ def _randomizer_value_row(base: str, key: str, index: int) -> list:
                  ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
 
 
+def _randomizer_page(base: str, key: str, title: str, update: str, row_keys: list, row_lines: list,
+                     labels: list, helps: list) -> list:
+    """a page of the randomizer's: its title, its rows (those of row_lines,
+    labelled from f"{key}_labels"), and OK ("randomizer page ok": what it shows
+    written, then back to the randomizer's screen) and Cancel"""
+    lines = _widget(f"{base}/{key}_screen",
+                    [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
+                     ("bitmap", "bitmaps/gradient")],
+                    ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
+                     f'<child widget="{base}/header_randomizer"/>',
+                     f'<child widget="{base}/{key}_title"/>',
+                     f'<child widget="{base}/{key}_menu"/>'])
+    lines += _widget(f"{base}/{key}_title",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 74), ("width", 504), ("height", 22),
+                      ("text", title), ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
+    lines += _widget(f"{base}/{key}_help",
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                      ("string_list", f"{base}/{key}_help_strings"), ("font", "ui\\small_ui"),
+                      ("color", "#FFFFFFFF")], [])
+    children = ['<data input="port settings help"/>', f'<data input="{update}"/>']
+    for index, row in enumerate(row_keys):
+        # (each where it is with every row shown; the screen moves them up)
+        y = RANDOMIZER_PAGE_TOP + index * RANDOMIZER_PAGE_PITCH
+        children.append(f'<child{attributes([("widget", f"{base}/op_{row}"), ("x", 54), ("y", y)])}/>')
+    children.append(f'<child{attributes([("widget", f"{base}/button_{key}_bar"), ("y", 414)])}/>')
+    lines += _widget(f"{base}/{key}_menu",
+                     [("type", "column_list"), ("width", 640), ("height", 480),
+                      ("flags", "pass_unhandled_to_focused_child up_down_tabs_children"),
+                      ("description", f"{base}/{key}_help")], children)
+    lines += _widget(f"{base}/button_{key}_bar",
+                     [("type", "column_list"), ("width", 640), ("height", 28),
+                      ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
+                     [f'<child{attributes([("widget", f"{base}/{key}_button_ok"), ("x", 380), ("y", 1)])}/>',
+                      '<child widget="common_button_cancel" x="510" y="1"/>'])
+    lines += row_lines
+    lines += _button(f"{base}/{key}_button_ok", 1, ['<on event="a" run="randomizer page ok"/>',
+                                                    '<on event="start" run="randomizer page ok"/>'])
+    lines += _strings(f"{base}/{key}_labels", labels)
+    lines += _strings(f"{base}/{key}_help_strings", [RANDOMIZER_PAGE_HELP] + helps)
+    return lines
+
+
+def _randomizer_rows_page(base: str, key: str, title: str, rows: list) -> list:
+    """a page of RANDOMIZER_PAGES: its rows, shown as what they depend on is
+    chosen ("randomizer screen update", which every such page shares)"""
+    labels = f"{key}_labels"
+    row_lines = []
+    for index, (row, _, setting, choices, _) in enumerate(rows):
+        if choices is None:
+            row_lines += _randomizer_value_row(base, row, index, labels)
+        else:
+            row_lines += _randomizer_spinner(base, row, index, setting, choices, labels)
+    return _randomizer_page(base, key, title, "randomizer screen update", [row[0] for row in rows], row_lines,
+                            [label for _, label, *_ in rows], [help_text for *_, help_text in rows])
+
+
+def _randomizer_hub_row(base: str, key: str, index: int) -> list:
+    """a row of the randomizer's screen: its page's name, opened by A, and what
+    menu_functions.c's "randomizer hub update" says of it"""
+    screen = f'open="{base}/{key}_screen"'
+    return _widget(f"{base}/op_hub_{key}", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
+                                            ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                   [f'<on event="a" {screen}/>',
+                    f'<on event="start" {screen}/>',
+                    '<on event="left_mouse" run="mouse emit accept event"/>',
+                    f'<child widget="{base}/hub_{key}_label"/>',
+                    f'<child{attributes([("widget", f"{base}/hub_{key}_value"), ("x", 259), ("y", 3)])}/>']) + \
+        _widget(f"{base}/hub_{key}_label",
+                [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                 ("string_list", f"{base}/labels"), ("string_index", index), ("font", "ui\\large_ui"),
+                 ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
+        _widget(f"{base}/hub_{key}_value",
+                [("type", "text"), ("controller", 1), ("width", 236), ("height", 22), ("font", "ui\\large_ui"),
+                 ("color", "#FF2896FF"), ("align", "center"), ("text_y", 4), ("text_flags", "no_focus_test")], [])
+
+
+# the randomizer's screen's rows: each page's, and PLAYER LOADOUT's, a page of
+# its own (_randomizer_loadout_screen)
+RANDOMIZER_HUB_ROWS = [(key, title, help_text) for key, title, help_text, _ in RANDOMIZER_PAGES] + [
+    ("loadout", "PLAYER LOADOUT", "The weapons you start each level with.")]
+RANDOMIZER_HUB_TOP = 100
+RANDOMIZER_HUB_PITCH = 32
+
+
 def _randomizer_screen() -> list:
-    """the screen difficulty opens when the randomizer is on: what is
-    swapped and from which pools, and the buttons: Save (a setup under a
-    name), Load (the profiles' screen), OK, which starts the level"""
+    """the screen difficulty opens when the randomizer is on: a row for each
+    of its pages, saying what each is set to, and the buttons: Save (a setup,
+    every page's, under a name), Load (the profiles' screen), OK, which starts
+    the level"""
     base = "main_menu/difficulty_select/randomizer"
     lines = _widget(f"{base}/randomizer_screen",
                     [("width", 640), ("height", 480), ("flags", "pass_unhandled_to_focused_child"),
@@ -1702,17 +1811,12 @@ def _randomizer_screen() -> list:
     lines += _widget(f"{base}/help",
                      [("type", "text"), ("controller", 1), ("left", 68), ("top", 384), ("width", 482), ("height", 28),
                       ("string_list", f"{base}/help_strings"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
-    children = ['<data input="port settings help"/>', '<data input="randomizer screen update"/>']
+    children = ['<data input="port settings help"/>', '<data input="randomizer hub update"/>']
     extra = []
-    labels = []
-    for index, (key, label, setting, choices, _) in enumerate(RANDOMIZER_ROWS):
-        # (each where it is with every row shown; the screen moves them up)
-        children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 54), ("y", 70 + index * 26 + (RANDOMIZER_FIRST_GAP if index else 0))])}/>')
-        if choices is None:
-            extra += _randomizer_value_row(base, key, index)
-        else:
-            extra += _randomizer_spinner(base, key, index, setting, choices)
-        labels.append(label)
+    for index, (key, _, _) in enumerate(RANDOMIZER_HUB_ROWS):
+        y = RANDOMIZER_HUB_TOP + index * RANDOMIZER_HUB_PITCH
+        children.append(f'<child{attributes([("widget", f"{base}/op_hub_{key}"), ("x", 54), ("y", y)])}/>')
+        extra += _randomizer_hub_row(base, key, index)
     children.append(f'<child{attributes([("widget", f"{base}/button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/options_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
@@ -1742,12 +1846,15 @@ def _randomizer_screen() -> list:
                       '<on event="left_mouse" run="mouse emit accept event"/>'])
     lines += _button(f"{base}/button_ok", 1, ['<on event="a" run="randomizer start"/>',
                                               '<on event="start" run="randomizer start"/>'])
-    lines += _strings(f"{base}/labels", labels)
+    lines += _strings(f"{base}/labels", [title for _, title, _ in RANDOMIZER_HUB_ROWS])
     lines += _strings(f"{base}/help_strings",
-                      ["Save keeps this setup under a name.\\nLoad chooses one saved before."] +
-                      [help_text for *_, help_text in RANDOMIZER_ROWS])
+                      ["Save keeps every page's setup under a name.\\nLoad chooses one saved before."] +
+                      [help_text for *_, help_text in RANDOMIZER_HUB_ROWS])
+    for key, title, _, rows in RANDOMIZER_PAGES:
+        lines += _randomizer_rows_page(base, key, title, rows)
     lines += _randomizer_profiles_screen(base)
     lines += _randomizer_tag_profiles_screen(base)
+    lines += _randomizer_loadout_screen(base)
     return lines
 
 
@@ -2017,6 +2124,24 @@ def _randomizer_profiles_screen(base: str) -> list:
 # the randomizer plays, or none (game.randomizer_tag_profile). Its rows a
 # list at a time ("randomizer tag profiles update" moves it on at its ends)
 RANDOMIZER_TAG_PROFILE_ROWS = 9
+
+
+def _randomizer_loadout_screen(base: str) -> list:
+    """PLAYER LOADOUT's page: the weapons a player starts with. PRIMARY and
+    SECONDARY show with SET alone, their choices (the campaign's, the Tag
+    Injector profile's) menu_functions.c's"""
+    labels = "loadout_labels"
+    row_lines = _randomizer_spinner(base, "loadout", 0, "game.randomizer_loadout",
+                                    [("DEFAULT", "default"), ("RANDOM", "random"), ("SET", "set")], labels)
+    for index, key in enumerate(("primary", "secondary")):
+        row_lines += _randomizer_value_row(base, f"loadout_{key}", index + 1, labels,
+                                           "randomizer loadout left", "randomizer loadout right")
+    return _randomizer_page(base, "loadout", "PLAYER LOADOUT", "randomizer loadout update",
+                            ["loadout", "loadout_primary", "loadout_secondary"], row_lines,
+                            ["WEAPONS:", "PRIMARY:", "SECONDARY:"],
+                            ["Default: the level's. Random: two for each player,\\nthe pickups' pool's. Set: the two below.",
+                             "The weapon you start with in hand. Left and\\nright choose another.",
+                             "The weapon on your back. A weapon a co-op\\nlevel lacks is left out."])
 
 
 def _randomizer_tag_profiles_screen(base: str) -> list:

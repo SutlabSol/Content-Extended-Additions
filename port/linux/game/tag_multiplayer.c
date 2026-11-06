@@ -29,7 +29,8 @@ one, as chosen, so a game listed for every build stays so.
 - The weapons. The host alone spawns the map's weapons and gives its
   players theirs (a client has the host's objects): each weapon of the map
   (the game's own multiplayer weapons; not the flag, the ball or
-  equipment) is swapped as the profile says: ROTATION ADD (the map's
+  equipment, and a profile's flag or ball is never swapped in or given:
+  tag_injector_weapon_objective) is swapped as the profile says: ROTATION ADD (the map's
   weapons and the profile's) or ONLY (the profile's), and REPLACE RANDOM
   (each spawn), POSITION (rolled once for each place in a game), WEAPON
   (rolled once for each of the map's weapons) or MANUAL (the weapons chosen
@@ -1598,6 +1599,14 @@ void tag_multiplayer_level_loaded(
 
 		if (roots[index] == NONE || port_tag_profiles_tag_group(profile, root_tags[index]) != 'weap')
 			continue;
+		/* (a flag or a ball: the level has its tags, as every machine's does,
+		but it is the game type's to place, never a swap's or a loadout's) */
+		if (tag_injector_weapon_objective(roots[index]))
+		{
+			error(_error_silent, "tag multiplayer: %s is a flag or a ball: not played",
+				port_tag_profiles_tag_name(profile, root_tags[index]));
+			continue;
+		}
 		tag_multiplayer_level.shared[shared] = roots[index];
 		snprintf(tag_multiplayer_level.shared_paths[shared], sizeof(tag_multiplayer_level.shared_paths[shared]), "%s",
 			port_tag_profiles_tag_name(profile, root_tags[index]));

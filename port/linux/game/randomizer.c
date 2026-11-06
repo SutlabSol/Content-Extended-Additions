@@ -14,8 +14,19 @@ The choice is a hash of the map, the setup, the placement and a roll made
 when the level loads, so starting it again is a different layout. A
 checkpoint reloads the saved actors, not the tags. A starting location with
 a command list, and a squad named by a conversation, keep the actor the
-level gave them, and so do the player's allies unless game.randomizer_allies
-is on. A weapon a script names is left where it was.
+level gave them. The player's allies are swapped by a setup of their own
+(game.randomizer_allies, on or off whatever game.randomizer_enemies is, from
+a pool of their own, or the enemies': game.randomizer_ally_pool). A weapon a
+script names is left where it was.
+
+PLAYER LOADOUT (game.randomizer_loadout; a page of the randomizer's screen)
+gives the players other weapons than the starting profile's: two at random
+(RANDOM, rolled for each player as the level loads) or the two chosen (SET),
+at the spawn and whenever a script gives the player a profile
+(player_add_equipment, which keeps a profile's grenades, health and shields).
+Played alone, a weapon the level has not got is copied as a pool's is; a
+co-op host, whose clients add only the tags it advertises, gives those the
+level has. It works with every swap off too, and never in a challenge.
 
 A swapped actor a script seats in a vehicle (vehicle_load_magic: a
 dropship's Covenant, a Pelican's marines) whose unit has the animations for
@@ -102,6 +113,17 @@ void platform_log(char const *format, ...);
 #define PROTECTED_MAX 128
 /* the most weapons and actor variants of the Tag Injector's profile */
 #define CUSTOM_ROOT_MAX 128
+
+/* PLAYER LOADOUT (game.randomizer_loadout): the starting profile's weapons,
+two at random or the two chosen */
+enum
+{
+	LOADOUT_DEFAULT = 0,
+	LOADOUT_RANDOM,
+	LOADOUT_SET,
+	LOADOUT_COUNT,
+	LOADOUT_WEAPONS = 2
+};
 
 enum
 {
@@ -224,11 +246,25 @@ typedef char randomizer_participant_size[sizeof(struct randomizer_participant) =
 typedef char randomizer_pointer_size[sizeof(void *) == 4 ? 1 : -1];
 
 
+/* the actors one side's are swapped for */
+struct actor_pool
+{
+	int on;
+	int pool;
+	int type;
+	/* the one type's rank (RANK_ANY for a type that has none) */
+	int rank;
+	/* the one type a custom type of the profile's (ONE TYPE's TAG INJECTOR),
+	and its name, in capitals (tag_injector_tag_custom_type) */
+	int custom_type;
+	char custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+};
+
 struct setup
 {
-	int enemies;
-	/* the player's allies are swapped with the enemies */
-	int allies;
+	struct actor_pool enemies;
+	/* the player's allies */
+	struct actor_pool allies;
 	/* game.randomizer_crazy, and which of its parts (each off without it):
 	actors holding weapons with another's animations, the engineers and
 	sentinels in the pools, the flamethrower in the mixed pools */
@@ -245,22 +281,20 @@ struct setup
 	int pods;
 	int pickups;
 	int weapons;
-	int pool;
-	int type;
-	/* the one type's rank (RANK_ANY for a type that has none) */
-	int rank;
 	int pickup_pool;
 	int pickup_type;
 	int weapon_pool;
 	int weapon_type;
-	/* the one type a custom type of the profile's (ONE TYPE's TAG INJECTOR),
-	and its name, in capitals (tag_injector_tag_custom_type) */
-	int custom_type;
+	/* the one type a custom type of the profile's, as the actors' have */
 	int pickup_custom_type;
 	int weapon_custom_type;
-	char custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 	char pickup_custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 	char weapon_custom_type_name[TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
+	/* PLAYER LOADOUT (LOADOUT_), the host's alone, and SET's two weapons:
+	"none", a campaign weapon's setting, or a profile's weapon
+	(randomizer_loadout_tag_value) */
+	int loadout;
+	char loadout_weapons[LOADOUT_WEAPONS][RANDOMIZER_LOADOUT_VALUE_LENGTH];
 };
 
 extern boolean tag_index_is_group(long tag_index, long group_tag);
@@ -285,8 +319,12 @@ struct cache_file_tag_instance
 typedef char randomizer_tag_table_size[
 	sizeof(struct cache_file_tag_instance) == 0x20 ? 1 : -1];
 
-static long variant_pool[POOL_MAX];
-static long variant_count;
+/* the actor variants each side's squads may become */
+static struct actor_choice
+{
+	long variants[POOL_MAX];
+	long count;
+} enemy_choice, ally_choice;
 static char protected_names[PROTECTED_MAX][32];
 static int protected_count;
 static struct setup current;
@@ -305,7 +343,13 @@ static struct weapon_choice
 {
 	long definitions[WEAPON_MAX];
 	long count;
-} pickup_choice, actor_weapon_choice;
+} pickup_choice, actor_weapon_choice, loadout_choice;
+/* PLAYER LOADOUT, as the level loading had it (randomizer_player_loadout):
+SET's weapons (RANDOM's are loadout_choice's), whether the level has some to
+give, and whether a level played alone copies those it has not got */
+static long loadout_set[LOADOUT_WEAPONS];
+static int loadout_ready;
+static int loadout_imports;
 static unsigned long placement_roll;
 static int placement_roll_ready;
 /* the weapons and actor variants of the Tag Injector's profile the level was
@@ -531,15 +575,16 @@ static int weapon_kind_id(char const *text, int otherwise)
 }
 
 /* the setting of the one type's rank, for a type that has ranks */
-static char const *rank_setting(int type)
+static char const *rank_setting(int type, int ally)
 {
 	switch (type)
 	{
-	case TYPE_GRUNT: return "game.randomizer_grunt_rank";
-	case TYPE_ELITE: return "game.randomizer_elite_rank";
-	case TYPE_JACKAL: return "game.randomizer_jackal_rank";
-	case TYPE_HUNTER: return "game.randomizer_hunter_rank";
-	case TYPE_FLOOD_COMBAT: return "game.randomizer_flood_combat_rank";
+	case TYPE_GRUNT: return ally ? "game.randomizer_ally_grunt_rank" : "game.randomizer_grunt_rank";
+	case TYPE_ELITE: return ally ? "game.randomizer_ally_elite_rank" : "game.randomizer_elite_rank";
+	case TYPE_JACKAL: return ally ? "game.randomizer_ally_jackal_rank" : "game.randomizer_jackal_rank";
+	case TYPE_HUNTER: return ally ? "game.randomizer_ally_hunter_rank" : "game.randomizer_hunter_rank";
+	case TYPE_FLOOD_COMBAT:
+		return ally ? "game.randomizer_ally_flood_combat_rank" : "game.randomizer_flood_combat_rank";
 	}
 
 	return NULL;
@@ -547,6 +592,8 @@ static char const *rank_setting(int type)
 
 /* a custom type's name as the setup keeps it: in capitals, as
 tag_injector_tag_custom_type gives a tag's */
+static char const *const loadout_names[LOADOUT_COUNT] = { "default", "random", "set" };
+
 static void custom_type_name_copy(char *name, char const *text)
 {
 	int index;
@@ -556,10 +603,44 @@ static void custom_type_name_copy(char *name, char const *text)
 	name[index] = 0;
 }
 
+/* one side's pool, as its page has it */
+static void actor_pool_from_config(struct actor_pool *pool, int ally)
+{
+	char const *type = config_string(ally ? "game.randomizer_ally_type" : "game.randomizer_type");
+	char const *rank;
+
+	pool->on = config_boolean(ally ? "game.randomizer_allies" : "game.randomizer_enemies");
+	pool->pool = pool_id(config_string(ally ? "game.randomizer_ally_pool" : "game.randomizer_pool"));
+	pool->type = type_id(type);
+	rank = rank_setting(pool->type, ally);
+	pool->rank = rank ? rank_id(config_string(rank)) : RANK_ANY;
+	/* (ONE TYPE's TAG INJECTOR: a custom type of the profile's) */
+	pool->custom_type = !_stricmp(type, "tag_injector");
+	custom_type_name_copy(pool->custom_type_name,
+		config_string(ally ? "game.randomizer_ally_custom_type" : "game.randomizer_custom_type"));
+}
+
+/* the TAG INJECTOR pools and types without the profile's tags: any */
+static void actor_pool_without_custom(struct actor_pool *pool)
+{
+	if (pool->pool == POOL_TAG_INJECTOR || (pool->pool == POOL_ONE && pool->custom_type))
+		pool->pool = POOL_ANY;
+	pool->custom_type = 0;
+}
+
+/* the allies taken from the enemies' pool, on or off as they are */
+static void allies_as_enemies(struct setup *setup)
+{
+	int on = setup->allies.on;
+
+	setup->allies = setup->enemies;
+	setup->allies.on = on;
+}
+
 static void setup_from_config(struct setup *setup)
 {
-	setup->enemies = config_boolean("game.randomizer_enemies");
-	setup->allies = config_boolean("game.randomizer_allies");
+	actor_pool_from_config(&setup->enemies, 0);
+	actor_pool_from_config(&setup->allies, 1);
 	setup->crazy = config_boolean("game.randomizer_crazy");
 	setup->any_weapon = setup->crazy && config_boolean("game.randomizer_crazy_weapons");
 	setup->odd_enemies = setup->crazy && config_boolean("game.randomizer_crazy_enemies");
@@ -574,9 +655,6 @@ static void setup_from_config(struct setup *setup)
 	setup->pods = setup->crazy ? (int)PIN((config_integer("game.randomizer_crazy_pods") + 5) / 10, 1, 10) : 0;
 	setup->pickups = config_boolean("game.randomizer_pickups");
 	setup->weapons = config_boolean("game.randomizer_enemy_weapons");
-	setup->pool = pool_id(config_string("game.randomizer_pool"));
-	setup->type = type_id(config_string("game.randomizer_type"));
-	setup->rank = rank_setting(setup->type) ? rank_id(config_string(rank_setting(setup->type))) : RANK_ANY;
 	setup->pickup_pool = weapon_pool_id(config_string("game.randomizer_pickup_pool"));
 	setup->pickup_type = weapon_kind_id(config_string("game.randomizer_pickup_type"), WEAPON_PISTOL);
 	/* (the actors' weapons are not the player's to pick up) */
@@ -592,28 +670,35 @@ static void setup_from_config(struct setup *setup)
 		setup->pickup_type = WEAPON_PISTOL;
 	if (setup->weapon_type == WEAPON_FLAMETHROWER && !setup->flamethrower)
 		setup->weapon_type = WEAPON_PLASMA_RIFLE;
-	/* (ONE TYPE's TAG INJECTOR: a custom type of the profile's) */
-	setup->custom_type = !_stricmp(config_string("game.randomizer_type"), "tag_injector");
 	setup->pickup_custom_type = !_stricmp(config_string("game.randomizer_pickup_type"), "tag_injector");
 	setup->weapon_custom_type = !_stricmp(config_string("game.randomizer_weapon_type"), "tag_injector");
-	custom_type_name_copy(setup->custom_type_name, config_string("game.randomizer_custom_type"));
 	custom_type_name_copy(setup->pickup_custom_type_name, config_string("game.randomizer_pickup_custom"));
 	custom_type_name_copy(setup->weapon_custom_type_name, config_string("game.randomizer_weapon_custom"));
+	/* (a challenge is the same for everyone) */
+	setup->loadout = community_challenge_running() ? LOADOUT_DEFAULT :
+		name_index(config_string("game.randomizer_loadout"), loadout_names, LOADOUT_COUNT, LOADOUT_DEFAULT);
+	snprintf(setup->loadout_weapons[0], sizeof(setup->loadout_weapons[0]), "%s",
+		config_string("game.randomizer_loadout_primary"));
+	snprintf(setup->loadout_weapons[1], sizeof(setup->loadout_weapons[1]), "%s",
+		config_string("game.randomizer_loadout_secondary"));
 	/* (the TAG INJECTOR pools and types without the profile's tags: any) */
 	if (!setup->custom_tags)
 	{
-		if (setup->pool == POOL_TAG_INJECTOR || (setup->pool == POOL_ONE && setup->custom_type))
-			setup->pool = POOL_ANY;
+		actor_pool_without_custom(&setup->enemies);
+		actor_pool_without_custom(&setup->allies);
 		if (setup->pickup_pool == WEAPON_POOL_TAG_INJECTOR ||
 			(setup->pickup_pool == WEAPON_POOL_ONE && setup->pickup_custom_type))
 			setup->pickup_pool = WEAPON_POOL_ANY;
 		if (setup->weapon_pool == WEAPON_POOL_TAG_INJECTOR ||
 			(setup->weapon_pool == WEAPON_POOL_ONE && setup->weapon_custom_type))
 			setup->weapon_pool = WEAPON_POOL_ANY;
-		setup->custom_type = 0;
 		setup->pickup_custom_type = 0;
 		setup->weapon_custom_type = 0;
 	}
+	/* (AS ENEMIES; and a challenge's, the same for everyone, which sets the
+	enemies' alone) */
+	if (community_challenge_running() || !_stricmp(config_string("game.randomizer_ally_pool"), "as_enemies"))
+		allies_as_enemies(setup);
 }
 
 static void setup_from_remote(struct setup *setup)
@@ -623,14 +708,18 @@ static void setup_from_remote(struct setup *setup)
 	types' names are the host's alone, which this machine does not swap) */
 	int custom = tag_multiplayer_randomizer_shared();
 
-	setup->enemies = (remote_setup[0] & 1) != 0;
+	/* (the allies' pool in the bytes' high bits, 0 from a replay recorded
+	before they had one: halo_port_limits.h) */
+	int ally_pool = (remote_setup[2] >> 4) & 7;
+
+	setup->enemies.on = (remote_setup[0] & 1) != 0;
 	setup->pickups = (remote_setup[0] & 2) != 0;
 	setup->weapons = (remote_setup[0] & 4) != 0;
-	setup->allies = (remote_setup[0] & 8) != 0;
+	setup->allies.on = (remote_setup[0] & 8) != 0;
 	setup->crazy = (remote_setup[0] & 16) != 0;
-	setup->pool = remote_setup[1] <= (custom ? POOL_TAG_INJECTOR : POOL_ONE) ? remote_setup[1] : POOL_ANY;
-	setup->type = type_known(remote_setup[2]) ? remote_setup[2] : TYPE_GRUNT;
-	setup->rank = remote_setup[7] < RANK_COUNT ? remote_setup[7] : RANK_ANY;
+	setup->enemies.pool = (remote_setup[1] & 7) <= (custom ? POOL_TAG_INJECTOR : POOL_ONE) ? remote_setup[1] & 7 : POOL_ANY;
+	setup->enemies.type = type_known(remote_setup[2] & 15) ? remote_setup[2] & 15 : TYPE_GRUNT;
+	setup->enemies.rank = remote_setup[7] & 7;
 	setup->pickup_pool = remote_setup[8] <= (custom ? WEAPON_POOL_TAG_INJECTOR : WEAPON_POOL_ONE) ? remote_setup[8] :
 		WEAPON_POOL_ANY;
 	setup->pickup_type = remote_setup[9] < WEAPON_KIND_COUNT && !weapon_kinds[remote_setup[9]].actors_only ?
@@ -656,17 +745,27 @@ static void setup_from_remote(struct setup *setup)
 	}
 	/* (the host's profile's tags are its own, unless it shares them) */
 	setup->custom_tags = custom;
-	setup->custom_type = custom && (remote_setup[0] & 32) != 0;
+	setup->enemies.custom_type = custom && (remote_setup[0] & 32) != 0;
 	setup->pickup_custom_type = custom && (remote_setup[0] & 64) != 0;
 	setup->weapon_custom_type = custom && (remote_setup[0] & 128) != 0;
-	setup->custom_type_name[0] = 0;
+	setup->enemies.custom_type_name[0] = 0;
 	setup->pickup_custom_type_name[0] = 0;
 	setup->weapon_custom_type_name[0] = 0;
+	if (!ally_pool)
+	{
+		allies_as_enemies(setup);
+		return;
+	}
+	setup->allies.pool = ally_pool - 1 <= (custom ? POOL_TAG_INJECTOR : POOL_ONE) ? ally_pool - 1 : POOL_ANY;
+	setup->allies.type = type_known(remote_setup[1] >> 4) ? remote_setup[1] >> 4 : TYPE_GRUNT;
+	setup->allies.rank = (remote_setup[7] >> 3) & 7;
+	setup->allies.custom_type = custom && (remote_setup[2] & 128) != 0;
+	setup->allies.custom_type_name[0] = 0;
 }
 
 static int setup_swaps(struct setup const *setup)
 {
-	return setup->enemies || setup->pickups || setup->weapons;
+	return setup->enemies.on || setup->allies.on || setup->pickups || setup->weapons;
 }
 
 static int host_randomized(void)
@@ -817,53 +916,71 @@ static int weapon_one_type(void)
 	return current.weapon_custom_type ? WEAPON_NONE : current.weapon_type;
 }
 
+/* a weapon PLAYER LOADOUT may give that a level played alone copies: SET's
+two, or RANDOM's any campaign hand weapon (with the pickups on, it takes
+theirs, which their pool copies). Not in a co-op game, whose clients add the
+tags the host advertised and no others */
+static int loadout_wanted(int kind)
+{
+	if (!loadout_imports || kind == WEAPON_NONE)
+		return 0;
+	if (current.loadout == LOADOUT_SET)
+		return !_stricmp(current.loadout_weapons[0], weapon_kinds[kind].setting) ||
+			!_stricmp(current.loadout_weapons[1], weapon_kinds[kind].setting);
+	return !current.pickups && weapon_pool_allows(WEAPON_POOL_ANY, 0, kind, 1);
+}
+
 /* a weapon to copy from the other maps: one a pool the setup chose names.
 "any" is the level's own weapons and those its actors carry, as it was */
 static int weapon_wanted(char const *name)
 {
 	int kind = weapon_kind(name);
 
-	return (current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
+	return loadout_wanted(kind) || (current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
 			weapon_pool_allows(current.pickup_pool, pickup_one_type(), kind, 1)) ||
 		(current.weapons && current.weapon_pool != WEAPON_POOL_ANY &&
 			weapon_pool_allows(current.weapon_pool, weapon_one_type(), kind, 0));
 }
 
-static int pool_allows(int kind);
-
 /* the one type's rank, when the pool is one type with ranks */
-static int rank_allows(int kind, char const *variant_name)
+static int rank_allows(struct actor_pool const *pool, int kind, char const *variant_name)
 {
-	if (current.pool != POOL_ONE || current.rank == RANK_ANY || kind != current.type)
+	if (pool->pool != POOL_ONE || pool->rank == RANK_ANY || kind != pool->type)
 		return 1;
 
-	return variant_rank(kind, variant_name) == current.rank;
+	return variant_rank(kind, variant_name) == pool->rank;
 }
 
-static int pool_allows(int kind)
+static int pool_allows(struct actor_pool const *pool, int kind)
 {
 	if (kind == TYPE_NONE)
 		return 0;
 	/* (the profile's actor variants alone: add_custom_root) */
-	if (current.pool == POOL_TAG_INJECTOR || (current.pool == POOL_ONE && current.custom_type))
+	if (pool->pool == POOL_TAG_INJECTOR || (pool->pool == POOL_ONE && pool->custom_type))
 		return 0;
-	if (current.pool == POOL_ONE)
-		return kind == current.type;
+	if (pool->pool == POOL_ONE)
+		return kind == pool->type;
 	/* (the engineers, which the campaign hardly uses, and the sentinels,
 	which are not the covenant's: with game.randomizer_crazy_enemies only) */
 	if ((kind == TYPE_ENGINEER || kind == TYPE_SENTINEL) && !current.odd_enemies)
 		return 0;
-	if (current.pool == POOL_ANY)
+	if (pool->pool == POOL_ANY)
 		return 1;
-	if (current.pool == POOL_COVENANT)
+	if (pool->pool == POOL_COVENANT)
 		return kind == TYPE_GRUNT || kind == TYPE_ELITE || kind == TYPE_JACKAL || kind == TYPE_HUNTER ||
 			kind == TYPE_ENGINEER;
-	if (current.pool == POOL_FLOOD)
+	if (pool->pool == POOL_FLOOD)
 		return kind == TYPE_FLOOD_COMBAT || kind == TYPE_FLOOD_CARRIER || kind == TYPE_FLOOD_INFECTION;
-	if (current.pool == POOL_HUMAN)
+	if (pool->pool == POOL_HUMAN)
 		return kind == TYPE_MARINE;
 
 	return 0;
+}
+
+/* whether a side swapped takes this variant */
+static int side_wants(struct actor_pool const *pool, int kind, char const *variant_name)
+{
+	return pool->on && pool_allows(pool, kind) && rank_allows(pool, kind, variant_name);
 }
 
 static int variant_in_pool(struct tag_import_donor *donor, long datum)
@@ -871,6 +988,8 @@ static int variant_in_pool(struct tag_import_donor *donor, long datum)
 	long absolute = datum & 0xFFFF;
 	struct actor_variant_definition *variant;
 	char const *unit_name;
+	char const *variant_name;
+	int kind;
 
 	if (datum == NONE || tag_import_tag_group(donor, absolute) != ACTOR_VARIANT_DEFINITION_TAG)
 		return 0;
@@ -880,9 +999,10 @@ static int variant_in_pool(struct tag_import_donor *donor, long datum)
 	unit_name = tag_import_string(donor, variant->unit_reference.name);
 	if (!unit_name)
 		return 0;
+	kind = classify(unit_name);
+	variant_name = tag_import_tag_name(donor, absolute);
 
-	return pool_allows(classify(unit_name)) &&
-		rank_allows(classify(unit_name), tag_import_tag_name(donor, absolute));
+	return side_wants(&current.enemies, kind, variant_name) || side_wants(&current.allies, kind, variant_name);
 }
 
 static void seed_donor(struct tag_import_donor *donor)
@@ -919,15 +1039,15 @@ static void seed_donor(struct tag_import_donor *donor)
 	palette = scenario->ai_actor_palette.count > 0 && scenario->ai_actor_palette.count <= 256 ?
 		tag_import_address(donor, scenario->ai_actor_palette.address,
 			(unsigned long)scenario->ai_actor_palette.count * sizeof(*palette)) : NULL;
-	if (current.enemies && palette)
+	if ((current.enemies.on || current.allies.on) && palette)
 	{
 		for (index = 0; index < scenario->ai_actor_palette.count; index++)
 		{
 			if (variant_in_pool(donor, palette[index].index))
 				actors += tag_import_want(donor, palette[index].index & 0xFFFF);
 		}
-		error(_error_silent, "randomizer: %s queued %ld of %ld palette tags (pool %d)",
-			map, actors, scenario->ai_actor_palette.count, current.pool);
+		error(_error_silent, "randomizer: %s queued %ld of %ld palette tags (pools %d, %d)",
+			map, actors, scenario->ai_actor_palette.count, current.enemies.pool, current.allies.pool);
 	}
 }
 
@@ -938,18 +1058,23 @@ static void add_variant(long datum)
 {
 	struct actor_variant_definition *variant;
 	char const *unit_name;
+	char const *name;
+	int kind;
 
 	/* (a profile's join by their settings: add_custom_root) */
-	if (variant_count >= POOL_MAX || datum == NONE || !tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG) ||
-		tag_injector_tag_injected(datum))
+	if (datum == NONE || !tag_index_is_group(datum, ACTOR_VARIANT_DEFINITION_TAG) || tag_injector_tag_injected(datum))
 		return;
 	variant = actor_variant_definition_get(datum);
 	if (!variant)
 		return;
 	unit_name = variant->unit_reference.index == NONE ? NULL : tag_get_name(variant->unit_reference.index);
-	if (!pool_allows(classify(unit_name)) || !rank_allows(classify(unit_name), tag_get_name(datum)))
-		return;
-	variant_pool[variant_count++] = datum;
+	kind = classify(unit_name);
+	name = tag_get_name(datum);
+	/* (the enemies', on or off: its weapons are the pickups' ANY's too) */
+	if (enemy_choice.count < POOL_MAX && pool_allows(&current.enemies, kind) && rank_allows(&current.enemies, kind, name))
+		enemy_choice.variants[enemy_choice.count++] = datum;
+	if (ally_choice.count < POOL_MAX && side_wants(&current.allies, kind, name))
+		ally_choice.variants[ally_choice.count++] = datum;
 }
 
 /* a weapon a choice may give, when its pool has it */
@@ -1129,6 +1254,38 @@ static int custom_weapon_pool_allows(long root, char const *name, int pool, int 
 	return 0;
 }
 
+/* an actor variant of the Tag Injector's profile (the root `root` of
+custom_roots), in a side's pool when its settings name it */
+static void add_custom_variant(struct actor_pool const *pool, struct actor_choice *choice, long root, long datum,
+	int kind, char const *words)
+{
+	int allowed;
+	long index;
+
+	if (!pool->on || choice->count >= POOL_MAX)
+		return;
+	switch (pool->pool)
+	{
+	case POOL_ANY: case POOL_TAG_INJECTOR:
+		allowed = 1;
+		break;
+	case POOL_ONE:
+		allowed = pool->custom_type ? custom_type_is(root, pool->custom_type_name) :
+			custom_variant_type(root, kind) == pool->type && rank_allows(pool, pool->type, words);
+		break;
+	default:
+		allowed = custom_variant_faction(root, kind) == pool->pool;
+		break;
+	}
+	if (!allowed)
+		return;
+	for (index = 0; index < choice->count && choice->variants[index] != datum; index++)
+	{
+	}
+	if (index == choice->count)
+		choice->variants[choice->count++] = datum;
+}
+
 /* a weapon or an actor variant of the Tag Injector's profile (the root
 `root` of custom_roots), in each pool of the setup its settings name: ANY's
 and TAG INJECTOR's, its faction's, its class's, and the one type of its
@@ -1153,39 +1310,19 @@ static void add_custom_root(long root)
 		char const *unit_name = variant && variant->unit_reference.index != NONE ?
 			tag_get_name(variant->unit_reference.index) : NULL;
 		int kind = classify(unit_name);
-		int allowed;
 		char words[256 + TAG_INJECTOR_CUSTOM_TYPE_LENGTH];
 
-		if (!current.enemies || variant_count >= POOL_MAX)
-			return;
 		/* (a unit of no type the campaign has: the variant's words', its
 		name's too) */
 		custom_words(root, name, words, sizeof(words));
 		if (kind == TYPE_NONE)
 			kind = classify(words);
-		switch (current.pool)
-		{
-		case POOL_ANY: case POOL_TAG_INJECTOR:
-			allowed = 1;
-			break;
-		case POOL_ONE:
-			allowed = current.custom_type ? custom_type_is(root, current.custom_type_name) :
-				custom_variant_type(root, kind) == current.type && rank_allows(current.type, words);
-			break;
-		default:
-			allowed = custom_variant_faction(root, kind) == current.pool;
-			break;
-		}
-		if (!allowed)
-			return;
-		for (choice = 0; choice < variant_count && variant_pool[choice] != datum; choice++)
-		{
-		}
-		if (choice == variant_count)
-			variant_pool[variant_count++] = datum;
+		add_custom_variant(&current.enemies, &enemy_choice, root, datum, kind, words);
+		add_custom_variant(&current.allies, &ally_choice, root, datum, kind, words);
 		return;
 	}
-	if (!tag_index_is_group(datum, WEAPON_DEFINITION_TAG))
+	/* (a flag or a ball is the game type's: no pool's) */
+	if (!tag_index_is_group(datum, WEAPON_DEFINITION_TAG) || tag_injector_weapon_objective(datum))
 		return;
 	if (current.pickups)
 	{
@@ -1214,6 +1351,77 @@ static void add_custom_root(long root)
 		if (index == weapons->count && weapons->count < WEAPON_MAX)
 			weapons->definitions[weapons->count++] = datum;
 	}
+}
+
+void randomizer_loadout_tag_value(char const *path, char *value, unsigned int size)
+{
+	char lower[256];
+
+	lower_copy(lower, sizeof(lower), path);
+	snprintf(value, size, "tag:%08lx", mix_text(0x5EEDUL, lower));
+}
+
+/* the weapon a SET value names, of the level's tags (NONE: "none", or one it
+has not got) */
+static long loadout_weapon(char const *value)
+{
+	int kind = weapon_kind_id(value, WEAPON_NONE);
+	long index;
+
+	if (kind != WEAPON_NONE)
+		return weapon_kinds[kind].actors_only ? NONE : tag_loaded(WEAPON_DEFINITION_TAG, weapon_kinds[kind].tag);
+	for (index = 0; custom_profile != NONE && index < custom_root_count; index++)
+	{
+		char text[RANDOMIZER_LOADOUT_VALUE_LENGTH];
+
+		if (custom_roots[index] == NONE || !tag_index_is_group(custom_roots[index], WEAPON_DEFINITION_TAG) ||
+			tag_injector_weapon_objective(custom_roots[index]))
+			continue;
+		randomizer_loadout_tag_value(port_tag_profiles_tag_name(custom_profile, custom_root_tags[index]), text,
+			sizeof(text));
+		if (!strcmp(text, value))
+			return custom_roots[index];
+	}
+	return NONE;
+}
+
+/* PLAYER LOADOUT's weapons, with the level's tags all in: SET's two, or
+RANDOM's pool: the pickups' with them on, else every campaign hand weapon
+the level has, and the profile's. With neither to give, the level's own */
+static void loadout_build(void)
+{
+	long count = 0;
+	struct cache_file_tag_instance *instances = cache_files_tag_instances(&count);
+	long index;
+
+	loadout_choice.count = 0;
+	if (current.loadout == LOADOUT_SET)
+	{
+		loadout_set[0] = loadout_weapon(current.loadout_weapons[0]);
+		loadout_set[1] = loadout_weapon(current.loadout_weapons[1]);
+		loadout_ready = loadout_set[0] != NONE || loadout_set[1] != NONE;
+		if (!loadout_ready)
+			error(_error_silent, "randomizer: the level has neither weapon of the loadout (%s, %s)",
+				current.loadout_weapons[0], current.loadout_weapons[1]);
+		return;
+	}
+	if (current.pickups)
+		loadout_choice = pickup_choice;
+	for (index = 0; !loadout_choice.count && instances && index < count; index++)
+	{
+		if (instances[index].group_tag == WEAPON_DEFINITION_TAG)
+			add_weapon(&loadout_choice, instances[index].tag_index, WEAPON_POOL_ANY, 0, 1);
+	}
+	for (index = 0; !current.pickups && custom_profile != NONE && index < custom_root_count; index++)
+	{
+		long datum = custom_roots[index];
+
+		if (datum != NONE && tag_index_is_group(datum, WEAPON_DEFINITION_TAG) &&
+			!tag_injector_weapon_objective(datum) && loadout_choice.count < WEAPON_MAX)
+			loadout_choice.definitions[loadout_choice.count++] = datum;
+	}
+	loadout_ready = loadout_choice.count > 0;
+	error(_error_silent, "randomizer: spawn loadout: %ld weapons to choose among", loadout_choice.count);
 }
 
 /* a block definition still at the address the map was linked with is not a
@@ -1255,10 +1463,11 @@ static void build_pools(void)
 	struct cache_file_tag_instance *instances = cache_files_tag_instances(&count);
 	long index;
 
-	variant_count = 0;
+	enemy_choice.count = 0;
+	ally_choice.count = 0;
 	pickup_choice.count = 0;
 	actor_weapon_choice.count = 0;
-	if (!current.enemies && !current.pickups && !current.weapons)
+	if (!setup_swaps(&current))
 		return;
 	for (index = 0; instances && index < count; index++)
 	{
@@ -1292,9 +1501,10 @@ static void build_pools(void)
 					add_weapon(&pickup_choice, entry->reference.index, WEAPON_POOL_ANY, 0, 1);
 			}
 		}
-		for (index = 0; index < variant_count; index++)
+		for (index = 0; index < enemy_choice.count + ally_choice.count; index++)
 		{
-			struct actor_variant_definition *variant = actor_variant_definition_get(variant_pool[index]);
+			struct actor_variant_definition *variant = actor_variant_definition_get(index < enemy_choice.count ?
+				enemy_choice.variants[index] : ally_choice.variants[index - enemy_choice.count]);
 
 			if (variant)
 				add_weapon(&pickup_choice, variant->ranged_combat.reference.index, WEAPON_POOL_ANY, 0, 1);
@@ -1391,11 +1601,11 @@ static unsigned long placement_seed(long encounter_index, long squad_index, long
 	unsigned long seed = mix_text(0x524E444DUL, map_name_leaf);
 
 	seed = mix(seed ^ placement_roll);
-	seed = mix(seed ^ (unsigned long)current.enemies);
+	seed = mix(seed ^ (unsigned long)current.enemies.on);
 	seed = mix(seed ^ ((unsigned long)current.pickups << 1));
 	seed = mix(seed ^ ((unsigned long)current.weapons << 2));
-	seed = mix(seed ^ (unsigned long)current.pool);
-	seed = mix(seed ^ (unsigned long)current.type);
+	seed = mix(seed ^ (unsigned long)current.enemies.pool);
+	seed = mix(seed ^ (unsigned long)current.enemies.type);
 	seed = mix(seed ^ (unsigned long)encounter_index);
 	seed = mix(seed ^ (unsigned long)squad_index);
 	seed = mix(seed ^ (unsigned long)location_index);
@@ -1417,6 +1627,12 @@ static long pool_pick(long const *pool, long count, unsigned long seed)
 	return pool[seed % (unsigned long)count];
 }
 
+/* whether a side's pool takes actors of the campaign's */
+static int side_gathers(struct actor_pool const *pool)
+{
+	return pool->on && pool->pool != POOL_TAG_INJECTOR && !(pool->pool == POOL_ONE && pool->custom_type);
+}
+
 /* the randomizer's: each other campaign map's actors and weapons the
 setup's pools take, from its pack (tag_import.c) */
 static void gather_campaign(char const *leaf)
@@ -1425,8 +1641,7 @@ static void gather_campaign(char const *leaf)
 
 	/* (a pool of weapons other than the level's needs them copied too; the
 	TAG INJECTOR pools and custom types are the profile's alone) */
-	int enemies = current.enemies && current.pool != POOL_TAG_INJECTOR &&
-		!(current.pool == POOL_ONE && current.custom_type);
+	int enemies = side_gathers(&current.enemies) || side_gathers(&current.allies);
 	int pickups = current.pickups && current.pickup_pool != WEAPON_POOL_ANY &&
 		current.pickup_pool != WEAPON_POOL_TAG_INJECTOR &&
 		!(current.pickup_pool == WEAPON_POOL_ONE && current.pickup_custom_type);
@@ -1434,7 +1649,7 @@ static void gather_campaign(char const *leaf)
 		current.weapon_pool != WEAPON_POOL_TAG_INJECTOR &&
 		!(current.weapon_pool == WEAPON_POOL_ONE && current.weapon_custom_type);
 
-	if (!enemies && !pickups && !weapons)
+	if (!enemies && !pickups && !weapons && !loadout_imports)
 		return;
 	error(_error_silent, "randomizer: reading actors and weapons from the other campaign maps");
 	for (level = 0; level < 10; level++)
@@ -2247,6 +2462,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 	int skull;
 	int outbreak;
 	int scarab;
+	int loadout = 0;
 	long campaign_profile = NONE;
 	long forge_profile = NONE;
 	long forge_baked = NONE;
@@ -2357,15 +2573,24 @@ void randomizer_tags_loaded(char const *scenario_name)
 		which is the same for everyone) */
 		if (!community_challenge_running())
 			extra_enemies = (int)PIN(config_integer("game.randomizer_extra_enemies"), 1, 32);
+		/* (the host's alone, too, which gives its players their weapons; played
+		alone, it adds what it gives, with the Tag Injector's profile) */
+		loadout = current.loadout != LOADOUT_DEFAULT;
+		loadout_imports = loadout && !game;
 	}
 	/* (and the skull the enemies carry, which the randomizer may be off for) */
 	skull = firefight ? 1 : skulls_carried_wanted();
 	outbreak = firefight ? 1 : skulls_outbreak_wanted();
 	scarab = firefight ? 1 : skulls_scarab_wanted();
-	if (!firefight && !randomize && campaign_profile == NONE && !skull && !outbreak && !scarab)
-		return;
-	if ((randomize || campaign_profile != NONE) && !network_game_distributed_client() && !placement_roll_ready)
+	if ((randomize || campaign_profile != NONE || loadout) && !network_game_distributed_client() &&
+		!placement_roll_ready)
 		placement_roll_new(scenario_name);
+	if (!firefight && !randomize && !loadout_imports && campaign_profile == NONE && !skull && !outbreak && !scarab)
+	{
+		if (loadout)
+			loadout_build();
+		return;
+	}
 	snprintf(map_name_leaf, sizeof(map_name_leaf), "%s", leaf);
 	/* (the Tag Injector's profile: a level played alone only, as only this
 	machine has it, and never a challenge's, which is the same for everyone.
@@ -2383,7 +2608,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 		custom_profile = forge_profile;
 		stock_hud_count = tag_injector_tags_read(custom_profile, stock_huds, STOCK_HUD_MAX);
 	}
-	else if (randomize && current.custom_tags && !game && !network_game_distributed_client() &&
+	else if ((randomize || loadout_imports) && current.custom_tags && !game && !network_game_distributed_client() &&
 		!community_challenge_running())
 	{
 		custom_profile = tag_injector_profile_playable();
@@ -2410,7 +2635,7 @@ void randomizer_tags_loaded(char const *scenario_name)
 #if OPENCE_ENABLE_FORGE
 		gather_forge_actors();
 #endif
-		if (randomize)
+		if (randomize || loadout_imports)
 			gather_campaign(leaf);
 		skulls_tag_import(skull, outbreak, scarab);
 		gather_stock_huds(leaf);
@@ -2437,9 +2662,11 @@ void randomizer_tags_loaded(char const *scenario_name)
 		build_protected();
 		loaded = 1;
 	}
+	if (loadout)
+		loadout_build();
 	tag_import_log("randomizer");
-	error(_error_silent, "randomizer: %s, %ld actors, %ld weapons", leaf, variant_count,
-		pickup_choice.count + actor_weapon_choice.count);
+	error(_error_silent, "randomizer: %s, %ld enemy actors, %ld ally actors, %ld weapons", leaf, enemy_choice.count,
+		ally_choice.count, pickup_choice.count + actor_weapon_choice.count);
 	/* (the table as it is now, which a co-op game's machines must all have
 	alike: skulls.c compares a client's with its host's) */
 	{
@@ -2523,8 +2750,10 @@ void randomizer_tags_unloaded(void)
 	/* the level is going away. The next start, or the next advertisement
 	before it, rolls again. The cleanup at the start of a load finds this
 	already clear */
-	if (loaded)
+	if (loaded || loadout_ready)
 		placement_roll_ready = 0;
+	loadout_ready = 0;
+	loadout_imports = 0;
 	tag_injector_tags_unloaded();
 	tag_multiplayer_level_unloaded();
 	tag_campaign_level_unloaded();
@@ -2532,7 +2761,8 @@ void randomizer_tags_unloaded(void)
 	custom_root_count = 0;
 	custom_profile = NONE;
 	tag_import_level_unloaded();
-	variant_count = 0;
+	enemy_choice.count = 0;
+	ally_choice.count = 0;
 	pickup_choice.count = 0;
 	actor_weapon_choice.count = 0;
 	protected_count = 0;
@@ -2684,13 +2914,14 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 	allies too) */
 	int campaign = tag_campaign_level_playing();
 	int ally = 0;
+	struct actor_choice const *side;
 
 	placement_left_out = 0;
 	if (forced_variant != NONE)
 		return forced_variant;
 	if (!loaded || original == NONE || !location)
 		return original;
-	if (!campaign && (!current.enemies || variant_count <= 0))
+	if (!campaign && !current.enemies.on && !current.allies.on)
 		return original;
 	if (encounter_index == NONE || squad_index == NONE)
 		return original;
@@ -2702,17 +2933,17 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 		NULL;
 	if (!encounter)
 		return original;
-	/* marines who fight with the player stay the actors the level gave them,
-	unless the setup swaps them too. Most of the levels' marines are in
-	encounters of the default team, which is their unit's */
-	if (!current.allies)
+	/* marines who fight with the player are swapped by the allies' setup,
+	the rest by the enemies'. Most of the levels' marines are in encounters of
+	the default team, which is their unit's */
 	{
 		short team = variant_team(original, encounter);
 
 		ally = team == _game_team_player || team == _game_team_human;
-		if (ally && !campaign)
-			return original;
 	}
+	side = ally ? &ally_choice : &enemy_choice;
+	if (!campaign && (!(ally ? current.allies.on : current.enemies.on) || side->count <= 0))
+		return original;
 	squad = tag_block_get_element_with_size(&encounter->squads, squad_index, sizeof(*squad));
 	if (!squad)
 		return original;
@@ -2730,7 +2961,7 @@ long randomizer_actor_variant(long original, long encounter_index, long squad_in
 		int type = variant_type(original);
 		int rank = variant_rank(type, tag_get_name(original));
 		long picked = campaign ? tag_campaign_actor_variant(original, (short)type, (short)rank, ally, seed) :
-			pool_pick(variant_pool, variant_count, seed);
+			pool_pick(side->variants, side->count, seed);
 
 		/* (a campaign profile's level leaves this one as it is) */
 		if (picked == NONE || (campaign && picked == original))
@@ -3033,6 +3264,59 @@ long randomizer_weapon_definition(long definition_index, void *scenario_object)
 	return picked == NONE ? definition_index : picked;
 }
 
+/* the two weapons of a player's loadout: SET's, or RANDOM's, each player's
+own, the same for a level, from a roll of the level's. NONE for none */
+static void loadout_of_player(long player_index, long *weapons)
+{
+	long count = loadout_choice.count;
+	unsigned long seed = mix(placement_roll ^ mix((unsigned long)player_index + 1));
+	long first;
+
+	if (current.loadout == LOADOUT_SET)
+	{
+		weapons[0] = loadout_set[0];
+		weapons[1] = loadout_set[1] == loadout_set[0] ? NONE : loadout_set[1];
+		return;
+	}
+	first = (long)(seed % (unsigned long)count);
+	weapons[0] = loadout_choice.definitions[first];
+	weapons[1] = count < 2 ? NONE :
+		loadout_choice.definitions[(first + 1 + (long)(mix(seed) % (unsigned long)(count - 1))) % count];
+}
+
+int randomizer_player_loadout(long unit_index, int reset_equipment)
+{
+	struct unit_datum *unit = unit_try_and_get(unit_index);
+	long weapons[LOADOUT_WEAPONS];
+	int first = 1;
+	short index;
+
+	if (!loadout_ready || network_game_distributed_client() || !unit || unit->unit.player_index == NONE)
+		return 0;
+	/* (a script's weapons added to those held: a player keeps what it has) */
+	if (!reset_equipment && unit_get_weapon_count(unit_index) > 0)
+		return 1;
+	loadout_of_player(unit->unit.player_index, weapons);
+	for (index = 0; index < LOADOUT_WEAPONS; index++)
+	{
+		struct object_placement_data placement_data;
+		long weapon_index;
+
+		if (weapons[index] == NONE)
+			continue;
+		object_placement_data_new(&placement_data, weapons[index], unit_index);
+		weapon_index = object_new(&placement_data);
+		if (weapon_index == NONE)
+			continue;
+		if (unit_add_weapon_to_inventory(unit_index, weapon_index, first ? _unit_add_weapon_starting : _unit_add_weapon_normal))
+			first = 0;
+		else
+			object_delete(weapon_index);
+	}
+
+	return 1;
+}
+
 extern boolean unit_can_hold_weapon_definition(long unit_index, long weapon_definition_index);
 
 /* the weapon types (their animation labels, weapon_definition.label) whose
@@ -3217,16 +3501,19 @@ void randomizer_advertisement(unsigned char *reserved)
 	reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] =
 		(unsigned char)(reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] | HALO_PORT_ADVERTISED_RANDOMIZER_FLAG);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET] =
-		(unsigned char)((setup.enemies ? 1 : 0) | (setup.pickups ? 2 : 0) | (setup.weapons ? 4 : 0) |
-			(setup.allies ? 8 : 0) | (setup.crazy ? 16 : 0) | (setup.custom_type ? 32 : 0) |
+		(unsigned char)((setup.enemies.on ? 1 : 0) | (setup.pickups ? 2 : 0) | (setup.weapons ? 4 : 0) |
+			(setup.allies.on ? 8 : 0) | (setup.crazy ? 16 : 0) | (setup.enemies.custom_type ? 32 : 0) |
 			(setup.pickup_custom_type ? 64 : 0) | (setup.weapon_custom_type ? 128 : 0));
-	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 1] = (unsigned char)setup.pool;
-	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 2] = (unsigned char)setup.type;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 1] =
+		(unsigned char)(setup.enemies.pool | (setup.allies.type << 4));
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_SETUP_OFFSET + 2] =
+		(unsigned char)(setup.enemies.type | ((setup.allies.pool + 1) << 4) | (setup.allies.custom_type ? 128 : 0));
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET] = (unsigned char)placement_roll;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 1] = (unsigned char)(placement_roll >> 8);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 2] = (unsigned char)(placement_roll >> 16);
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_ROLL_OFFSET + 3] = (unsigned char)(placement_roll >> 24);
-	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET] = (unsigned char)setup.rank;
+	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET] =
+		(unsigned char)(setup.enemies.rank | (setup.allies.rank << 3));
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 1] = (unsigned char)setup.pickup_pool;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 2] = (unsigned char)setup.pickup_type;
 	reserved[HALO_PORT_ADVERTISED_RANDOMIZER_WEAPONS_OFFSET + 3] = (unsigned char)setup.weapon_pool;

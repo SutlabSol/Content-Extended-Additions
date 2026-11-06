@@ -242,7 +242,8 @@ static long choice_tag(char const *path, long profile, long const *roots, long c
 	for (index = 0; index < count; index++)
 	{
 		if (roots[index] != NONE && port_tag_profiles_tag_group(profile, root_tags[index]) == group &&
-			names_match(port_tag_profiles_tag_name(profile, root_tags[index]), path))
+			names_match(port_tag_profiles_tag_name(profile, root_tags[index]), path) &&
+			!(group == 'weap' && tag_injector_weapon_objective(roots[index])))
 			return roots[index];
 	}
 	return NONE;
@@ -532,6 +533,9 @@ void tag_campaign_level_loaded(
 		if (roots[index] == NONE)
 			continue;
 		group = port_tag_profiles_tag_group(profile, root_tags[index]);
+		/* (a flag or a ball is no weapon to swap in or to give) */
+		if (group == 'weap' && tag_injector_weapon_objective(roots[index]))
+			continue;
 		if (group == 'weap' && tag_campaign_level.weapon_count < MAXIMUM_PROFILE_ROOTS)
 			tag_campaign_level.weapons[tag_campaign_level.weapon_count++] = roots[index];
 		else if (group == 'actv' && tag_campaign_level.ai_count < MAXIMUM_PROFILE_ROOTS)

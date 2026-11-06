@@ -434,6 +434,23 @@ AUTOMATIC and POWER the weapons of their class, and ONE TYPE's campaign
 types the AI that count as them (and are of the rank chosen, by their
 names). A setup saved (SAVE) keeps the custom types.
 
+A flag, an oddball or another map's thing of their kind (a weapon with the
+bit the game's `weapon_is_flag` reads) can sit in a profile, but no pool,
+swap or loadout gives one, here or in multiplayer and campaign profiles, and
+the menus do not offer it. The game type places them.
+
+The randomizer's **PLAYER LOADOUT** page sets the weapons a player starts with
+(`game.randomizer_loadout`): **DEFAULT**, the level's weapons; **RANDOM**, two
+for each player, rolled as the level loads, from the pickups' pool with
+WEAPON PICKUPS on, else any campaign hand weapon and the profile's; or **SET**,
+**PRIMARY** and **SECONDARY** as chosen, among the campaign's hand weapons and
+the profile's. They stand in for the starting profile's weapons at the spawn
+and each time a script gives one; its grenades, health and shields stay. Played
+alone a weapon the level lacks is copied in; a co-op host, whose clients add
+only the tags it advertises, gives only weapons the level has. A campaign
+profile, played in the randomizer's place, and a daily challenge use the
+level's. A setup saved keeps it.
+
 A campaign level the randomizer swaps is given the profile's tags on as it
 loads, after those the randomizer copies from the other campaign maps (none
 for a pool of the profile's alone):

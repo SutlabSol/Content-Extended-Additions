@@ -105,6 +105,16 @@ long tag_injector_tag_size(
 	long index,
 	char *reason,
 	long reason_size);
+/* whether a weapon of the level is a flag or an oddball (or another map's
+thing of their kind): what the game itself takes for one, weapon_is_flag's
+bit, of the stock weapons only theirs. The game type places them; a pool,
+a swap or a loadout never gives one */
+boolean tag_injector_weapon_objective(
+	long definition_index);
+/* ... and of a profile's tag, from its file (the menus: no level has it) */
+boolean tag_injector_tag_objective(
+	long profile,
+	long tag);
 /* whether a profile's weapon, actor variant or equipment is of a path a
 campaign map has (REPLACE ORIGINAL can replace that one). The campaign maps
 are read the first time it is asked */

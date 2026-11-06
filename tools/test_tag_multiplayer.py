@@ -228,7 +228,7 @@ def test_cooperative():
     assert "tag_multiplayer_game_randomizer_profile_set(randomizer_profile)" in choose
     assert "config_boolean(\"game.randomizer\") ? port_tag_profiles_count() : 0" in functions
     assert "message.share.kind = (byte)hosted->kind;" in share
-    assert "(setup.custom_type ? 32 : 0)" in advertised
+    assert "(setup.enemies.custom_type ? 32 : 0)" in advertised
     remote = randomizer.split("static void setup_from_remote(struct setup *setup)", 1)[1].split("\n}\n", 1)[0]
     assert "int custom = tag_multiplayer_randomizer_shared();" in remote and "POOL_TAG_INJECTOR" in remote
     assert loaded.index("tag_multiplayer_randomizer_level_profile(scenario_name)") < loaded.rindex("tag_import_begin()")
