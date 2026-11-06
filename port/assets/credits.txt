@@ -6,6 +6,11 @@ A fork of OpenCE, built from the decompilation of Halo: Combat Evolved for Xbox.
 - On the PS5, the title as a whole: GNU GPL 3.0 or later, as PS5_Vulkan requires.
 Source and license texts: github.com/Watanoge/halo-content-evolved
 
+FORGE, RANKS, MEDALS AND FIREFIGHT
+- Motalev (SutlabSol): original author of the Forge, player rank, player medal and Firefight modes
+- github.com/SutlabSol/Content-Extended-Additions
+- Watanoge: the tag profile system, bug fixes, more features and visual changes
+
 THE GAME'S ORIGINS
 - OpenCE, the upstream project: AGPL 3.0 or later
 - SlipstreamCE, thelinkin3000's fork of it: AGPL 3.0 or later

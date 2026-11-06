@@ -127,8 +127,6 @@
   "ce/port/main_menu/menu_firefight_variants__1.png",
   "ce/port/main_menu/menu_single_player__0.png",
   "ce/port/main_menu/menu_single_player__1.png",
-  "ce/port/main_menu/menu_edit_maps__0.png",
-  "ce/port/main_menu/menu_edit_maps__1.png",
   "ce/port/main_menu/menu_tag_injector__0.png",
   "ce/port/main_menu/menu_tag_injector__1.png",
   "ce/port/main_menu/menu_forge__0.png",
@@ -374,7 +372,6 @@
   "ce/shell/main_menu/multiplayer_type_select/mp_map_select/header_select_map__0.png",
   "ce/shell/main_menu/multiplayer_type_select/mp_options__0.png",
   "ce/shell/main_menu/multiplayer_type_select/mp_options__1.png",
-  "ce/shell/main_menu/multiplayer_type_select/mp_options__6.png",
   "ce/shell/main_menu/multiplayer_type_select/server_settings/header_server_settings__0.png",
   "ce/shell/main_menu/player_profiles_select/header_select_profile__0.png",
   "ce/shell/main_menu/settings_select/multiplayer_setup/indicator_options_edit/header_indicator_options__0.png",
@@ -413,7 +410,6 @@
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__5.png",
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__6.png",
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__8.png",
-  "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__9.png",
   "ce/shell/main_menu/settings_select/player_setup/player_profile_edit/video_settings/header_profile_video_settings__0.png",
   "ce/shell/main_menu/solo_level_select/header_load_level__0.png"
  ]

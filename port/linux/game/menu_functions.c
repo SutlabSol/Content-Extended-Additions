@@ -19913,11 +19913,23 @@ static boolean gamemode_select_standard(void)
 	return TRUE;
 }
 
+/* Forge and Firefight each start from nothing of the other: a game's variant
+stays set after it, and Firefight's would take the next Forge session for a
+Firefight game (randomizer.c's firefight_wanted) and play it as Slayer */
+static void gamemode_variant_forget(void)
+{
+	extern void player_ui_clear_multiplayer_variant(void);
+
+	player_ui_clear_multiplayer_variant();
+	global_variant.game_engine_index = game_engine_none;
+}
+
 static boolean gamemode_select_firefight(void)
 {
 	multiplayer.gamemode = _gamemode_firefight;
 	multiplayer.firefight_mode = TRUE;
 	gametype_edit.stale = TRUE;
+	gamemode_variant_forget();
 	return TRUE;
 }
 
@@ -19926,6 +19938,7 @@ static boolean gamemode_select_forge(void)
 	multiplayer.gamemode = _gamemode_forge;
 	multiplayer.firefight_mode = FALSE;
 	gametype_edit.stale = TRUE;
+	gamemode_variant_forget();
 	return TRUE;
 }
 
@@ -19936,8 +19949,8 @@ static void mp_type_screen_update(struct widget_instance *list)
 	struct widget_instance *gametypes_item = list ? named(list, "multiplayer_type_gametypes_item", 0) : NULL;
 	struct widget_instance *desc = list ? list->parameters.list.extended_description : NULL;
 	boolean is_standard = multiplayer.gamemode == _gamemode_standard;
-	/* (Firefight's menu has FIREFIGHT VARIANTS and SOLO in their place) */
-	boolean can_edit_gametypes = multiplayer.gamemode == _gamemode_standard;
+	/* (Firefight's list is its variants alone: gametype_edit_gather) */
+	boolean can_edit_gametypes = multiplayer.gamemode != _gamemode_forge;
 	struct widget_instance *local_item = list ? named(list, "multiplayer_type_create_local_item", 0) : NULL;
 
 	if (screen)
@@ -19967,13 +19980,6 @@ static void mp_type_screen_update(struct widget_instance *list)
 		if (named(list, "multiplayer_type_join_internet_item", 0))
 			list->focused_child = named(list, "multiplayer_type_join_internet_item", 0);
 	}
-	if (desc && list && list->focused_child && list->focused_child->name &&
-		!strcmp(list->focused_child->name, "forge_type_edit_maps_item"))
-	{
-		struct widget_instance *txt = desc->child;
-		if (txt)
-			txt->parameters.text_box.string_list_index = 7;
-	}
 }
 
 /* ---------- the renderer, under the version number */
@@ -19986,39 +19992,32 @@ __attribute__((weak)) char const *d3d8_renderer_description(void)
 	return NULL;
 }
 
-/* The main menu's corner, its news hint, version and renderer: on the screen's right edge, past the 640 columns the menus
-are laid out in and centred by (their places in them: main_menu.xml), rather than those columns' */
-static void main_menu_corner_to_screen_edge(struct widget_instance *text_box)
-{
-	static struct
-	{
-		char const *name;
-		short x;
-	} const corner[] = { { "x_butn_news", 572 }, { "news_hint", 572 }, { "build_number", 450 }, { "renderer", 450 } };
-	struct widget_instance *parent = text_box->parent;
-	short margin = (short)halo_screen_ui_offset_current();
-	short index;
-
-	if (!parent)
-		return;
-	for (index = 0; index < (short)NUMBEROF(corner); index++)
-	{
-		struct widget_instance *widget = named(parent, corner[index].name, 0);
-
-		if (widget)
-			widget->horizontal_offset = (short)(parent->horizontal_offset + corner[index].x + margin);
-	}
-}
-
 static void renderer_text_update(struct widget_instance *text_box)
 {
 	char const *description = d3d8_renderer_description();
 	wchar_t text[ROW_TEXT_LENGTH];
 
-	main_menu_corner_to_screen_edge(text_box);
 	if (!description || !ascii_to_wide(description, text, sizeof(text)))
 		return;
 	text_set(text_box, text);
+}
+
+/* the main menu's build, right of the renderer over the friends list */
+static void build_text_update(struct widget_instance *text_box)
+{
+	void main_build_identity(long *number, char *flavor, size_t flavor_size, char *repository,
+		size_t repository_size, char *version, size_t version_size);
+	char flavor[32], repository[64], version[96], line[32];
+	wchar_t text[ROW_TEXT_LENGTH];
+	long number = 0;
+
+	main_build_identity(&number, flavor, sizeof(flavor), repository, sizeof(repository), version, sizeof(version));
+	if (number > 0)
+		snprintf(line, sizeof(line), "BUILD %ld", number);
+	else
+		snprintf(line, sizeof(line), "BUILD DEV");
+	if (ascii_to_wide(line, text, sizeof(text)))
+		text_set(text_box, text);
 }
 
 /* ---------- public code */
@@ -21008,6 +21007,8 @@ void pc_menu_game_data_function_invoke(
 		profile_gamepad_layout(widget);
 	else if (!strcmp(name, "port gamepad layout overlay"))
 		gamepad_layout_overlay(widget);
+	else if (!strcmp(name, "port build textbox"))
+		build_text_update(widget);
 	else if (!strcmp(name, "port renderer textbox"))
 		renderer_text_update(widget);
 	else if (!strcmp(name, "randomizer profiles update"))

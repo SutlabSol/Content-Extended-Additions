@@ -1,9 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The PC version's menus: ui\shell\main_menu\settings_select\player_setup\player_profile_edit (tools/ce_menus.py) -->
 <menus>
-	<widget name="main_menu/settings_select/player_setup/player_profile_edit/about_item" type="text" left="51" top="310" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="9" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="left_mouse" run="NULL"/>
-	</widget>
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/audio_settings_profile_item" type="text" left="51" top="210" width="232" height="32" bitmap="bitmaps/list_item_bkd" string_list="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_options" string_index="4" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/audio_settings_screen"/>
 		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/audio_settings/audio_settings_screen"/>
@@ -76,15 +73,14 @@
 	<widget name="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_extended_description">
 		<data input="plyr prof edit select menu upd8"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/name_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_setup_profile_item" y="-7"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepads_profile_item" y="-13"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings_profile_item" y="-20"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings_profile_item" y="-26"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings_profile_item" y="-33"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_settings_profile_item" y="-41"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="-14"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/controller_setup_profile_item" y="-4"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gamepads_profile_item" y="-7"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/mouse_settings_profile_item" y="-11"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/audio_settings_profile_item" y="-15"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/video_settings_profile_item" y="-18"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/network_settings_profile_item" y="-23"/>
+		<child widget="main_menu/settings_select/player_setup/player_profile_edit/color_profile_item" y="6"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/gameplay_profile_item"/>
-		<child widget="main_menu/settings_select/player_setup/player_profile_edit/about_item" y="6"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/credits_item"/>
 		<child widget="main_menu/settings_select/player_setup/player_profile_edit/profile_edit_button_bar" y="414"/>
 	</widget>

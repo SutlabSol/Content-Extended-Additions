@@ -1469,14 +1469,19 @@ boolean pc_menu_event_function_invoke(
 	{
 		extern boolean firefight_active(void);
 		extern boolean multiplayer_firefight_mode(void);
-		if (firefight_active() || multiplayer_firefight_mode())
+		/* (Forge chosen comes first: Firefight's mode and variant are still
+		set here, gamemode_select_forge clearing them after this) */
+		if ((fn_name && strcmp(fn_name, "gamemode select forge") == 0) ||
+			(fn_name && strcmp(fn_name, "gamemode select choose") == 0 && strcmp(w_name, "gm_forge_item") == 0))
+		{
+			g_forge_session_enabled = 1;
+			forge_runtime_init();
+		}
+		else if (firefight_active() || multiplayer_firefight_mode())
 		{
 			g_forge_session_enabled = 0;
 		}
-		else if ((fn_name && strcmp(fn_name, "gamemode select forge") == 0) ||
-			(fn_name && strcmp(fn_name, "gamemode select choose") == 0 && strcmp(w_name, "gm_forge_item") == 0) ||
-			strncmp(w_name, "forge_", 6) == 0 ||
-			strncmp(p_name, "forge_", 6) == 0)
+		else if (strncmp(w_name, "forge_", 6) == 0 || strncmp(p_name, "forge_", 6) == 0)
 		{
 			g_forge_session_enabled = 1;
 			forge_runtime_init();

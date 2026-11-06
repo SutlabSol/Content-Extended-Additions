@@ -31,7 +31,7 @@ def test_forge_lists_the_tag_injector_and_has_no_tag_options():
     menu = forge_menu()
     rows = re.findall(r'forge_select/(forge_item_[a-z_]+)" x="\d+" y="(\d+)"', menu)
     assert [name for name, _ in rows] == ["forge_item_single_player", "forge_item_multiplayer",
-                                          "forge_item_edit_maps", "forge_item_tag_injector"]
+                                          "forge_item_tag_injector"]
     hooks = HOOKS.read_text()
     for gone in ("forge_add_tags", "forge_installed_tag", "forge_name_tag_screen", "forge_tag_options",
                  "forge_snap_points_list", "forge_reset_stock", "forge_reset_custom", "forge_tag_browser_desc"):

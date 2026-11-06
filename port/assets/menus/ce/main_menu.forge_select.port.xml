@@ -21,11 +21,6 @@
 		<on event="start" open="main_menu/forge_select/forge_mp_type_select_screen"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/forge_select/forge_item_edit_maps" type="text" width="256" height="33" bitmap="main_menu/menu_edit_maps">
-		<on event="a" open="main_menu/forge_select/forge_edit_maps_screen"/>
-		<on event="start" open="main_menu/forge_select/forge_edit_maps_screen"/>
-		<on event="left_mouse" run="mouse emit accept event"/>
-	</widget>
 	<widget name="main_menu/forge_select/forge_item_tag_injector" type="text" width="320" height="33" bitmap="main_menu/menu_tag_injector">
 		<on event="a" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_injector_screen"/>
 		<on event="start" open="main_menu/settings_select/player_setup/player_profile_edit/gameplay/tag_injector/tag_injector_screen"/>
@@ -35,9 +30,8 @@
 		<on event="created" run="gamemode menu init"/>
 		<child widget="main_menu/forge_select/forge_item_single_player" x="160" y="208"/>
 		<child widget="main_menu/forge_select/forge_item_multiplayer" x="192" y="240"/>
-		<child widget="main_menu/forge_select/forge_item_edit_maps" x="192" y="272"/>
-		<child widget="main_menu/forge_select/forge_item_tag_injector" x="160" y="304"/>
-		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="336"/>
+		<child widget="main_menu/forge_select/forge_item_tag_injector" x="160" y="272"/>
+		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="304"/>
 	</widget>
 	<widget name="main_menu/forge_select/forge_menu" width="640" height="480" flags="pass_unhandled_to_focused_child">
 		<on event="b" back="true"/>
@@ -60,11 +54,6 @@
 		<child widget="main_menu/forge_select/forge_browser_button_choose" x="380" y="1"/>
 		<child widget="main_menu/forge_select/forge_browser_button_back" x="510" y="1"/>
 	</widget>
-	<widget name="main_menu/forge_select/forge_type_edit_maps_item" type="text" left="51" width="232" height="32" bitmap="bitmaps/list_item_bkd" text="EDIT MAPS" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="5">
-		<on event="a" open="main_menu/forge_select/forge_edit_maps_screen"/>
-		<on event="start" open="main_menu/forge_select/forge_edit_maps_screen"/>
-		<on event="left_mouse" run="mouse emit accept event"/>
-	</widget>
 	<widget name="main_menu/forge_select/forge_mp_type_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/multiplayer_type_select/multiplayer_type_list_ext_desc">
 		<data input="multiplayer type menu update desc"/>
 		<data input="mp type screen update"/>
@@ -76,7 +65,6 @@
 		<child widget="main_menu/multiplayer_type_select/multiplayer_type_create_internet_item" y="223"/>
 		<child widget="main_menu/multiplayer_type_select/multiplayer_type_create_lan_item" y="252"/>
 		<child widget="main_menu/multiplayer_type_select/multiplayer_type_create_local_item" y="281"/>
-		<child widget="main_menu/forge_select/forge_type_edit_maps_item" y="358"/>
 		<child widget="main_menu/multiplayer_type_select/multiplayer_type_button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/forge_select/forge_mp_type_select_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
@@ -86,12 +74,6 @@
 		<child widget="main_menu/multiplayer_type_select/header_forge"/>
 		<child widget="main_menu/forge_select/forge_mp_type_select_list"/>
 		<child widget="main_menu/blueline" x="64" y="349"/>
-	</widget>
-	<widget name="main_menu/forge_select/edit_maps_kind_spinner" type="spinner" width="238" height="22" flags="left_right_tabs_items" strings="USER CREATED|DOWNLOADED" font="ui\large_ui" color="#FF2896FF" align="center" text_y="1" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -6 19 0" footer_bounds="7 238 19 244">
-		<on event="left_mouse" run="mouse spinner 1wide click"/>
-	</widget>
-	<widget name="main_menu/forge_select/edit_maps_kind_row" width="256" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds_sm" font="ui\large_ui" color="#FF2896FF" align="center" text_y="3">
-		<child widget="main_menu/forge_select/edit_maps_kind_spinner" x="9" y="2"/>
 	</widget>
 	<widget name="main_menu/forge_select/forge_tag_profile_title" type="text" controller="1" left="68" top="74" width="504" height="22" text="TAG INJECTOR PROFILE" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
@@ -119,32 +101,6 @@
 		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
 		<child widget="main_menu/forge_select/forge_tag_profile_list"/>
 		<child widget="main_menu/forge_select/forge_tag_profile_title"/>
-		<child widget="main_menu/multiplayer_type_select/header_forge"/>
-	</widget>
-	<widget name="main_menu/forge_select/forge_edit_maps_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/solo_level_select/solo_level_extended_desc">
-		<data input="load game list update"/>
-		<on event="created" run="load game menu init"/>
-		<on event="custom_activation" run="load game menu activated"/>
-		<on event="b" back="true"/>
-		<on event="back" back="true"/>
-		<child widget="main_menu/forge_select/edit_maps_kind_row" x="82" y="73"/>
-		<child widget="main_menu/new_select/list_item_1" x="20" y="103"/>
-		<child widget="main_menu/new_select/list_item_2" x="20" y="133"/>
-		<child widget="main_menu/new_select/list_item_3" x="20" y="163"/>
-		<child widget="main_menu/new_select/list_item_4" x="20" y="193"/>
-		<child widget="main_menu/new_select/list_item_5" x="20" y="223"/>
-		<child widget="main_menu/new_select/list_item_6" x="20" y="253"/>
-		<child widget="main_menu/new_select/list_item_7" x="20" y="283"/>
-		<child widget="main_menu/new_select/list_item_8" x="20" y="313"/>
-		<child widget="main_menu/new_select/list_item_9" x="20" y="343"/>
-		<child widget="main_menu/new_select/list_item_10" x="20" y="373"/>
-		<child widget="main_menu/solo_level_select/solo_level_select_button_bar" y="414"/>
-	</widget>
-	<widget name="main_menu/forge_select/forge_edit_maps_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">
-		<on event="b" back="true"/>
-		<on event="back" back="true"/>
-		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
-		<child widget="main_menu/forge_select/forge_edit_maps_list"/>
 		<child widget="main_menu/multiplayer_type_select/header_forge"/>
 	</widget>
 	<widget name="main_menu/firefight_select/firefight_item_create_local" type="text" width="256" height="33" bitmap="main_menu/menu_solo">

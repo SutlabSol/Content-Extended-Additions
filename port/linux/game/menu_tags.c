@@ -492,7 +492,7 @@ static char const *const port_game_data_input_names[] =
 	button-layout overlay in its place) */
 	"port gamepad layout preview",
 	/* (the main menu's line under the version number: the renderer, and its driver) */
-	"port renderer textbox",
+	"port renderer textbox", "port build textbox",
 	/* (the campaign randomizer's saved profiles, and its screen's rows) */
 	"randomizer profiles update", "randomizer screen update", "randomizer tag profiles update",
 	"randomizer loadout update", "randomizer hub update",
@@ -2251,13 +2251,12 @@ the profile itself. */
 
 /* Change Name's keyboard and Change Color's pictures are ui.map's, Network
 Setup is for others' games (shown in co-op: its pages, pause_network_patch),
-and About and Credits are nothing to it */
+and Credits is nothing to it */
 static char const *const pause_settings_hidden_items[] =
 {
 	"main_menu/settings_select/player_setup/player_profile_edit/name_profile_item",
 	PAUSE_NETWORK_ITEM,
 	"main_menu/settings_select/player_setup/player_profile_edit/color_profile_item",
-	"main_menu/settings_select/player_setup/player_profile_edit/about_item",
 	"main_menu/settings_select/player_setup/player_profile_edit/credits_item",
 };
 

@@ -199,25 +199,12 @@ XBOX_FRAMES = {
     "shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__7": 3,
 }
 PLACEHOLDER_SCALE = 2
-# the menus' rows with an icon of their own (port/assets/menus/menu_icons): its frame, its file and the margin around
-# its artwork, which is 302 across in all of them; and where the artwork goes in the frame, the middle of the panel it
-# is drawn in, as About's logo, and clear of the description's text. (Multiplayer's picture
-# had three frames for its seven rows: MENU_EXTRA_FRAMES)
-MENU_ICONS = {
-    "shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__4": ("audio.svg", 24),
-    "shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__5": ("video.svg", 49),
-    "shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__6": ("internet.svg", 24),
-    "shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options__9": ("gameplay.svg", 24),
-    "shell/main_menu/multiplayer_type_select/mp_options__0": ("internet.svg", 24),
-    "shell/main_menu/multiplayer_type_select/mp_options__1": ("lan.svg", 24),
-    "shell/main_menu/multiplayer_type_select/mp_options__6": ("gametypes.svg", 24),
-}
-# the frames a picture has past the PC version's, for the rows it has past them: the number of the frame's file (another
-# frame's for the same picture again, a MENU_ICONS' for a new one), or None for nothing. Multiplayer's Create Internet,
-# Create LAN, Co-op and Edit Gametypes; the profile settings' Gameplay
+# the menus' rows with an icon of their own (none: the placeholders are kept): its frame, its file and the margin
+MENU_ICONS = {}
+# the frames a picture has past the PC version's, for the rows it has past them: the number of the frame's file, or None
+# for nothing. Multiplayer's Create Internet, Create LAN, Co-op and Edit Gametypes
 MENU_EXTRA_FRAMES = {
-    "shell/main_menu/multiplayer_type_select/mp_options": [0, 1, None, 6],
-    "shell/main_menu/settings_select/player_setup/player_profile_edit/profile_options": [9],
+    "shell/main_menu/multiplayer_type_select/mp_options": [0, 1, None, 0],
 }
 MENU_ICON_ARTWORK = 302
 MENU_ICON_SQUARE = (112, 35, 340)

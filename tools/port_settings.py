@@ -115,7 +115,7 @@ PROFILE_ROWS = [("name_profile_item", 78), ("controller_setup_profile_item", 111
                 ("gamepads_profile_item", 144), ("mouse_settings_profile_item", 177),
                 ("audio_settings_profile_item", 210), ("video_settings_profile_item", 243),
                 ("network_settings_profile_item", 277), ("color_profile_item", 277),
-                ("gameplay_profile_item", None), ("about_item", 310), ("credits_item", None)]
+                ("gameplay_profile_item", None), ("credits_item", None)]
 PROFILE_ROWS_TOP = 78
 PROFILE_ROWS_LAST_TOP = 342
 
@@ -1196,11 +1196,6 @@ STRING_OVERRIDES = {
         "Internet play, updates and the\\nmultiplayer HUD.\\n\\nProfile:",
         "Change the current profile's\\nfree-for-all multiplayer color.\\n\\nProfile:",
         "How players and the AI fall:\\nthe animation, or a ragdoll.\\n\\nProfile:",
-        # (a string for each platform: ce_menus.py's strings_xml)
-        {"switch": "Halo Content Evolved, on OpenCE.\\nHalo: Combat Evolved on your\\nSwitch\\nProfile:",
-         "ps5": "Halo Content Evolved, on OpenCE.\\nHalo: Combat Evolved on your\\nPS5\\nProfile:",
-         "android": "Halo Content Evolved, on OpenCE.\\nHalo: Combat Evolved on your\\nAndroid Device\\nProfile:",
-         "desktop web": "Halo Content Evolved, on OpenCE.\\nHalo: Combat Evolved on your\\nComputer\\nProfile:"},
         "The people behind the game, and\\nthe licenses of what it uses.\\n\\nProfile:",
     ],
 }
@@ -2764,7 +2759,7 @@ STRING_OVERRIDES.update({
 # menu_tags.c's map_strings); the inserted strings (STRING_INSERTS) are the
 # port's own, the rest of their lists the PC version's
 OVERRIDE_ORIGINALS = {
-    f"{PE}/profile_edit_descriptions": [0, None, None, None, None, None, None, 7, None, None, None],
+    f"{PE}/profile_edit_descriptions": [0, None, None, None, None, None, None, 7, None, None],
     f"{MT}/multiplayer_options": [0, 1, 2, 3, None, 5, None, None, None],
     f"{MT}/multiplayer_option_descriptions": [0, 1, None, None, 4, None, None, 5],
     "main_menu/gametype_select/var_gametype_banks": [0, None, 2, None, None, None],
@@ -2998,11 +2993,11 @@ WIDGET_PATCHES = {
     f"{PE}/profile_edit_extended_description": {"children": [
         f'<child widget="{LAYOUT}/{controller}/overlay_small" x="4" platform="{spec["platform"]}"/>'
         for controller, spec in CONTROLLERS.items()]},
-    # (Gameplay, before About: its screen is the gameplay file's; the rows'
+    # (Gameplay and Credits, in About's place: Gameplay's screen is the gameplay file's; the rows'
     # places, PROFILE_ROWS)
-    f"{PE}/profile_edit_select_list": {"insert_before": {
-        f"{PE}/about_item": [f'<child widget="{PE}/gameplay_profile_item"/>'],
-        f"{PE}/profile_edit_button_bar": [f'<child widget="{PE}/credits_item"/>'],
+    f"{PE}/profile_edit_select_list": {"remove": [f"{PE}/about_item"], "insert_before": {
+        f"{PE}/profile_edit_button_bar": [f'<child widget="{PE}/gameplay_profile_item"/>',
+                                          f'<child widget="{PE}/credits_item"/>'],
     }},
     # (straight to their screens: no "checking for updates" dialog, which
     # asked the PC version's servers)
@@ -5101,6 +5096,10 @@ def _news_screen() -> list:
     # (the hint's tap and click: a widget named as a screen key's icon is X's
     # to the pointer, and the text beside it its label, ui_widget.c's
     # ui_mouse_key_button; nothing of it drawn, the hint's own picture is)
+    # (the build, after the main menu's version and renderer: "port build textbox")
+    lines += _widget(f"{base}/build_tag", [("type", "text"), ("controller", 1), ("width", 80), ("height", 20),
+                                           ("font", "ui\\small_ui"), ("color", "#FFFF8000"), ("align", "right")],
+                     ['<data input="port build textbox"/>'])
     lines += _widget(f"{base}/x_butn_news", [("width", 16), ("height", 20)], [])
     lines += _widget(f"{base}/b_butn_news_back", [("width", 16), ("height", 20)], [])
     lines += _widget(f"{base}/news_hint", [("type", "text"), ("controller", 1), ("width", 60), ("height", 20),
@@ -5271,7 +5270,6 @@ MENU_ITEM_LETTERS = {"V": "M0,0L4.67,0L11.44,16.6L18.21,0L22.88,0L14.11,21.5L8.7
 MENU_ITEMS = [("main_menu/menu_solo", "SOLO", 256),
               ("main_menu/menu_firefight_variants", "FIREFIGHT VARIANTS", 384),
               ("main_menu/menu_single_player", "SINGLE PLAYER", 320),
-              ("main_menu/menu_edit_maps", "EDIT MAPS", 256),
               ("main_menu/menu_tag_injector", "TAG INJECTOR", 320)]
 # the mods' status icons (port/assets/icons/lucide): a mod out of the order it
 # asks for, and one that cannot be played (another mod says it cannot be
@@ -5647,7 +5645,7 @@ def _theater() -> list:
                      ['<on event="a" run="port theater record"/>', '<on event="start" run="port theater record"/>',
                       '<on event="left_mouse" run="mouse emit accept event"/>'])
     lines += _strings(f"{base}/record_strings", ["RECORD: OFF", "RECORD: ON"])
-    lines += _text_button(f"{base}/button_delete", "%x-button DELETE", ['<on event="a" run="port theater delete"/>',
+    lines += _text_button(f"{base}/button_delete", "DELETE", ['<on event="a" run="port theater delete"/>',
                                                                       '<on event="start" run="port theater delete"/>'])
     # (its words a string list's, as button_record's: "port theater update"
     # chooses OFF or ON)
