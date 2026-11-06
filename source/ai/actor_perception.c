@@ -2221,6 +2221,9 @@ range_weight_done:
 
 	if (prop->preferred_target)
 		weights.preferred_weight = 2;
+	/* port: firefight: above all a player can score (12, shooting it close to) */
+	if (firefight_active() && firefight_actor_attacks_generator(actor_index, prop->unit_index))
+		weights.preferred_weight = 12;
 
 	weights.target_weight =
 		((short)weights.target_weight +

@@ -273,11 +273,16 @@ enum
 	NUMBER_OF_FIREFIGHT_ORDNANCE_MODES
 };
 
+/* how many of a wave's enemies go for the generators instead of the players
+(0, a new variant's, is the default) */
 enum
 {
-	_firefight_spawner_auto = 0,
-	_firefight_spawner_mp_squads,
-	NUMBER_OF_FIREFIGHT_SPAWNER_MODES
+	_firefight_generator_attackers_50 = 0,
+	_firefight_generator_attackers_none,
+	_firefight_generator_attackers_25,
+	_firefight_generator_attackers_75,
+	_firefight_generator_attackers_all,
+	NUMBER_OF_FIREFIGHT_GENERATOR_ATTACKER_MODES
 };
 
 /* firefight_starting_skulls[1]'s: its words are enum skull's bits. A variant
@@ -382,7 +387,7 @@ struct game_engine_firefight_variant
 	byte ordnance_drops;          /* enum _firefight_ordnance_* */
 	byte bonus_round_enabled;     /* boolean: 60s Grunt Birthday bonus round after Round 3 */
 	byte progression_skulls;      /* boolean / mode: auto-enable Round/Set skulls */
-	byte spawner_mode;            /* enum _firefight_spawner_* */
+	byte generator_attackers;     /* enum _firefight_generator_attackers_* */
 	byte vehicle_drops_enabled;   /* boolean: vehicle drop enabled */
 };
 
@@ -841,6 +846,9 @@ void firefight_prune_dead_tracked_enemies(void);
 void firefight_track_enemy_unit(long unit_index, byte tier);
 void firefight_cleanup_natural_multiplayer_sandbox(boolean clear_weapons_and_equipment);
 short firefight_queued_enemies_count(void);
+/* whether the actor is one of the wave's sent at this generator's unit, which
+it then fights over any player (actor_compute_prop_target_weight) */
+boolean firefight_actor_attacks_generator(long actor_index, long unit_index);
 
 /* ---------- Public API: firefight_generators.c */
 

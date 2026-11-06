@@ -204,3 +204,47 @@ def test_server_setup_adds_to_the_variant_s_skulls_never_takes_them():
     assert "struct skull_set chosen = skulls_menu_locked;" in MENU_C
     assert "skull_set_union(skulls_menu_locked, skull_set_is_empty(&on)" in MENU_C
     assert "skull_set_union(skulls_menu_set, skulls_menu_locked)" in MENU_C
+
+
+def option_values(spinner):
+    """the values of a rules' spinner, as menu_functions.c lists them"""
+    row = re.search(rf'\{{ "{spinner}", .*?\{{(.*?)\}} \}},', MENU_C, re.S).group(1)
+    return [value.strip() for value in row.split(",")]
+
+
+def test_every_built_in_variant_s_settings_have_a_choice_to_load_into():
+    # (gametype_option_index falls on the nearest choice, and OK saves that)
+    profiles = FIREFIGHT_C[FIREFIGHT_C.index("built_in_firefight_profiles[NUMBER"):FIREFIGHT_C.index("/* ---------- skull mapping")]
+    factions = option_values("ff_faction_spinner")
+    for faction in set(re.findall(r"^\s+(_firefight_faction_\w+),$", profiles, re.M)):
+        assert faction in factions
+    numbers = re.findall(r"^\s+(-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+),$", profiles, re.M)
+    assert len(numbers) == 6
+    for place, spinner in enumerate(("ff_set_limit_spinner", "ff_starting_lives_spinner", "ff_round_lives_spinner",
+                                     "ff_bonus_lives_spinner", "ff_max_lives_spinner", "ff_generators_spinner")):
+        for row in numbers:
+            assert row[place] in option_values(spinner), spinner
+
+
+def test_each_firefight_spinner_has_as_many_values_as_choices():
+    for _, _, setting, _, choices in menus.FIREFIGHT_ROWS:
+        if setting not in menus.FIREFIGHT_ACTION_ROWS:
+            spinner = f"ff_{setting}_spinner"
+            count = int(re.search(rf'\{{ "{spinner}", .*?(\d+),\s+\{{', MENU_C, re.S).group(1))
+            assert count == len(option_values(spinner)) == len(menus.FIREFIGHT_CHOICES[f"var_ff_{choices}"]), spinner
+
+
+def test_the_defaults_show_as_what_they_are():
+    escalation = option_values("ff_escalation_spinner")
+    assert menus.FIREFIGHT_CHOICES["var_ff_escalation"][escalation.index("_firefight_escalation_medium")] == "+25% / SET"
+    late = option_values("ff_r3_veh_spinner")
+    assert menus.FIREFIGHT_CHOICES["var_ff_late_veh"][late.index("_firefight_late_vehicle_scorpion")] == "SCORPION"
+
+
+def test_generator_attackers_default_to_half_of_a_wave_and_outweigh_the_players():
+    attackers = option_values("ff_gen_attackers_spinner")
+    assert menus.FIREFIGHT_CHOICES["var_ff_gen_attackers"][attackers.index("_firefight_generator_attackers_50")] == "50% OF UNITS"
+    assert "_firefight_generator_attackers_50 = 0," in (ROOT / "port/linux/include/halo_firefight.h").read_text()
+    perception = (ROOT / "source/ai/actor_perception.c").read_text()
+    assert "firefight_actor_attacks_generator(actor_index, prop->unit_index)" in perception
+    assert "generator_attacker_slot(i)" in SPAWNER_C

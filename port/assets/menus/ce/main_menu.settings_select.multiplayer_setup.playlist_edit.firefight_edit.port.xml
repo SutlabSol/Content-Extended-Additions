@@ -385,7 +385,7 @@
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_r3_veh_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="33" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_r3_veh_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_round_veh" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_r3_veh_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_late_veh" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
 		<on event="left_mouse" run="mouse spinner 1wide click"/>
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_r3_veh" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
@@ -419,6 +419,15 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_fail_label"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_fail_spinner" x="286" y="1"/>
 	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_attackers_label" type="text" controller="1" width="280" height="22" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_labels" string_index="49" font="ui\large_ui" color="#FF2896FF" text_x="13" text_y="4">
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_attackers_spinner" type="spinner" left="2" top="2" width="206" height="20" flags="pass_unhandled_to_focused_child left_right_tabs_items" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_gen_attackers" font="ui\large_ui" color="#FF2896FF" align="center" text_y="4" list_flags="items_from_strings" header_bitmap="bitmaps/arrow_sm_left" footer_bitmap="bitmaps/arrow_sm_right" header_bounds="7 -13 19 -7" footer_bounds="7 208 19 214">
+		<on event="left_mouse" run="mouse spinner 1wide click"/>
+	</widget>
+	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_gen_attackers" width="512" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/option_bkds" color="#FF2896FF">
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_attackers_label"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/ff_gen_attackers_spinner" x="286" y="1"/>
+	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_help" type="text" controller="1" left="68" top="348" width="482" height="62" string_list="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_3" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_menu" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_page_3_help">
@@ -433,6 +442,7 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_allies" x="54" y="235"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_generators" x="54" y="262"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_gen_fail" x="54" y="289"/>
+		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/op_ff3_gen_attackers" x="54" y="316"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/firefight_button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/header_firefight_page_3" type="text" controller="1" left="35" top="11" width="605" height="59" text="VEHICLES &amp; DROPS" font="ui\large_ui" color="#FFFFFFFF">
@@ -623,6 +633,7 @@
 		<string text="STATS CATEGORY:"/>
 		<string text="WEB &amp; JSON SYNC:"/>
 		<string text="SERVICE RECORD"/>
+		<string text="GENERATOR ATTACKERS:"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_set_limit">
 		<string text="UNLIMITED"/>
@@ -652,6 +663,7 @@
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_bonus_lives">
 		<string text="NONE"/>
 		<string text="+1 LIFE"/>
+		<string text="+2 LIVES"/>
 		<string text="+3 LIVES"/>
 		<string text="+5 LIVES"/>
 		<string text="+10 LIVES"/>
@@ -666,18 +678,18 @@
 		<string text="50 LIVES"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_prep_time">
-		<string text="NONE"/>
 		<string text="5 SECONDS"/>
-		<string text="10 SECONDS"/>
 		<string text="15 SECONDS"/>
-		<string text="30 SECONDS"/>
+		<string text="AUTO"/>
+		<string text="45 SECONDS"/>
+		<string text="60 SECONDS"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_wave_limit">
-		<string text="CLEAR ONLY"/>
+		<string text="2 ENEMIES LEFT"/>
 		<string text="60 SECONDS"/>
+		<string text="90 SECONDS"/>
 		<string text="120 SECONDS"/>
-		<string text="180 SECONDS"/>
-		<string text="300 SECONDS"/>
+		<string text="CLEAR ALL"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_yes_no">
 		<string text="YES"/>
@@ -692,6 +704,8 @@
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_faction">
 		<string text="COVENANT"/>
+		<string text="GRUNTS ONLY"/>
+		<string text="ELITES &amp; HEAVIES"/>
 		<string text="ALL FACTIONS"/>
 		<string text="FLOOD"/>
 		<string text="SENTINELS"/>
@@ -711,11 +725,11 @@
 		<string text="LEGENDARY"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_escalation">
-		<string text="+20% / SET"/>
+		<string text="+25% / SET"/>
 		<string text="OFF"/>
-		<string text="+10% / SET"/>
-		<string text="+35% / SET"/>
-		<string text="+50% / SET"/>
+		<string text="+15% / SET"/>
+		<string text="+40% / SET"/>
+		<string text="+60% / SET"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_vitality">
 		<string text="100%"/>
@@ -772,6 +786,13 @@
 		<string text="BANSHEE"/>
 		<string text="WRAITH"/>
 	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_late_veh">
+		<string text="NONE"/>
+		<string text="WARTHOG"/>
+		<string text="SCORPION"/>
+		<string text="BANSHEE"/>
+		<string text="WRAITH"/>
+	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_allies">
 		<string text="OFF"/>
 		<string text="2 ALLIES / SET"/>
@@ -788,6 +809,13 @@
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_gen_fail">
 		<string text="LOSE ALL"/>
 		<string text="LOSE ANY"/>
+	</strings>
+	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_gen_attackers">
+		<string text="NONE"/>
+		<string text="25% OF UNITS"/>
+		<string text="50% OF UNITS"/>
+		<string text="75% OF UNITS"/>
+		<string text="ALL UNITS"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/var_ff_prog_skulls">
 		<string text="OFF (LOCKED)"/>
@@ -873,6 +901,7 @@
 		<string text="Award +5 shared team lives after each Round."/>
 		<string text="No bonus lives awarded upon completing a Set."/>
 		<string text="Award +1 shared team life after each Set."/>
+		<string text="Award +2 shared team lives after each Set."/>
 		<string text="Award +3 shared team lives after each Set."/>
 		<string text="Award +5 shared team lives after each Set."/>
 		<string text="Award +10 shared team lives after each Set."/>
@@ -883,16 +912,16 @@
 		<string text="Cap shared team reserve lives at 20."/>
 		<string text="Cap shared team reserve lives at 30."/>
 		<string text="Cap shared team reserve lives at 50."/>
-		<string text="Spawn Wave 1 immediately with no prep countdown."/>
 		<string text="5-second prep countdown before each Round begins."/>
-		<string text="10-second prep countdown before each Round begins."/>
 		<string text="15-second prep countdown to collect ammo and gear."/>
-		<string text="30-second prep countdown to fortify positions."/>
-		<string text="Next wave spawns only when current enemies\nare cleared."/>
+		<string text="Short prep countdown, 5 to 20 seconds, longer\nwhen vehicles are deployed."/>
+		<string text="45-second prep countdown to fortify positions."/>
+		<string text="60-second prep countdown to fortify positions."/>
+		<string text="Next wave spawns when 2 or fewer enemies remain."/>
 		<string text="Force-spawn the next wave after 60 seconds."/>
+		<string text="Force-spawn the next wave after 90 seconds."/>
 		<string text="Force-spawn the next wave after 120 seconds."/>
-		<string text="Force-spawn the next wave after 180 seconds."/>
-		<string text="Force-spawn the next wave after 300 seconds."/>
+		<string text="Next wave spawns only when every enemy is dead."/>
 		<string text="Enable the high-value Bonus Round after Round 3\nof each Set."/>
 		<string text="Skip the Bonus Round between Sets."/>
 		<string text="30-second Bonus Round timer."/>
@@ -903,6 +932,8 @@
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_1">
 		<string text="Spawn Covenant waves (Grunts, Jackals, Elites,\nand Hunters)."/>
+		<string text="Spawn nothing but Covenant Grunts."/>
+		<string text="Spawn Covenant Elites and Hunters, with no Grunts\nor Jackals."/>
 		<string text="Rotate Covenant, Flood, and Sentinels across Rounds."/>
 		<string text="Spawn Flood waves (Infection, Combat, and Carrier\nForms)."/>
 		<string text="Spawn Forerunner Sentinel and Enforcer waves."/>
@@ -916,11 +947,11 @@
 		<string text="Normal AI combat difficulty."/>
 		<string text="Heroic AI combat difficulty (Reach standard)."/>
 		<string text="Legendary AI combat difficulty."/>
-		<string text="Enemy health and shields increase by +20% after\neach completed Set."/>
+		<string text="Enemy health and shields increase by +25% after\neach completed Set."/>
 		<string text="Disable per-Set enemy health and shield escalation."/>
-		<string text="Enemy health and shields increase by +10% after\neach completed Set."/>
-		<string text="Enemy health and shields increase by +35% after\neach completed Set."/>
-		<string text="Enemy health and shields increase by +50% after\neach completed Set."/>
+		<string text="Enemy health and shields increase by +15% after\neach completed Set."/>
+		<string text="Enemy health and shields increase by +40% after\neach completed Set."/>
+		<string text="Enemy health and shields increase by +60% after\neach completed Set."/>
 		<string text="100% base enemy body health."/>
 		<string text="50% base enemy body health."/>
 		<string text="150% base enemy body health."/>
@@ -993,8 +1024,6 @@
 		<string text="Deploy a drivable Wraith at Round 2\n(despawns at Set end)."/>
 		<string text="No player vehicle deployed at Round 3."/>
 		<string text="Deploy a Chain Gun Warthog at Round 3\n(despawns at Set end)."/>
-		<string text="Deploy a Rocket Warthog at Round 3\n(despawns at Set end)."/>
-		<string text="Deploy a Covenant Ghost at Round 3\n(despawns at Set end)."/>
 		<string text="Deploy a Scorpion Tank at Round 3\n(despawns at Set end)."/>
 		<string text="Deploy a Covenant Banshee at Round 3\n(despawns at Set end)."/>
 		<string text="Deploy a drivable Wraith at Round 3\n(despawns at Set end)."/>
@@ -1009,6 +1038,11 @@
 		<string text="Defend 3 UNSC Generators (ALPHA, BETA, GAMMA)\nwith 30s Lockdown switches."/>
 		<string text="Defeat only when all generators are destroyed."/>
 		<string text="Defeat immediately if any single generator is\ndestroyed."/>
+		<string text="Every enemy fights the players; generators are\nonly hit by those that reach them."/>
+		<string text="A quarter of each wave goes for the generators\ninstead of the players."/>
+		<string text="Half of each wave goes for the generators\ninstead of the players."/>
+		<string text="Three quarters of each wave goes for the\ngenerators instead of the players."/>
+		<string text="Every enemy goes for the generators while one\nis unlocked."/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/firefight_edit/cap_firefight_4">
 		<string text="Only your chosen Starting Skulls are active;\nno automatic Round skulls."/>

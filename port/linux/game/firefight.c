@@ -91,7 +91,7 @@ struct firefight_builtin_profile
 	byte ordnance_drops;
 	byte bonus_round_enabled;
 	byte progression_skulls;
-	byte spawner_mode;
+	byte generator_attackers;
 	byte vehicle_drops_enabled;
 };
 
@@ -107,7 +107,7 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_covenant,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, TRUE, _firefight_spawner_auto, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
 	},
 	/* 1: Generator Defense */
 	{
@@ -119,7 +119,7 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_covenant,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, TRUE, _firefight_spawner_auto, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
 	},
 	/* 2: Gruntpocalypse */
 	{
@@ -133,7 +133,7 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_grunts,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, FALSE, _firefight_spawner_auto, FALSE
+		TRUE, FALSE, _firefight_generator_attackers_50, FALSE
 	},
 	/* 3: Rocketfight */
 	{
@@ -146,7 +146,7 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_mixed,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_frequent,
-		TRUE, TRUE, _firefight_spawner_auto, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
 	},
 	/* 4: Floodfight */
 	{
@@ -158,7 +158,7 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_flood,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, TRUE, _firefight_spawner_auto, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
 	},
 	/* 5: Mythic Firefight */
 	{
@@ -173,7 +173,7 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_covenant,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, TRUE, _firefight_spawner_auto, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
 	}
 };
 
@@ -1282,7 +1282,7 @@ boolean firefight_build_variant_by_name(
 			ff->ordnance_drops = p->ordnance_drops;
 			ff->bonus_round_enabled = p->bonus_round_enabled;
 			ff->progression_skulls = p->progression_skulls;
-			ff->spawner_mode = p->spawner_mode;
+			ff->generator_attackers = p->generator_attackers;
 			ff->vehicle_drops_enabled = p->vehicle_drops_enabled;
 
 			*out_variant = result;
@@ -1361,6 +1361,8 @@ void firefight_variant_cleanup(
 		ff->wave_faction = _firefight_faction_covenant;
 	if (ff->generator_count < 0 || ff->generator_count > FIREFIGHT_MAX_GENERATORS)
 		ff->generator_count = 0;
+	if (ff->generator_attackers >= NUMBER_OF_FIREFIGHT_GENERATOR_ATTACKER_MODES)
+		ff->generator_attackers = _firefight_generator_attackers_50;
 }
 
 void firefight_variant_options_default(

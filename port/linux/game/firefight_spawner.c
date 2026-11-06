@@ -152,6 +152,8 @@ static real g_active_wave_facings[FIREFIGHT_MAX_SPAWN_ZONES_PER_WAVE];
 
 static unsigned long g_spawner_rng = 0x9E3779B9UL;
 static long g_last_aggro_refresh_tick = 0;
+/* the generator unit each tracked enemy is sent at (NONE: the players) */
+static long g_generator_attack_units[FIREFIGHT_MAX_TRACKED_ENEMIES];
 
 /* ---------- helpers */
 
@@ -1019,6 +1021,8 @@ void firefight_spawner_initialize_map(void)
 	ff_state.enemies_queued = 0;
 	g_spawner_rng = (unsigned long)(game_time_get() + 0x5A17C3UL);
 	g_last_aggro_refresh_tick = 0;
+	for (i = 0; i < FIREFIGHT_MAX_TRACKED_ENEMIES; i++)
+		g_generator_attack_units[i] = NONE;
 
 	tag_iterator_new(&iter, ACTOR_VARIANT_DEFINITION_TAG);
 	while ((tag_index = tag_iterator_next(&iter)) != NONE)
@@ -1619,18 +1623,15 @@ static void direct_actor_toward_unit(long actor_index, long target_unit_index)
 		{
 			prop->enemy = TRUE;
 			prop->ally = FALSE;
-			prop->preferred_target = !is_generator_target;
+			prop->preferred_target = TRUE;
 			prop->ineffability = 3; /* _actor_perception_unmistakable */
-			if (!is_generator_target || actor->target.target_prop_index == NONE)
+			if (!is_generator_target && actor->target.target_prop_index == NONE)
 			{
-				if (!is_generator_target && actor->target.target_prop_index == NONE)
-				{
-					prop->currently_damaging_me = TRUE;
-					prop->ticks_since_damage = 0;
-				}
-				actor->target.target_prop_index = prop_index;
-				actor->target.target_type = 4; /* _actor_target_acknowledged_enemy */
+				prop->currently_damaging_me = TRUE;
+				prop->ticks_since_damage = 0;
 			}
+			actor->target.target_prop_index = prop_index;
+			actor->target.target_type = 4; /* _actor_target_acknowledged_enemy */
 		}
 	}
 
@@ -1687,6 +1688,44 @@ static void direct_actor_toward_unit(long actor_index, long target_unit_index)
 			}
 		}
 	}
+}
+
+/* whether a tracked enemy's slot is of those GENERATOR ATTACKERS sends at the
+generators: every other slot for half, and so on, as slots fill from the first */
+static boolean generator_attacker_slot(short slot)
+{
+	static byte const slot_order[4] = { 0, 2, 1, 3 };
+	short quarters;
+
+	switch (global_variant.game_engine_variant.firefight.generator_attackers)
+	{
+	case _firefight_generator_attackers_none: quarters = 0; break;
+	case _firefight_generator_attackers_25:   quarters = 1; break;
+	case _firefight_generator_attackers_75:   quarters = 3; break;
+	case _firefight_generator_attackers_all:  quarters = 4; break;
+	default:                                  quarters = 2; break;
+	}
+	return slot_order[slot & 3] < quarters;
+}
+
+boolean firefight_actor_attacks_generator(long actor_index, long unit_index)
+{
+	short i;
+
+	if (unit_index == NONE || ff_state.generator_count <= 0)
+		return FALSE;
+	for (i = 0; i < FIREFIGHT_MAX_TRACKED_ENEMIES; i++)
+	{
+		if (g_generator_attack_units[i] == unit_index && ff_state.tracked_enemy_units[i] != NONE)
+		{
+			struct unit_datum *u = (struct unit_datum *)object_try_and_get_and_verify_type(
+				ff_state.tracked_enemy_units[i], _object_mask_unit);
+
+			if (u && u->unit.actor_index == actor_index)
+				return TRUE;
+		}
+	}
+	return FALSE;
 }
 
 static long spawn_single_actor_at(
@@ -4453,6 +4492,7 @@ void firefight_update_dropships_and_vehicles(void)
 				if (((i + tick_mod) % 15) != 0)
 					continue;
 				u_idx = ff_state.tracked_enemy_units[i];
+				g_generator_attack_units[i] = NONE;
 				if (u_idx != NONE)
 				{
 					struct unit_datum *u = (struct unit_datum *)object_try_and_get_and_verify_type(
@@ -4464,7 +4504,6 @@ void firefight_update_dropships_and_vehicles(void)
 						short best_p = 0;
 						real best_p_dist_sq = 999999.0f;
 						short p;
-						boolean taking_fire = (u->object.recent_body_damage > 0.01f || u->object.recent_shield_damage > 0.01f);
 
 						object_get_origin(u_idx, &u_pos);
 
@@ -4478,10 +4517,10 @@ void firefight_update_dropships_and_vehicles(void)
 							}
 						}
 
-						/* In Generator Defense mode, enemies prioritize nearby or attacking players first;
-						   only a 25% subset of unengaged enemies advance on an unlocked generator when no
-						   player is closer or within 16 world units */
-						if (open_gen_count > 0 && !taking_fire && best_p_dist_sq > 16.0f * 16.0f)
+						/* GENERATOR ATTACKERS' share goes for the nearest unlocked generator
+						   even under fire, turning only on a player right beside it */
+						if (open_gen_count > 0 && generator_attacker_slot(i) &&
+							best_p_dist_sq > 6.0f * 6.0f)
 						{
 							short best_g = 0;
 							real best_g_dist_sq = 999999.0f;
@@ -4494,10 +4533,8 @@ void firefight_update_dropships_and_vehicles(void)
 									best_g = g;
 								}
 							}
-							if ((i & 3) == 0 && best_g_dist_sq < best_p_dist_sq)
-							{
-								chosen_target = open_gen_units[best_g];
-							}
+							chosen_target = open_gen_units[best_g];
+							g_generator_attack_units[i] = chosen_target;
 						}
 
 						if (chosen_target == NONE)
