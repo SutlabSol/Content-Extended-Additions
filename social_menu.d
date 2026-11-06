@@ -17,11 +17,17 @@ social_menu.o: port/linux/game/social_menu.c \
   source/tag_files/tag_groups.h source/memory/byte_swapping.h \
   source/bitmaps/bitmap_group_lookup.h source/interface/interface.h \
   source/interface/ui_widget.h source/interface/virtual_keyboard.h \
-  source/text/draw_string.h source/text/font_group.h \
-  source/text/text_group.h source/text/unicode.h \
-  port/linux/include/wchar.h port/linux/game/campaign_medals.h \
-  port/linux/game/campaign_score.h port/linux/game/social.h \
-  port/linux/game/social_chat.h port/linux/game/social_menu.h \
-  port/linux/game/../src/community_net.h \
+  source/networking/network_client_manager.h \
+  source/networking/network_game_globals.h source/text/draw_string.h \
+  source/text/font_group.h source/text/text_group.h \
+  source/text/unicode.h port/linux/include/wchar.h \
+  port/linux/game/campaign_medals.h port/linux/game/campaign_score.h \
+  port/linux/game/social.h port/linux/game/social_chat.h \
+  port/linux/game/social_menu.h port/linux/game/social_sync.h \
+  port/linux/game/platform_icons.h port/linux/game/platform_icons_data.h \
+  port/linux/game/social_extensions.h \
+  port/linux/include/opence_features.h \
+  port/linux/include/halo_firefight.h port/linux/include/halo_emblems.h \
+  port/linux/game/../src/community_net.h port/linux/game/../src/p2p.h \
   port/linux/game/../src/port_config.h \
   port/linux/game/../src/server_json.h

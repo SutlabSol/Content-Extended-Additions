@@ -2333,6 +2333,14 @@ static int controller_port(HANDLE device)
 	return -1;
 }
 
+/* the port of a controller's handle (XInputOpen's), else -1: Content
+Extended's Forge reads the first's state as the game gets it
+(port/forge/src/forge_hooks.c's XInputGetState) */
+int xinput_device_port(HANDLE device)
+{
+	return controller_port(device);
+}
+
 /* debug camera (director.c): the middle button, R and F, and the wheel's
 notches since the director last asked */
 static BOOL debug_cam_middle = FALSE;

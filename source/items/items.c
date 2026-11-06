@@ -195,7 +195,7 @@ void item_in_unit_inventory(
 	{
 		struct unit_datum *unit = unit_get(owner_unit_index);
 
-		item->item.flags |= FLAG(_item_attached_to_unit_bit);
+		item->item.flags |= FLAG(_item_attached_to_unit_bit) | FLAG(_item_has_been_held_bit);
 		if (unit->unit.player_index != NONE)
 		{
 			item->item.flags |= FLAG(_item_belongs_to_player_bit);

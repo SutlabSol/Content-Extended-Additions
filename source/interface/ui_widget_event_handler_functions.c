@@ -914,6 +914,7 @@ symbols in this file:
 #include "cseries/errors.h"
 #include "game/game.h"
 #include "game/game_engine.h"
+#include "game/game_engine_firefight.h" /* port: firefight */
 #include "game/players.h"
 #include "interface/marketing_and_strategic_business_development.h"
 #include "interface/player_ui.h"
@@ -1084,6 +1085,8 @@ long playlist_profile_new(
 	wchar_t *name);
 struct game_variant_data *build_game_variant_slayer(
 	struct game_variant_data *variant);
+/* port: (Firefight's menu makes Firefight variants) */
+boolean multiplayer_firefight_mode(void);
 
 typedef boolean (*ui_widget_event_handler_function)(
 	struct widget_instance *,
@@ -1868,7 +1871,13 @@ static boolean create_and_begin_editing_new_gametype_profile(
 			profile = (byte *)player_ui_get_edit_playlist_profile();
 			if (profile)
 			{
-				variant = *build_game_variant_slayer(&source_variant);
+				if (multiplayer_firefight_mode())
+				{
+					variant = *(struct game_variant_data *)build_game_variant_firefight((struct game_variant *)&source_variant);
+					firefight_variant_options_default(player_ui_get_edit_playlist_options());
+				}
+				else
+					variant = *build_game_variant_slayer(&source_variant);
 				memcpy(profile, &variant, sizeof(variant));
 				*(short *)(profile + 0x64) = 0;
 				ustrncpy((wchar_t *)profile, name, 11);
@@ -1999,6 +2008,14 @@ static boolean pause_game_restart_at_checkpoint(
 	/* port: in co-op this would revert only this machine */
 	if (network_coop_active())
 		return FALSE;
+	/* port: firefight has no checkpoints; restart the match on host/solo */
+	if (firefight_active())
+	{
+		if (game_connection() == _game_connection_network_client)
+			return FALSE;
+		main_reset_map();
+		return TRUE;
+	}
 	/* port: the campaign's score's penalty (port/linux/game/campaign_score.c) */
 	campaign_score_checkpoint_reverted();
 	main_revert_map();
@@ -2013,6 +2030,9 @@ static boolean pause_game_restart_level(
 	/* port: in co-op this would restart only this machine */
 	if (network_coop_active())
 		return FALSE;
+	/* port: firefight restart match on host/solo */
+	if (firefight_active() && game_connection() == _game_connection_network_client)
+		return FALSE;
 	main_reset_map();
 	return TRUE;
 }
@@ -2022,10 +2042,10 @@ static boolean pause_game_quit_to_main_menu(
 	struct event_record *event,
 	boolean *widget_deleted)
 {
-	/* port: in co-op, take every player on this machine out of the network
-	game with one press (not one per split screen player). The solo save is
-	left alone. */
-	if (network_coop_active())
+	/* port: in co-op or networked Firefight on a solo map, take every player on
+	this machine out of the network game with one press (not one per split
+	screen player). The solo save is left alone. */
+	if (network_coop_active() || (firefight_active() && global_network_game_client_get()))
 	{
 		short controller_index;
 
@@ -2033,9 +2053,10 @@ static boolean pause_game_quit_to_main_menu(
 			network_game_client_local_player_quit(controller_index);
 		return TRUE;
 	}
-	/* port: a multiplayer map played alone (New Game's MULTIPLAYER maps) is
-	not saved, so it never takes the place of the campaign's saved game */
-	if (main_get_current_solo_level() != NONE)
+	/* port: a multiplayer map played alone (New Game's MULTIPLAYER maps) or a
+	Firefight match is not saved, so it never takes the place of the campaign's
+	saved game */
+	if (main_get_current_solo_level() != NONE && !firefight_active())
 		game_state_save_to_persistent_storage();
 	main_goto_main_menu();
 	return TRUE;
@@ -3373,14 +3394,14 @@ static boolean multiplayer_profiles_list_initialize(
 	match_vassert("c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1385,
 		definition->child_count == 3,
 		"expected 3 list items for 'multiplayer settings list' widget");
-	widget->generated_list = ui_widget_realloc(widget->generated_list, 0x190,
+	widget->generated_list = ui_widget_realloc(widget->generated_list, 256 * sizeof(long),
 		"c:\\halo\\SOURCE\\interface\\ui_widget_event_handler_functions.c", 1390);
 	profile_indices = widget->generated_list;
 	if (profile_indices)
 	{
 		long profile_count;
 
-		profile_count = 100;
+		profile_count = 256;
 		playlist_profiles_enumerate_available_to_local_player_index(0, &profile_count, profile_indices);
 		if ((word)profile_count < 3)
 		{
@@ -6106,6 +6127,23 @@ boolean ui_widget_port_cooperative_level_choose(
 	network_game_server_port_set_cooperative(server, difficulty);
 	network_game_server_change_map_name(server, map_name);
 	network_game_server_change_game_variant(server, &variant);
+	return TRUE;
+}
+
+/* port: sets up a campaign or Custom Edition campaign map to proceed to the
+gametype selection screen (for Firefight Mode A or custom gametypes on campaign
+maps) instead of launching directly into co-op. */
+boolean ui_widget_port_campaign_map_for_gametype_choose(
+	char const *map_name)
+{
+	void *server = global_network_game_server_get();
+
+	if (!map_name || !custom_edition_maps_level_campaign(map_name))
+		return FALSE;
+	main_set_multiplayer_map_name(map_name);
+	game_engine_override_map_name(map_name);
+	if (server)
+		network_game_server_change_map_name(server, map_name);
 	return TRUE;
 }
 

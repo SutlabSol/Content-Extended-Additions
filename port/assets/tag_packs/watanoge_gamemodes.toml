@@ -20,7 +20,7 @@ include_prefixes = ["effects\\", "sound\\music\\spooky6\\", "sound\\music\\night
                     "sound\\music\\nightmare\\"]
 
 [text]
-notice = "The multiplayer game modes need\nsome data from other maps.\nIt takes a moment."
+notice = "The multiplayer game modes\nneed some data from other\nmaps. It takes a moment."
 building = "Building game mode data:\n"
 ready = "The game mode data is ready."
 failed = "The game mode data could not\nbe built. Is the card full?"

@@ -149,6 +149,19 @@ and the host's multiplayer or campaign profile playing it, if the share has one;
 once a share (a marker, <id>.imported, beside it: deleted, it is not made
 again). The copy's index, else -1 (made before, or it cannot be). _all
 copies every download not copied yet: how many. */
+/* A saved Forge map's tags (forge_runtime_tags.c): a folder of
+tag_injector/.baked named by the map's bake's id, in a slot of its own, so a
+level plays them beside a chosen or shared profile. _build copies each of
+the tags given (their profile and tag, `count` of them) and archives them as
+_shared_build does, returning how many; _unpack makes the folder of an
+archive, which _scratch_path names a place for. */
+long port_tag_profiles_baked_build(const long *profiles, const long *tags, long count, const char *archive);
+int port_tag_profiles_baked_unpack(const char *archive, const char *id);
+int port_tag_profiles_baked_present(const char *id);
+long port_tag_profiles_baked_open(const char *id);
+void port_tag_profiles_baked_close(void);
+void port_tag_profiles_baked_scratch_path(char *path, unsigned long size);
+
 long port_tag_profiles_shared_import(const char *id);
 long port_tag_profiles_shared_import_all(void);
 

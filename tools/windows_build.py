@@ -22,11 +22,13 @@ import zipfile
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from .linux_build import (LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS_SOURCE, WINDOWS_PROFILE, XDK_INCLUDE,
+from .linux_build import (GAME_DATA_FILES, LINUX_PROFILE, MINIUPNPC_DIR, OPTIMISATION, STB_VORBIS_SOURCE, WINDOWS_PROFILE, XDK_INCLUDE,
                           build_repository,
                           lto_mode, march_flag, miniupnpc_sources, pgo_mode, compile_launcher, configuration_defines,
                           game_defines_and_includes, game_sources, musl_math_cflags, musl_math_sources, opus_cflags,
                           opus_sources, pgo_profile, profile_use_flags, xdk_headers)
+# (Content Extended's Forge, renamed with llvm-objcopy here: tools/forge_build.py)
+from .forge_build import FORGE_DIR, FORGE_OBJCOPY_REDEFINES
 from .embed_assets import hud_assets_build, hud_configure_inputs, server_ui_build
 from .macos_toolchain import default_clang, lld_link
 from .ninja_syntax import Writer
@@ -36,6 +38,7 @@ LINUX_DIR = Path("port/linux")
 PORT_DIR = Path("port/windows")
 PORT_CONFIG = PORT_DIR / "port.json"
 BUILD = Path("build/windows")
+
 
 # (as tools/android_build.py's SDL_TAG and tools/linux_sysroot.py's SDL_VERSION)
 SDL_VERSION = "3.4.16"
@@ -217,6 +220,14 @@ def windows_rc(cc: str) -> str:
     return str(path.with_name("llvm-rc" + path.suffix))
 
 
+def windows_objcopy(cc: str) -> str:
+    """LLVM's objcopy beside the clang named cc, else the one on the PATH"""
+    path = Path(cc)
+    if path.parent == Path("."):
+        return "llvm-objcopy"
+    return str(path.with_name("llvm-objcopy" + path.suffix))
+
+
 def clang_release(cc: str) -> Optional[str]:
     """the release (22.1.0) of the clang named cc, or None"""
     try:
@@ -323,6 +334,20 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         depfile="$out.d",
         deps="gcc",
     )
+    n.variable("windows_objcopy", windows_objcopy(cc))
+    redefine_cmd = (
+        f"{cross_prefix}{compile_launcher(sln)}$windows_cc -MMD -MF $out.d $cflags -c $in -o $out "
+        "&& $windows_objcopy $redefines $out"
+    )
+    if sys.platform == "win32":
+        redefine_cmd = f'cmd /c "{redefine_cmd}"'
+    n.rule(
+        name="windows_cc_redefine",
+        command=redefine_cmd,
+        description="WINDOWS CC+WRAP $out",
+        depfile="$out.d",
+        deps="gcc",
+    )
     # ninja quotes the response file's paths for the shell that runs the
     # rule: Windows quoting on Windows, POSIX quoting elsewhere
     rsp_quoting = "windows" if sys.platform == "win32" else "posix"
@@ -356,7 +381,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     # (a debug build checks its stack frames (/GS), and stops at the first
     # one overrun, as at the first failed assertion; a release build does
     # not, so that an overrun nobody has met cannot end a game)
-    abi = " ".join(WINDOWS_ABI_FLAGS + [march_flag(sln)] + configuration_defines(sln)
+    abi = " ".join(WINDOWS_ABI_FLAGS + ["-march=x86-64"] + configuration_defines(sln)
                    + ([] if getattr(sln, "port_release", False) else ["-fstack-protector-strong"]))
     sdl_include = SDL_DIR / "include"
     libs = " ".join(
@@ -372,7 +397,7 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
         # the Xbox memory window is at 0x80000000, in the upper half of the
         # 32-bit address space
         "-Wl,/LARGEADDRESSAWARE",
-        "-Wl,/STACK:0x800000",
+        "-Wl,/STACK:0x1000000",
     ]
     if getattr(sln, "port_release", False):
         # no console window (the port's log goes to halo.log instead,
@@ -386,19 +411,31 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
              extra_objects: List[Path], implicit_inputs: List[Path]) -> None:
         """the objects and the executable, with the given extra flags"""
         extra = " ".join(extra_cflags)
+        extra_no_lto = " ".join(f for f in extra_cflags if not f.startswith("-flto"))
         objects: List[Path] = []
+        has_forge = (FORGE_DIR / "src" / "forge_hooks.c").is_file()
 
         def add_object(source: Path, cflags: str) -> None:
             obj = obj_dir / source.with_suffix(".o")
             objects.append(obj)
             compiled = inline_export_wrapper(source)
-            n.build(
-                outputs=obj,
-                rule="windows_cc",
-                inputs=compiled,
-                implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs],
-                variables={"cflags": f"{cflags} {extra}"},
-            )
+            redefines = FORGE_OBJCOPY_REDEFINES.get(source.as_posix()) if has_forge else None
+            if redefines:
+                n.build(
+                    outputs=obj,
+                    rule="windows_cc_redefine",
+                    inputs=compiled,
+                    implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs],
+                    variables={"cflags": f"{cflags} {extra_no_lto}", "redefines": " ".join(redefines)},
+                )
+            else:
+                n.build(
+                    outputs=obj,
+                    rule="windows_cc",
+                    inputs=compiled,
+                    implicit=[*xdk_headers(), prefix_header, tags_header, source, *implicit_inputs],
+                    variables={"cflags": f"{cflags} {extra}"},
+                )
 
         game_cflags = " ".join([
             abi,
@@ -423,18 +460,34 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
             # Windows SDK, which has headers of the same names
             f"-I{XDK_INCLUDE}",
         ])
+        forge_net_override = FORGE_DIR / "include" / "forge_net_override.h"
         for source in game_sources(linux_config):
             # The halt screen and version command identify this native build.
             flags = game_cflags
-            if source.as_posix() == "source/main/main.c":
+            src_posix = source.as_posix()
+            if src_posix == "source/main/main.c":
                 flags += " " + updater_defines(getattr(sln, "port_release", False))
+            if has_forge and src_posix in ("source/cseries/cseries.c", "source/cseries/cseries_windows.c"):
+                flags += " -DHALO_RELEASE"
+            if has_forge and src_posix in (
+                "source/networking/network_server_message_handler.c",
+                "source/networking/network_client_manager.c",
+            ):
+                flags += f" -include {forge_net_override}"
             add_object(source, flags)
         # the port's game units (bots.c's helper thread) reach the POSIX
         # headers the Windows C runtime lacks (pthread.h, sched.h), searched
         # after its own so that none of its headers is shadowed
         port_game_cflags = f"{game_cflags} -idirafter {posix_include}"
         for source in sorted(Path(linux_config["game_sources"]).glob("*.c")):
-            add_object(source, port_game_cflags)
+            flags = port_game_cflags
+            if has_forge and source.name == "menu_functions.c":
+                flags += f" -include {forge_net_override}"
+            add_object(source, flags)
+        if has_forge:
+            forge_cflags = f"{game_cflags} -I{FORGE_DIR / 'include'} -I{ZLIB_DIR} -DHALO_RELEASE"
+            for source in sorted((FORGE_DIR / "src").glob("*.c")):
+                add_object(source, forge_cflags)
         add_object(STB_VORBIS_SOURCE, game_cflags)
 
         linux_platform = Path(linux_config["platform_sources"])
@@ -475,6 +528,8 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
                 add_object(source, f"{win32_cflags} {mbedtls_include}")
             elif source.name in ("updater.c", "server_mode.c"):
                 add_object(source, f"{platform_cflags} {updater_defines(getattr(sln, 'port_release', False))}")
+            elif has_forge and source.name == "p2p_lobby.c":
+                add_object(source, f"{platform_cflags} -include {forge_net_override}")
             else:
                 add_object(source, platform_cflags)
         miniupnpc_include = f"-I{MINIUPNPC_DIR / 'include'} -DMINIUPNP_STATICLIB"
@@ -590,5 +645,33 @@ def generate_windows_build(n: Writer, sln: Any) -> None:
     # (network.masters_file, server.masters_file)
     masters = BUILD / "masters.txt"
     n.build(outputs=masters, rule="windows_copy", inputs=Path("port/assets/network/masters.txt"))
-    n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters])
+    # (and the game's data files, beside it too: GAME_DATA_FILES)
+    data_files = [BUILD / source.name for source in GAME_DATA_FILES]
+    for source, target in zip(GAME_DATA_FILES, data_files):
+        n.build(outputs=target, rule="windows_copy", inputs=source)
+    if (FORGE_DIR / "assets").is_dir():
+        faber_data = BUILD / "Faber_data"
+        faber_marker = faber_data / "credits.md"
+        n.rule(
+            name="windows_faber_package",
+            command=(
+                '$python -c "import os,shutil; '
+                'os.path.isdir(\'build/windows/Faber_data\') and shutil.rmtree(\'build/windows/Faber_data\'); '
+                'os.makedirs(\'build/windows/Faber_data\', exist_ok=True); '
+                'os.path.isdir(\'port/forge/assets/ui\') and shutil.copytree(\'port/forge/assets/ui\', \'build/windows/Faber_data/ui\', dirs_exist_ok=True); '
+                'os.path.isdir(\'port/forge/assets/cached_tags\') and shutil.copytree(\'port/forge/assets/cached_tags\', \'build/windows/Faber_data/cached_tags\', dirs_exist_ok=True); '
+                'os.path.isdir(\'port/forge/assets/custom_tags\') and shutil.copytree(\'port/forge/assets/custom_tags\', \'build/windows/Faber_data/custom_tags\', dirs_exist_ok=True); '
+                'os.path.exists(\'port/forge/assets/credits.md\') and shutil.copyfile(\'port/forge/assets/credits.md\', \'build/windows/Faber_data/credits.md\'); '
+                'os.makedirs(\'build/windows/Faber_data/custom_tags\', exist_ok=True); '
+                'os.path.isdir(\'Faber_data\') and shutil.rmtree(\'Faber_data\'); '
+                'shutil.copytree(\'build/windows/Faber_data\', \'Faber_data\', dirs_exist_ok=True); '
+                'shutil.copyfile(\'build/windows/halo.exe\', \'halo.exe\'); '
+                'shutil.copyfile(\'build/windows/SDL3.dll\', \'SDL3.dll\')"'
+            ),
+            description="WINDOWS FABER PACKAGE build/windows/halo.exe + Faber_data/",
+        )
+        n.build(outputs=faber_marker, rule="windows_faber_package", inputs=[output, sdl_dll, brokers, masters, *data_files])
+        n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters, *data_files, faber_marker])
+    else:
+        n.build(outputs="windows", rule="phony", inputs=[output, sdl_dll, brokers, masters, *data_files])
     n.newline()

@@ -22,6 +22,7 @@ enum tag_injector_category
 	_tag_injector_vehicles,
 	_tag_injector_bipeds,
 	_tag_injector_scenery,
+	_tag_injector_devices,
 
 	NUMBER_OF_TAG_INJECTOR_CATEGORIES
 };
@@ -72,13 +73,17 @@ short tag_injector_map_opened(
 	void);
 
 /* the name of a category ("WEAPONS"), and whether its tags can be added to
-a profile (those the randomizer plays: weapons and AI) */
+a profile (each can: the randomizer plays weapons and AI, Forge places them
+all) */
 char const *tag_injector_category_name(
 	short category);
 boolean tag_injector_category_addable(
 	short category);
 /* the group of a category's tags ('weap'), or 0 */
 unsigned long tag_injector_category_group(
+	short category);
+boolean tag_injector_group_in_category(
+	unsigned long group_tag,
 	short category);
 /* the open map's tags of a category: how many, and the path of each (by
 path, alphabetically) */
@@ -366,6 +371,13 @@ void tag_injector_tick(
 /* The profile whose tags the level loaded has (tag_injector_tags_load: a
 network game's shared profile too), else NONE. */
 long tag_injector_level_profile(
+	void);
+/* a saved Forge map's bake (port_tag_profiles_baked_open), read before the
+next tag_injector_tags_read's profile and winning over a tag of the same
+path in it; the bake the level plays (NONE: none) */
+void tag_injector_tags_baked_set(
+	long profile);
+long tag_injector_level_baked_profile(
 	void);
 /* The Tag Editor's (tag_editor.c), as a level adds a profile's tags: a copy
 of a tag of the level (its root, and with `blocks` its blocks and theirs,

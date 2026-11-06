@@ -124,6 +124,11 @@ void skulls_game_state_loaded(void);
 /* the skulls on in the level, their icons at the bottom right of the local
 player's screen (hud.c) */
 void skulls_hud_draw(short local_player_index);
+/* whether a skull is turned on for the level (Firefight's own are apart) */
+int skull_on_for_level(int skull);
+/* a skull's own icon in a rectangle of the view: FALSE with the icons not
+loaded (the Firefight banners', which name the skulls of the round) */
+int skulls_draw_icon(int skull, short x0, short y0, short x1, short y1, float alpha);
 
 /* a level loaded: the skulls it is played with, taken now (the host's for
 a client), and Grunt Birthday Party's sound added to its tags; the level
@@ -132,6 +137,7 @@ void skulls_level_loaded(long scenario_tag_index);
 void skulls_level_unloaded(void);
 /* the level won: the skulls found in it kept (main.c's main_won_map_private) */
 void skulls_level_won(void);
+void skulls_unlock_next_by_milestone(char const *reason);
 
 /* the sound cache's samples of the birthday party's sound, from memory
 (xbox_sound_cache.c); FALSE for any other sound */

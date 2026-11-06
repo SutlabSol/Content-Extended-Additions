@@ -32,6 +32,7 @@ symbols in this file:
 #include "objects/objects.h"
 #include "units/vehicle_definitions.h"
 #include "units/vehicles.h"
+#include "halo_firefight.h"
 
 /* ---------- constants */
 
@@ -225,6 +226,11 @@ action_fight_perform(
 				if (new_firing_position_index == NONE)
 				{
 					actor->state.action_data.fight.firing_position_timer = 0;
+					if (firefight_active() && actor->target.target_prop_index != NONE)
+					{
+						actor_move_to_prop(actor_index, actor->target.target_prop_index, 4.0f);
+						actor->emotions.forced_to_charge = TRUE;
+					}
 				}
 				else if (new_firing_position_index != old_firing_position_index)
 				{

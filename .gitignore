@@ -47,4 +47,6 @@ reference/
 
 # Release files collected by tools/release.py
 /release/
-/site
+
+# a local copy of the web build (build/web/site), not ours to track
+/site/

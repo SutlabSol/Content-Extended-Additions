@@ -75,6 +75,8 @@ enum
 	/* (the main menu's social column: a friend's card,
 	social_menu_home_friend_open) */
 	_social_menu_open_player,
+	/* the player's first setup (social_menu_setup_tick) */
+	_social_menu_open_setup,
 };
 
 /* ---------- prototypes/SOCIAL_MENU.C */
@@ -92,6 +94,17 @@ void social_menu_friends_key(char const *key);
 screen is opened */
 void social_menu_open_at(short where);
 
+/* the player's first setup: name, chat colour and emblem, on the Social
+screen. Each frame of the main menu: an account's rank caught up, a profile
+made for a new device of an account set up elsewhere, and TRUE when the screen
+is to open now (the main menu's Y). wanted: the Y opens it. closing: once,
+as it is done and goes (B) */
+boolean social_menu_setup_tick(void);
+boolean social_menu_setup_wanted(void);
+boolean social_menu_setup_closing(void);
+/* whether a profile of the player's own exists (the stock ones aside) */
+boolean social_menu_has_profile(void);
+
 /* the screen opened (the server asked for its lists), or closed */
 void social_menu_open(void);
 void social_menu_close(void);
@@ -108,14 +121,26 @@ short social_menu_count(void);
 short *social_menu_first(void);
 short *social_menu_chosen(void);
 
+struct firefight_mcc_rank_info;
+struct firefight_emblem_info;
+
 /* a row's name and state (UTF-8 text) */
 void social_menu_row(short row, char *name, long name_size, char *state, long state_size);
 /* the platform icon (platform_icons.h) of a friend's row, none for any other */
 short social_menu_row_platform(short row);
+/* the service rank and emblem of a person row (_row_friend, _row_incoming, _row_outgoing, _row_recent_player) */
+/* the emblem a row shows in its state's place (CUSTOMISE EMBLEM's) */
+boolean social_menu_row_emblem(short row, struct firefight_emblem_info *out_emblem, short *out_part);
+boolean social_menu_row_person_icons(short row, struct firefight_mcc_rank_info *out_rank, struct firefight_emblem_info *out_emblem);
 
 /* the row chosen's details: its title and its text, the last thing done
 first */
 void social_menu_details(short row, char *title, long title_size, char *text, long text_size);
+
+/* Left/Right step on customizable rows (e.g. MY ACCOUNT -> CUSTOMISE EMBLEM) */
+boolean social_menu_step(short row, short delta);
+/* Custom overlay rendered inside social_details_text (e.g. Live Emblem & Nameplate preview) */
+void social_menu_details_overlay_draw(short row, rectangle2d const *bounds);
 
 /* (menu_functions.c, as the screen's social_card text box is drawn: its
 bounds, in the view's pixels) the player's card, while it is shown */
@@ -200,10 +225,14 @@ shared), and a few lines of them: 1 had, 0 still asked, -1 not answered
 void social_menu_profile_ask(char const *code, char const *name);
 short social_menu_profile_text(char const *code, char *text, long size);
 
+/* the widest the player's card is, in the screen's 480 lines' units */
+#define SOCIAL_MENU_CARD_MOST_WIDTH 860
+
 /* (social_chat.c's VIEW PROFILE) the player's card, as the Social screen
 draws it (asked for: social_menu_profile_ask), in the view's pixels from x0
-to x1 and from y0 down: its bottom (y0 for none drawn) */
-short social_menu_profile_card_draw(char const *code, short x0, short y0, short x1);
+to x1 and from y0 down, `unit` pixels to one of the screen's 480 lines: its
+bottom (y0 for none drawn) */
+short social_menu_profile_card_draw(char const *code, short x0, short y0, short x1, real unit);
 /* whether the player is a friend, and muted, as the server last said */
 boolean social_menu_is_friend(char const *code);
 boolean social_menu_is_muted(char const *code);

@@ -28,12 +28,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .guest_arch import ARM64_32, GuestArch
-from .linux_build import (LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
+from .linux_build import (GAME_DATA_FILES, LINUX_PROFILE, MINIUPNPC_DEFINES, MINIUPNPC_DIR, MUSL_MATH_DIR, STB_VORBIS_SOURCE, XDK_INCLUDE,
                           compile_launcher, configuration_defines, game_defines_and_includes, game_sources,
                           miniupnpc_sources, musl_math_sources, opus_cflags, opus_sources, pgo_mode, pgo_profile,
                           profile_use_flags, updater_defines, xdk_headers)
 from . import check_host_imports
 from .embed_assets import hud_assets_build, hud_configure_inputs
+from .forge_build import forge_cflags, forge_source_flags, forge_sources
 from .linux_sysroot import download
 from .macos_toolchain import android_sdk, default_clang, java_home
 from .ninja_syntax import Writer
@@ -565,9 +566,12 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
             cflags += " " + updater_defines(getattr(sln, "port_release", False))
         if source.as_posix() in VARIADIC_PROTOTYPE_FILES:
             cflags += f" -include {PORT_DIR}/include/halo_android_variadic_prototypes.h"
-        objects.append(guest_object(source, cflags))
+        objects.append(guest_object(source, f"{cflags} {forge_source_flags(source)}"))
     for source in sorted(Path(config["game_sources"]).glob("*.c")):
-        objects.append(guest_object(source, game_cflags))
+        objects.append(guest_object(source, f"{game_cflags} {forge_source_flags(source)}"))
+    # (Content Extended's Forge: tools/forge_build.py)
+    for source in forge_sources():
+        objects.append(guest_object(source, forge_cflags(game_cflags, ZLIB_DIR)))
     objects.append(guest_object(STB_VORBIS_SOURCE, game_cflags))
 
     # the platform layer shared with Linux, and the guest runtime
@@ -589,7 +593,7 @@ def generate_guest_image(n: Writer, sln: Any, config: Dict[str, Any], *, arch: G
         if source.name == "updater.c" and updater_cflags:
             objects.append(guest_object(source, f"{platform_cflags} {updater_cflags}"))
         else:
-            objects.append(guest_object(source, platform_cflags))
+            objects.append(guest_object(source, f"{platform_cflags} {forge_source_flags(source)}"))
         if source.name == "d3d8_gl.c":
             gl_renderer_object = objects[-1]
         # (display.anti_aliasing's passes: the OpenGL renderer's)
@@ -959,6 +963,10 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     # config.toml (port/android/host/host_main.c)
     staged_brokers = assets_dir / "brokers.txt"
     n.build(outputs=staged_brokers, rule="android_copy", inputs=Path("port/assets/network/brokers.txt"))
+    # (and the game's data files, which it writes there too: GAME_DATA_FILES)
+    staged_data = [assets_dir / source.name for source in GAME_DATA_FILES]
+    for source, target in zip(GAME_DATA_FILES, staged_data):
+        n.build(outputs=target, rule="android_copy", inputs=source)
     # the Vulkan probe's shader compiler, its shaders and, only when asked
     # for, the validation layer (a debuggable app's loader finds a layer in
     # the app's own native library folder)
@@ -992,7 +1000,7 @@ def generate_android_build(n: Writer, sln: Any) -> None:
     if not stamp.exists() or stamp.read_text() != wanted:
         stamp.write_text(wanted)
     staged_all = [libmain, staged_sdl, staged_image, staged_relocations, staged_vk_image, staged_vk_relocations,
-                  staged_brokers, *probe_staged]
+                  staged_brokers, *staged_data, *probe_staged]
     n.build(outputs="android", rule="phony", inputs=staged_all)
 
     apk = PORT_DIR / "app" / "build" / "outputs" / "apk" / "debug" / "app-debug.apk"

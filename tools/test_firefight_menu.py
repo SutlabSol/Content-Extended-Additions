@@ -1,0 +1,250 @@
+"""Firefight's menu (SOLO, MULTIPLAYER, FIREFIGHT VARIANTS), its rules' STARTING
+SKULLS and TAG PROFILE rows, its browser's filter, and a variant's profile
+shared by its host (tools/content_extended_menus.py, port_settings.py,
+port/linux/game/menu_functions.c, firefight.c, firefight_spawner.c,
+tag_multiplayer.c, randomizer.c, docs/tag_injector.md)."""
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "tools"))
+
+import content_extended_menus as menus  # noqa: E402
+import port_settings  # noqa: E402
+
+MENU_C = (ROOT / "port/linux/game/menu_functions.c").read_text()
+FIREFIGHT_C = (ROOT / "port/linux/game/firefight.c").read_text()
+SPAWNER_C = (ROOT / "port/linux/game/firefight_spawner.c").read_text()
+SKULLS_C = (ROOT / "port/linux/game/skulls.c").read_text()
+TAGS_C = (ROOT / "port/linux/game/tag_multiplayer.c").read_text()
+RANDOMIZER_C = (ROOT / "port/linux/game/randomizer.c").read_text()
+ENGINE_H = (ROOT / "source/game/game_engine.h").read_text()
+
+
+def menu(name):
+    return "\n".join(port_settings.multiplayer_files()[name])
+
+
+def test_the_menus_are_as_the_generators_write_them():
+    for name in ("main_menu.forge_select.port.xml", "main_menu.play.xml",
+                 "main_menu.settings_select.multiplayer_setup.playlist_edit.firefight_edit.port.xml"):
+        written = (ROOT / "port/assets/menus/ce" / name).read_text()
+        assert written.rstrip("\n") == menu(name).rstrip("\n")
+
+
+def test_play_opens_firefight_s_menu_and_its_rows_are_forge_s():
+    assert 'run="gamemode select firefight" open="main_menu/firefight_select/firefight_menu"' in menu("main_menu.play.xml")
+    rows = re.findall(r'firefight_select/(firefight_item_[a-z_]+)" x="\d+" y="\d+"', menu("main_menu.forge_select.port.xml"))
+    assert rows == ["firefight_item_create_local", "firefight_item_multiplayer", "firefight_item_variants"]
+
+
+def test_firefight_s_and_forge_s_menus_are_laid_out_as_campaign_s():
+    """no background, header or picture: the logo and rows about the same
+    middle (menu_item_frames: 130 of a 256 wide row, the rest half each way)"""
+    forge = menu("main_menu.forge_select.port.xml")
+    for screen, rows in (("main_menu/firefight_select/firefight_menu", "firefight_menu_select_list"),
+                         ("main_menu/forge_select/forge_menu", "forge_menu_select_list")):
+        widget = re.search(rf'<widget name="{screen}".*?</widget>', forge, re.S).group(0)
+        assert "bitmap=" not in widget.split(">")[0] and "header_" not in widget and "blueline" not in widget
+        assert 'widget="main_menu/halo_logo"' in widget
+        items = re.search(rf'<widget name="[^"]*/{rows}".*?</widget>', forge, re.S).group(0)
+        assert "description=" not in items and "button_bar" not in items
+        assert 'widget="main_menu/campaign_select/menu_item_back"' in items
+        for name, x in re.findall(r'child widget="([^"]+_item_[^"]+)" x="(\d+)"', items):
+            if name.endswith("menu_item_back"):
+                continue
+            width = int(re.search(rf'<widget name="{name}"[^>]* width="(\d+)"', forge).group(1))
+            assert int(x) + width / 2 == 320
+
+
+def test_a_variant_s_picture_and_summary():
+    """Slayer's figure, the crown if it has generators (frames, not engines:
+    game_type_grafix's order is its own), and what the rules say of it"""
+    assert "#define GAMETYPE_PICTURE_KING 1" in MENU_C and "#define GAMETYPE_PICTURE_SLAYER 2" in MENU_C
+    assert "generator_count > 0 ? GAMETYPE_PICTURE_KING : GAMETYPE_PICTURE_SLAYER" in MENU_C
+    assert MENU_C.count('text_set_length(named(description, "gametype_right_data", 0), rules, GAMETYPE_RULES_LENGTH)') == 2
+    assert 'text_set(named(description, "gametype_right_data"' not in MENU_C
+    for words in ("Sets: %s", "Rounds: %s", "Enemies: %s", "Objective: %s", "Skulls: %s"):
+        assert words in MENU_C
+
+
+def test_solo_is_a_local_game_by_its_name():
+    """multiplayer_mode_set reads the mode from the item's name"""
+    assert 'strstr(name, "create_local") ? _multiplayer_mode_host_local' in MENU_C
+    solo = re.search(r'<widget name="main_menu/firefight_select/firefight_item_create_local".*?</widget>',
+                     menu("main_menu.forge_select.port.xml"), re.S).group(0)
+    assert 'run="join controller to mp game"' in solo and 'run="mp type set mode"' in solo
+
+
+def test_firefight_s_multiplayer_lists_only_firefight_s_games():
+    assert "BROWSER_SHOWS_ENGINE(game->engine_type)" in MENU_C  # (LAN, Direct Link)
+    assert "BROWSER_SHOWS_ENGINE(games[read].engine_type)" in MENU_C  # (the server browser)
+    assert "(!multiplayer_firefight_mode() || (engine) == game_engine_firefight)" in MENU_C
+
+
+def test_each_page_s_help_matches_its_rows():
+    """each spinner's choices and a help for each row that opens a screen,
+    in order, and the guard's after ENEMY UNITS' (gametype_option_help)"""
+    helps = menus.firefight_page_helps()
+    assert len(helps) == len(menus.FIREFIGHT_PAGES)
+    for page, texts in enumerate(helps):
+        expected = sum(1 if setting in menus.FIREFIGHT_ACTION_ROWS else len(menus.FIREFIGHT_CHOICES[f"var_ff_{choices}"])
+                       for row_page, _, setting, _, choices in menus.FIREFIGHT_ROWS if row_page == page)
+        assert len(texts) == expected + (page == menus.FIREFIGHT_UNITS_PAGE)
+    guard = int(re.search(r"#define FF_UNIT_GUARD_HELP_STRING_INDEX (\d+)", MENU_C).group(1))
+    assert "CANNOT DISABLE" in helps[menus.FIREFIGHT_UNITS_PAGE][guard]
+
+
+def test_the_rules_are_buttons_each_with_its_screen():
+    xml = menu("main_menu.settings_select.multiplayer_setup.playlist_edit.firefight_edit.port.xml")
+    assert "ff_page_spinner" not in xml + MENU_C
+    hub = re.search(r'<widget name="[^"]*/firefight_options_menu".*?</widget>', xml, re.S).group(0)
+    assert re.findall(r'/(op_ff_page_\d)"', hub) == [f"op_ff_page_{page}" for page in range(5)]
+    for page in range(5):
+        assert f'open="{menus.FIREFIGHT_EDIT}/firefight_page_{page}_screen"' in xml
+        screen = re.search(rf'<widget name="[^"]*/firefight_page_{page}_menu".*?</widget>', xml, re.S).group(0)
+        assert 'run="mp profile init firefight rules"' in screen
+        assert len(re.findall(rf'/op_ff{page}_', screen)) == sum(row[0] == page for row in menus.FIREFIGHT_ROWS)
+
+
+def test_game_options_goes_straight_to_a_firefight_variant_s_rules():
+    edit = (ROOT / "port/assets/menus/ce/main_menu.settings_select.multiplayer_setup.playlist_edit.xml").read_text()
+    assert 'run="mp edit game options" open=' in edit
+    assert '"mp edit game options"' in (ROOT / "port/linux/game/menu_tags.c").read_text()
+    opens = MENU_C[MENU_C.index("static boolean gametype_game_options_open("):]
+    assert "ui_widget_port_open(widget, FIREFIGHT_RULES_SCREEN, widget_deleted);\n\treturn FALSE;" in opens
+    assert 'strcmp(widget->name, "op_game_type") || gametype_game_options_open' in MENU_C
+
+
+def test_the_row_values_are_the_widgets_the_code_sets():
+    xml = menu("main_menu.settings_select.multiplayer_setup.playlist_edit.firefight_edit.port.xml")
+    for key, run in menus.FIREFIGHT_ACTION_ROWS.items():
+        assert f'/ff_{key}_value"' in xml and f'"ff_{key}_value"' in MENU_C
+        assert f'run="{run}"' in xml and f'"{run}"' in MENU_C
+        assert f'"{run}"' in (ROOT / "port/linux/game/menu_tags.c").read_text()
+
+
+def test_the_rotation_s_words_are_its_values():
+    """OFF once stored the value of Reach's standard rotation"""
+    assert menus.FIREFIGHT_CHOICES["var_ff_prog_skulls"] == ["OFF (LOCKED)", "REACH STANDARD", "RANDOM / ROUND"]
+    assert re.search(r"firefight_skull_progression_mode\), 0, 3,\s+\{ _firefight_skull_prog_off, "
+                     r"_firefight_skull_prog_standard, _firefight_skull_prog_random_round \}", MENU_C)
+
+
+def test_rules_never_write_into_the_round_skulls():
+    """ENEMY HEALTH SCALE, SHIELD SCALE and BONUS DURATION were stored in the
+    per-round skull overrides, which the progression then read as skulls"""
+    assert "firefight_round_" not in ENGINE_H + MENU_C + FIREFIGHT_C
+    assert "OPTIONS_FIELD(firefight_enemy_health_scale)" in MENU_C
+    assert "firefight_bonus_seconds * TICKS_PER_SECOND" in FIREFIGHT_C
+    assert "firefight_set_vitality_scale_get() * scale" in FIREFIGHT_C
+
+
+def test_a_skull_on_from_the_start_is_ignored_by_the_rounds():
+    assert "ff_state.round_skulls &= ~started;" in FIREFIGHT_C
+    assert "ff_state.set_skulls &= ~started;" in FIREFIGHT_C
+    assert "ff_state.temporary_skulls = combined & ~(started | ff_state.set_skulls);" in FIREFIGHT_C
+    assert "pool &= ~firefight_started_skulls();" in FIREFIGHT_C
+
+
+def test_firefight_s_skulls_are_drawn_plain_or_pending_never_lost():
+    branch = SKULLS_C.index("if (firefight_active() && firefight_40_skull_active(skull))\n\t\t{\n\t\t\tif (firefight_40")
+    assert branch < SKULLS_C.index("else if (skull_set_has(&level_set, skull))\n\t\t\toverlay = NONE;")
+    assert "firefight_40_skull_temporary(skull)" in SKULLS_C[branch:branch + 200]
+    assert "pkt.temporary_skulls = ff_state.temporary_skulls;" in (ROOT / "port/linux/game/firefight_network.c").read_text()
+
+
+def test_a_variant_s_profile_is_shared_and_joins_the_game():
+    assert "_played_firefight" in TAGS_C and "_share_firefight" in TAGS_C
+    assert "host_firefight_profile(game);" in TAGS_C
+    # (a variant chosen again takes it again: the game's setter forgets it)
+    setter = TAGS_C[TAGS_C.index("void tag_multiplayer_game_profile_set("):]
+    assert "firefight_profile_hash = 0UL" in setter[:setter.index("\n}")]
+    assert "tag_multiplayer_firefight_level_profile(scenario_name)" in RANDOMIZER_C
+    assert "scan_custom_tags();" in SPAWNER_C
+    assert "pick_custom_enemy(" in SPAWNER_C and "pick_custom_weapon(" in SPAWNER_C
+
+
+def test_built_in_variants_are_kept():
+    """a built-in one changed asks for a new name, and saves as a new one"""
+    player_ui = (ROOT / "source/interface/player_ui.c").read_text()
+    assert "cannot save over default profiles; must rename and save-as a new profile" in player_ui
+    events = (ROOT / "source/interface/ui_widget_event_handler_functions.c").read_text()
+    assert "player_ui_edit_profile_is_default_profile() && !player_ui_edit_profile_name_is_dirty()" in events
+    assert "gametype_edit_gather(&last);" in MENU_C
+
+
+def test_hostile_marines_score_and_friendly_ones_still_cost():
+    score = (ROOT / "port/linux/game/campaign_score.c").read_text()
+    flip = score.index("firefight_team_is_hostile(unit->object.owner_team_index)")
+    assert flip < score.index("if (base < 0)\n\t{\n\t\tif (killing_player_index != NONE)")
+    assert "base = -base / 2;" in score
+    helper = FIREFIGHT_C[FIREFIGHT_C.index("boolean firefight_team_is_hostile("):]
+    assert "wave_faction == _firefight_faction_unsc_humans" in helper[:helper.index("\n}")]
+    assert "game_team_is_enemy" not in helper[:helper.index("\n}")]  # (Woe Is Me's)
+
+
+def test_server_setup_adds_to_the_variant_s_skulls_never_takes_them():
+    settings = menu("main_menu.multiplayer_type_select.server_settings.xml")
+    row = re.search(r'<widget name="[^"]*/op_ff_start_skulls".*?</widget>', settings, re.S).group(0)
+    assert 'run="ss firefight skulls"' in row and "/ff_start_skulls_value" in row
+    assert '"ss firefight skulls"' in (ROOT / "port/linux/game/menu_tags.c").read_text()
+    # (its help, by index, after the section rows': the list's order)
+    keys = [row[0] for row in port_settings.FIREFIGHT_SETUP_ROWS]
+    base = int(re.search(r"#define FF_PLAYER_SCALE_HELP (\d+)", MENU_C).group(1))
+    assert base + keys.index("ff_start_skulls") == int(re.search(r"#define FF_START_SKULLS_HELP (\d+)", MENU_C).group(1))
+    # (the lock is what the gametype had as chosen, not the copy, which has
+    # the host's own after a game)
+    choose = MENU_C[MENU_C.index("static boolean gametype_choose("):]
+    assert "firefight_game_skulls_remember();" in choose[:choose.index("\n}")]
+    assert "gametype_edit.setup ? skull_set_intersection(firefight_game_skulls, skulls_menu_set)" in MENU_C
+    # (every way of changing the set keeps it)
+    assert "|| skull_set_has(&skulls_menu_locked, skull))" in MENU_C
+    assert "struct skull_set chosen = skulls_menu_locked;" in MENU_C
+    assert "skull_set_union(skulls_menu_locked, skull_set_is_empty(&on)" in MENU_C
+    assert "skull_set_union(skulls_menu_set, skulls_menu_locked)" in MENU_C
+
+
+def option_values(spinner):
+    """the values of a rules' spinner, as menu_functions.c lists them"""
+    row = re.search(rf'\{{ "{spinner}", .*?\{{(.*?)\}} \}},', MENU_C, re.S).group(1)
+    return [value.strip() for value in row.split(",")]
+
+
+def test_every_built_in_variant_s_settings_have_a_choice_to_load_into():
+    # (gametype_option_index falls on the nearest choice, and OK saves that)
+    profiles = FIREFIGHT_C[FIREFIGHT_C.index("built_in_firefight_profiles[NUMBER"):FIREFIGHT_C.index("/* ---------- skull mapping")]
+    factions = option_values("ff_faction_spinner")
+    for faction in set(re.findall(r"^\s+(_firefight_faction_\w+),$", profiles, re.M)):
+        assert faction in factions
+    numbers = re.findall(r"^\s+(-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+),$", profiles, re.M)
+    assert len(numbers) == 6
+    for place, spinner in enumerate(("ff_set_limit_spinner", "ff_starting_lives_spinner", "ff_round_lives_spinner",
+                                     "ff_bonus_lives_spinner", "ff_max_lives_spinner", "ff_generators_spinner")):
+        for row in numbers:
+            assert row[place] in option_values(spinner), spinner
+
+
+def test_each_firefight_spinner_has_as_many_values_as_choices():
+    for _, _, setting, _, choices in menus.FIREFIGHT_ROWS:
+        if setting not in menus.FIREFIGHT_ACTION_ROWS:
+            spinner = f"ff_{setting}_spinner"
+            count = int(re.search(rf'\{{ "{spinner}", .*?(\d+),\s+\{{', MENU_C, re.S).group(1))
+            assert count == len(option_values(spinner)) == len(menus.FIREFIGHT_CHOICES[f"var_ff_{choices}"]), spinner
+
+
+def test_the_defaults_show_as_what_they_are():
+    escalation = option_values("ff_escalation_spinner")
+    assert menus.FIREFIGHT_CHOICES["var_ff_escalation"][escalation.index("_firefight_escalation_medium")] == "+25% / SET"
+    late = option_values("ff_r3_veh_spinner")
+    assert menus.FIREFIGHT_CHOICES["var_ff_late_veh"][late.index("_firefight_late_vehicle_scorpion")] == "SCORPION"
+
+
+def test_generator_attackers_default_to_half_of_a_wave_and_outweigh_the_players():
+    attackers = option_values("ff_gen_attackers_spinner")
+    assert menus.FIREFIGHT_CHOICES["var_ff_gen_attackers"][attackers.index("_firefight_generator_attackers_50")] == "50% OF UNITS"
+    assert "_firefight_generator_attackers_50 = 0," in (ROOT / "port/linux/include/halo_firefight.h").read_text()
+    perception = (ROOT / "source/ai/actor_perception.c").read_text()
+    assert "firefight_actor_attacks_generator(actor_index, prop->unit_index)" in perception
+    assert "generator_attacker_slot(i)" in SPAWNER_C

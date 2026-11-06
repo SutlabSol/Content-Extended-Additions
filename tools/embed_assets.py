@@ -3,7 +3,8 @@
 tools/hud_assets.py), the menus' titles (port/assets/titles, made by
 tools/title_assets.py), their controller button icons (port/assets/buttons,
 made by tools/button_assets.py), the fonts the text is drawn with
-(port/assets/fonts), the menus' files (port/assets/menus, made by
+(port/assets/fonts), the emblems' masks and lists (port/assets/emblems, made
+by tools/emblem_assets.py), the menus' files (port/assets/menus, made by
 tools/ce_menus.py), the game's own sounds (port/assets/sounds, WAV files of
 16-bit PCM), the tag packs' manifests (port/assets/tag_packs, TOML) and
 SMAA's shader and lookup textures (port/third_party/smaa) in the game as C
@@ -81,6 +82,9 @@ WINDOW_ICON = Path("port/assets/icon/opence-icon-256.png")
 SOUND_ASSETS = Path("port/assets/sounds")
 SOUND_FILES = (("grunt_birthday_party.wav", "skulls_party_sound"), ("skull_sfx1.wav", "skulls_pickup_sound"),
                ("skull_sfx2.wav", "skulls_carrier_sound"), ("skull_sfx3.wav", "skulls_floor_sound"))
+# the emblems' masks and lists (tools/emblem_assets.py; port/linux/game/firefight_hud.c)
+EMBLEM_LIST = Path("port/assets/emblems/emblems.json")
+EMBLEM_MASKS = Path("port/assets/emblems/emblems.bin")
 # the pointer the menus show in place of the system's (port/linux/src/sdl_platform.c)
 MENU_CURSOR = Path("port/assets/cursor/menu_cursor.png")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -177,6 +181,7 @@ def hud_asset_inputs(platform: Optional[str] = None) -> List[Path]:
             *(FONT_ASSETS / name for name in font_files()), *(MENU_ASSETS / name for name in menu_files()),
             *(TAG_PACK_ASSETS / name for name in tag_pack_files()),
             *(SMAA_ASSETS / name for name, _ in smaa_files()),
+            EMBLEM_LIST, EMBLEM_MASKS,
             *([WINDOW_ICON] if (ROOT / WINDOW_ICON).is_file() else []),
             *([MENU_CURSOR] if (ROOT / MENU_CURSOR).is_file() else []),
             *(path for _, path in platform_icon_files()),
@@ -264,6 +269,24 @@ def png_size(data: bytes, name: str) -> tuple:
     if depth != 8 or colour != 6 or interlace != 0:
         sys.exit(f"{name}: must be 8-bit RGBA and not interlaced")
     return width, height
+
+
+def emblem_lines() -> List[str]:
+    """The emblems' masks, the palette and the names the menus show, as
+    halo_firefight.h declares them."""
+    lists = json.loads((ROOT / EMBLEM_LIST).read_text())
+    lines = ["", "const unsigned int firefight_emblem_masks[] = {"]
+    lines.extend(words((ROOT / EMBLEM_MASKS).read_bytes()))
+    lines += ["};", "", "const unsigned int firefight_emblem_palette[] = {"]
+    lines += [f"\t0xff{color['rgb']}u, /* {color['name']} */" for color in lists["colors"]]
+    lines.append("};")
+    for symbol, names in (("foreground", [entry["name"] for entry in lists["foregrounds"]]),
+                          ("background", ["None", *(entry["name"] for entry in lists["backgrounds"])]),
+                          ("color", [color["name"] for color in lists["colors"]])):
+        lines += ["", f"char const *const firefight_emblem_{symbol}_names[] = {{"]
+        lines += ["\t" + json.dumps(name) + "," for name in names]
+        lines.append("};")
+    return lines
 
 
 def main() -> None:
@@ -425,6 +448,7 @@ def main() -> None:
         lines.extend(words(data) if data else ["\t0,"])
         lines.append("};")
         lines.append(f"const unsigned long {symbol}_size = {len(data)};")
+    lines.extend(emblem_lines())
     lines.append("")
     # this build's number (community.c's: the main menu's news says whether
     # a newer release is out), 0 for a build made without one

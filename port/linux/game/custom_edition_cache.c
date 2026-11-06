@@ -392,10 +392,18 @@ static struct
 	unsigned long looked_at;
 } custom_edition_version_lookup;
 
+static struct
+{
+	char level_name[MAP_PATH_SIZE];
+	boolean is_flg1;
+	unsigned long looked_at;
+} custom_edition_flg1_lookup;
+
 void custom_edition_map_paths_forget(
 	void)
 {
 	custom_edition_version_lookup.looked_at = 0;
+	custom_edition_flg1_lookup.looked_at = 0;
 }
 
 /* the file that holds the map `map_name` names (a level name or a file
@@ -991,11 +999,69 @@ boolean custom_edition_cache_refuse(
 	return TRUE;
 }
 
+static boolean is_xbox_flg1_forge_map(
+	char const *path)
+{
+	struct custom_edition_file file;
+	struct cache_file_identity identity;
+	unsigned char magic1fc[4] = { 0 };
+	unsigned char magic3a0[4] = { 0 };
+	boolean is_flg1 = FALSE;
+
+	if (!custom_edition_file_open(&file, path))
+	{
+		return FALSE;
+	}
+	if (cache_file_identify(&file.source, &identity) == _cache_file_status_ok &&
+		identity.format == _cache_file_format_xbox_cache)
+	{
+		if (file.source.read(file.source.context, 0x1FC, 4, magic1fc) &&
+			(*(uint32_t const *)magic1fc == 0x464C4731u || memcmp(magic1fc, "FLG1", 4) == 0))
+		{
+			is_flg1 = TRUE;
+		}
+		else if (file.source.read(file.source.context, 0x3A0, 4, magic3a0) &&
+			(*(uint32_t const *)magic3a0 == 0x464C4731u || memcmp(magic3a0, "FLG1", 4) == 0))
+		{
+			is_flg1 = TRUE;
+		}
+	}
+	custom_edition_file_close(&file);
+
+	return is_flg1;
+}
+
 boolean custom_edition_level_name(
 	char const *level_name)
 {
-	return level_name &&
-		!_strnicmp(level_name, CUSTOM_EDITION_LEVEL_NAME_PREFIX, csstrlen(CUSTOM_EDITION_LEVEL_NAME_PREFIX));
+	static boolean s_in_flg1_check = FALSE;
+	char path[MAP_PATH_SIZE];
+	unsigned long now;
+
+	if (!level_name ||
+		_strnicmp(level_name, CUSTOM_EDITION_LEVEL_NAME_PREFIX, csstrlen(CUSTOM_EDITION_LEVEL_NAME_PREFIX)) != 0)
+	{
+		return FALSE;
+	}
+	if (s_in_flg1_check || strlen(level_name) >= MAP_PATH_SIZE)
+	{
+		return TRUE;
+	}
+	now = GetTickCount() | 1;
+	if (custom_edition_flg1_lookup.looked_at &&
+		now - custom_edition_flg1_lookup.looked_at < 2000 &&
+		!csstrcasecmp(custom_edition_flg1_lookup.level_name, level_name))
+	{
+		return !custom_edition_flg1_lookup.is_flg1;
+	}
+	s_in_flg1_check = TRUE;
+	custom_edition_flg1_lookup.is_flg1 =
+		(custom_edition_map_named(level_name, path) && is_xbox_flg1_forge_map(path)) ? TRUE : FALSE;
+	strcpy(custom_edition_flg1_lookup.level_name, level_name);
+	custom_edition_flg1_lookup.looked_at = now;
+	s_in_flg1_check = FALSE;
+
+	return !custom_edition_flg1_lookup.is_flg1;
 }
 
 boolean custom_edition_map_file_path(
@@ -1198,6 +1264,10 @@ boolean custom_edition_cache_present(
 			(int)MIN(64, map_share_name_base_length(name)), name);
 		return FALSE;
 	}
+	if (is_xbox_flg1_forge_map(path))
+	{
+		return TRUE;
+	}
 	if (!halo_custom_edition_tag_cache())
 	{
 		error(_error_silent, "custom edition: the map '%s' cannot be played: %s", level_name,
@@ -1266,6 +1336,10 @@ short custom_edition_cache_file_scenario_type(
 	struct cache_file_identity identity;
 	short type = NONE;
 
+	if (is_xbox_flg1_forge_map(path))
+	{
+		return 1;
+	}
 	if (!halo_custom_edition_tag_cache() || !custom_edition_file_open(&file, path))
 	{
 		return NONE;

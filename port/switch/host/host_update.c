@@ -83,6 +83,11 @@ named it: an update takes it away (install) */
 #define UPDATE_OLD_DK_IMAGE "halo_guest_dk.elf"
 /* internet play's brokers (network.brokers_file), beside config.toml */
 #define UPDATE_BROKERS "brokers.txt"
+/* the game's rank icons (tools/linux_build.py's GAME_DATA_FILES:
+port/linux/game/firefight_hud.c), beside config.toml too */
+#define UPDATE_RANK_ICONS "rank_icons.bin"
+/* and Forge's objective markers (port/forge/src/forge_runtime_tags.c) */
+#define UPDATE_FORGE_MARKERS "forge_markers.bin"
 
 enum
 {
@@ -90,8 +95,9 @@ enum
 	ZIP_LOCAL_SIGNATURE = 0x04034b50,
 	ZIP_CENTRAL_SIGNATURE = 0x02014b50,
 	/* the files taken from the archive: the program and the game image,
-	which it must hold, then the brokers, which it may */
-	WANTED_FILES = 3,
+	which it must hold, then the brokers, the rank icons and Forge's markers,
+	which it may */
+	WANTED_FILES = 5,
 	REQUIRED_FILES = 2,
 	PROGRESS_EVERY = 512 * 1024,
 	/* seconds: a clock off by more is wrong (p2p_lobby.c's RETAINED_WINDOW;
@@ -151,7 +157,8 @@ static void wanted_path(int which, char *path, size_t size)
 		program_path(path, size);
 	else
 		snprintf(path, size, "%s/%s", host_executable_root(),
-			which == 1 ? UPDATE_IMAGE : UPDATE_BROKERS);
+			which == 1 ? UPDATE_IMAGE : which == 2 ? UPDATE_BROKERS : which == 3 ? UPDATE_RANK_ICONS :
+			UPDATE_FORGE_MARKERS);
 }
 
 /* ---------- the check */
@@ -301,7 +308,8 @@ static int unpack_entry(struct unpack *unpack)
 
 	unpack->name[unpack->name_length < sizeof(unpack->name) ? unpack->name_length : sizeof(unpack->name) - 1] = 0;
 	which = !strcmp(unpack->name, UPDATE_PROGRAM) ? 0 : !strcmp(unpack->name, UPDATE_IMAGE) ? 1 :
-		!strcmp(unpack->name, UPDATE_BROKERS) ? 2 : -1;
+		!strcmp(unpack->name, UPDATE_BROKERS) ? 2 : !strcmp(unpack->name, UPDATE_RANK_ICONS) ? 3 :
+		!strcmp(unpack->name, UPDATE_FORGE_MARKERS) ? 4 : -1;
 	unpack->remaining = compressed;
 	unpack->expected_crc = little(header + 14, 4);
 	unpack->crc = 0;
@@ -476,7 +484,7 @@ replaced now: the loader read it whole when it started. The deko3d image of
 the releases that had two (halo_guest_dk.elf) is taken away: the game image is
 deko3d's now, and nothing loads that one again. The brokers' list goes as the
 game image does (the game reads it when internet play starts), and a release
-without one leaves the old one. */
+without one leaves the old one; the rank icons likewise. */
 static int install(char *error, size_t error_size)
 {
 	char target[512], temporary[520];

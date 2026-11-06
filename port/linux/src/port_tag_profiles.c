@@ -112,12 +112,16 @@ longest key */
 /* the most bundles open at once (a level's), and what their reads go
 through on their way into the Xbox's memory, which the renderer watches
 (memory_watch.c: the kernel fails a read into memory it has protected) */
-#define MAXIMUM_OPEN_BUNDLES 64
+#define MAXIMUM_OPEN_BUNDLES 128
 #define READ_BOUNCE_SIZE 0x10000
 /* the shared profiles' folder (of tag_injector), the slot the one opened is
 in, and an archive's magic, most files and largest file */
 #define SHARED_FOLDER ".shared"
 #define SHARED_PROFILE MAXIMUM_TAG_PROFILES
+/* a saved Forge map's tags, unpacked from the map: their folder and slot */
+#define BAKED_FOLDER ".baked"
+#define BAKED_BUILDING "building"
+#define BAKED_PROFILE (MAXIMUM_TAG_PROFILES + 1)
 #define SHARED_ID_LENGTH 32
 #define ARCHIVE_MAGIC "OCETAGS1"
 #define ARCHIVE_MAGIC_LENGTH 8
@@ -176,10 +180,12 @@ struct tag_profile
 
 static struct
 {
-	/* the profiles found, then the shared profile opened (SHARED_PROFILE) */
-	struct tag_profile profiles[MAXIMUM_TAG_PROFILES + 1];
+	/* the profiles found, then the shared profile opened (SHARED_PROFILE)
+	and the baked one (BAKED_PROFILE) */
+	struct tag_profile profiles[MAXIMUM_TAG_PROFILES + 2];
 	long profile_count;
 	int shared_open;
+	int baked_open;
 	unsigned long scans;
 	/* the bundles a level reads from, whatever profiles are found meanwhile:
 	a bundle's file, or a tag file's handle (port_tag_store.c), plus one
@@ -724,6 +730,8 @@ static struct tag_profile *profile_get(long profile)
 {
 	if (profile == SHARED_PROFILE)
 		return port_tag_profiles.shared_open ? &port_tag_profiles.profiles[SHARED_PROFILE] : NULL;
+	if (profile == BAKED_PROFILE)
+		return port_tag_profiles.baked_open ? &port_tag_profiles.profiles[BAKED_PROFILE] : NULL;
 	return profile >= 0 && profile < port_tag_profiles.profile_count ? &port_tag_profiles.profiles[profile] : NULL;
 }
 
@@ -1571,7 +1579,7 @@ int port_tag_profiles_shared_folder_make(void)
 
 int port_tag_profiles_shared(long profile)
 {
-	return profile == SHARED_PROFILE;
+	return profile == SHARED_PROFILE || profile == BAKED_PROFILE;
 }
 
 void port_tag_profiles_shared_close(void)
@@ -1837,7 +1845,8 @@ long port_tag_profiles_shared_build(long profile, unsigned long group, const cha
 	return written ? shared.tag_count : 0;
 }
 
-int port_tag_profiles_shared_unpack(const char *archive, const char *id)
+/* an archive unpacked into the folder `id` of the shared or baked profiles */
+static int archive_unpack(const char *archive, const char *id, int baked)
 {
 	char root[MAXIMUM_PATH_LENGTH];
 	char folder[MAXIMUM_PATH_LENGTH];
@@ -1894,13 +1903,19 @@ int port_tag_profiles_shared_unpack(const char *archive, const char *id)
 	}
 	unpacked = unpacked && index < count;
 	/* (into the id's folder, made anew: deleted again unless it is whole) */
-	if (port_tag_profiles.shared_open &&
+	if (!baked && port_tag_profiles.shared_open &&
 		!strcmp(port_tag_profiles.profiles[SHARED_PROFILE].folder + strlen(SHARED_FOLDER) + 1, id))
 		port_tag_profiles_shared_close();
+	if (baked && port_tag_profiles.baked_open &&
+		!strcmp(port_tag_profiles.profiles[BAKED_PROFILE].folder + strlen(BAKED_FOLDER) + 1, id))
+		port_tag_profiles_baked_close();
 	posix_make_directory(profiles_root(root, sizeof(root)));
-	shared_root(folder, sizeof(folder));
+	snprintf(folder, sizeof(folder), "%s/%s", root, baked ? BAKED_FOLDER : SHARED_FOLDER);
 	posix_make_directory(folder);
-	port_tag_profiles_shared_path(id, folder, sizeof(folder));
+	if (baked)
+		snprintf(folder, sizeof(folder), "%s/%s/%s", root, BAKED_FOLDER, id);
+	else
+		port_tag_profiles_shared_path(id, folder, sizeof(folder));
 	folder_delete(folder);
 	unpacked = unpacked && posix_make_directory(folder) == 0;
 	for (index = 0; unpacked && index < count; index++)
@@ -1934,6 +1949,175 @@ int port_tag_profiles_shared_unpack(const char *archive, const char *id)
 		platform_log("tag injector: the archive %s is not one", archive);
 	}
 	return unpacked;
+}
+
+int port_tag_profiles_shared_unpack(const char *archive, const char *id)
+{
+	return archive_unpack(archive, id, 0);
+}
+
+/* ---------- baked profiles (a saved Forge map's tags: forge_runtime_tags.c) */
+
+static void baked_path(const char *name, char *path, size_t size)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+
+	snprintf(path, size, "%s/%s/%s", profiles_root(root, sizeof(root)), BAKED_FOLDER, name ? name : "");
+}
+
+void port_tag_profiles_baked_close(void)
+{
+	if (port_tag_profiles.baked_open)
+		profile_dispose(&port_tag_profiles.profiles[BAKED_PROFILE]);
+	port_tag_profiles.baked_open = 0;
+}
+
+int port_tag_profiles_baked_present(const char *id)
+{
+	char path[MAXIMUM_PATH_LENGTH];
+	struct posix_file_information information;
+
+	if (!shared_id_valid(id))
+		return 0;
+	baked_path(id, path, sizeof(path));
+	return posix_stat(path, &information) == 0 && (information.flags & _posix_file_is_directory);
+}
+
+long port_tag_profiles_baked_open(const char *id)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+	char folder[MAXIMUM_FOLDER_LENGTH];
+	struct tag_profile profile;
+
+	port_tag_profiles_baked_close();
+	if (!shared_id_valid(id))
+		return -1;
+	profiles_root(root, sizeof(root));
+	snprintf(folder, sizeof(folder), "%s/%s", BAKED_FOLDER, id);
+	if (!profile_read(&profile, root, folder))
+		return -1;
+	port_tag_profiles.profiles[BAKED_PROFILE] = profile;
+	port_tag_profiles.baked_open = 1;
+	return BAKED_PROFILE;
+}
+
+int port_tag_profiles_baked_unpack(const char *archive, const char *id)
+{
+	return archive_unpack(archive, id, 1);
+}
+
+void port_tag_profiles_baked_scratch_path(char *path, unsigned long size)
+{
+	char root[MAXIMUM_PATH_LENGTH];
+
+	posix_make_directory(profiles_root(root, sizeof(root)));
+	baked_path(NULL, path, (size_t)size);
+	posix_make_directory(path);
+	baked_path("scratch.tagshare", path, (size_t)size);
+}
+
+long port_tag_profiles_baked_build(const long *profiles, const long *tags, long count, const char *archive)
+{
+	char folder[MAXIMUM_PATH_LENGTH];
+	struct tag_profile baked;
+	struct archive_entry *entries;
+	char *text = NULL;
+	long entry_count = 0;
+	long index;
+	int written;
+
+	if (count <= 0)
+		return 0;
+	memset(&baked, 0, sizeof(baked));
+	text_copy(baked.name, sizeof(baked.name), "Baked tags");
+	snprintf(baked.folder, sizeof(baked.folder), "%s/%s", BAKED_FOLDER, BAKED_BUILDING);
+	baked.tags = calloc((size_t)count, sizeof(*baked.tags));
+	entries = calloc((size_t)count + 3, sizeof(*entries));
+	if (!baked.tags || !entries)
+	{
+		free(baked.tags);
+		free(entries);
+		return 0;
+	}
+	baked_path(BAKED_BUILDING, folder, sizeof(folder));
+	folder_delete(folder);
+	posix_make_directory(folder);
+	/* (each tag copied, so what they share is once in the new pack and what
+	no placed object uses is left behind) */
+	for (index = 0; index < count; index++)
+	{
+		struct tag_profile *source = profile_get(profiles[index]);
+		struct tag_profile_tag *tag = tag_get(profiles[index], tags[index]);
+		char from[MAXIMUM_PATH_LENGTH];
+		char path[MAXIMUM_PATH_LENGTH];
+		unsigned long stored = 0;
+		long other;
+		int copied;
+
+		if (!source || !tag || !tag->size)
+			continue;
+		for (other = 0; other < baked.tag_count && strcmp(baked.tags[other].file, tag->file); other++)
+		{
+		}
+		if (other < baked.tag_count)
+			continue;
+		profile_path(source, NULL, from, sizeof(from));
+		if (tag->stored)
+			copied = port_tag_store_copy(from, tag->file, folder, &stored);
+		else
+		{
+			char source_path[MAXIMUM_PATH_LENGTH];
+			FILE *stream;
+			char *bytes = malloc(tag->file_size ? tag->file_size : 1);
+
+			profile_path(source, tag->file, source_path, sizeof(source_path));
+			profile_path(&baked, tag->file, path, sizeof(path));
+			stream = fopen(source_path, "rb");
+			copied = bytes && stream && fread(bytes, 1, tag->file_size, stream) == tag->file_size &&
+				file_write(path, bytes, tag->file_size);
+			if (stream)
+				fclose(stream);
+			free(bytes);
+		}
+		if (!copied)
+		{
+			platform_log("tag injector: %s cannot be baked into the map", tag->name);
+			continue;
+		}
+		baked.tags[baked.tag_count] = *tag;
+		baked.tags[baked.tag_count].enabled = 1;
+		baked.tags[baked.tag_count].options[tag_option_index("failed")][0] = 0;
+		profile_path(&baked, tag->file, path, sizeof(path));
+		if (archive_entry_path(&entries[entry_count], tag->file, path))
+			entry_count++;
+		baked.tag_count++;
+	}
+	if (baked.tag_count)
+	{
+		char path[MAXIMUM_PATH_LENGTH];
+
+		profile_path(&baked, "tags.pack", path, sizeof(path));
+		entry_count += archive_entry_path(&entries[entry_count], "tags.pack", path);
+		profile_path(&baked, "tags.index", path, sizeof(path));
+		entry_count += archive_entry_path(&entries[entry_count], "tags.index", path);
+		text = profile_text(&baked);
+	}
+	written = text != NULL;
+	if (written)
+	{
+		memset(&entries[entry_count], 0, sizeof(entries[entry_count]));
+		text_copy(entries[entry_count].name, sizeof(entries[entry_count].name), "profile.toml");
+		entries[entry_count].bytes = text;
+		entries[entry_count].size = (unsigned long)strlen(text);
+		entry_count++;
+		written = archive_write(entries, entry_count, archive);
+	}
+	index = baked.tag_count;
+	free(text);
+	free(entries);
+	free(baked.tags);
+	folder_delete(folder);
+	return written ? index : 0;
 }
 
 /* the marker beside a share a client took a copy of (the copy's folder in

@@ -78,6 +78,8 @@ symbols in this file:
 #include "text/unicode.h"
 #include "tag_files/tag_files.h"
 
+long halo_screen_ui_offset_current(void);
+
 /* port: the high-res text (port/linux/src/text_hires.c): the text drawn with
 fonts at the display's resolution, laid out as before. Characters are drawn
 from an atlas of the fonts' glyphs that a placeholder bitmap stands for. */
@@ -511,10 +513,14 @@ rasterizer_draw_string(
 
 			if (!clip)
 			{
+				/* port: the menus' text is in their 640 columns, centred in a wide
+				screen (halo_screen_ui_offset): the screen begins left of column 0 */
+				long ui_offset = halo_screen_ui_offset_current();
+
 				viewport_bounds = render.camera.viewport_bounds;
 				offset_rectangle2d(
 					&viewport_bounds,
-					-render.camera.viewport_bounds.x0,
+					(short)(-render.camera.viewport_bounds.x0 - ui_offset),
 					-render.camera.viewport_bounds.y0);
 			}
 			else
@@ -642,10 +648,14 @@ rasterizer_draw_unicode_string(
 
 			if (!clip)
 			{
+				/* port: the menus' text is in their 640 columns, centred in a wide
+				screen (halo_screen_ui_offset): the screen begins left of column 0 */
+				long ui_offset = halo_screen_ui_offset_current();
+
 				viewport_bounds = render.camera.viewport_bounds;
 				offset_rectangle2d(
 					&viewport_bounds,
-					-render.camera.viewport_bounds.x0,
+					(short)(-render.camera.viewport_bounds.x0 - ui_offset),
 					-render.camera.viewport_bounds.y0);
 			}
 			else

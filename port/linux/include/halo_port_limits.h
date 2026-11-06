@@ -46,10 +46,13 @@ machines, 16 players) are 0x226 and 0x434. */
 #define HALO_PORT_NETWORK_GAME_PLAYERS_END \
 	(HALO_PORT_NETWORK_GAME_PLAYERS_OFFSET + HALO_PORT_MAXIMUM_NETWORK_PLAYERS * HALO_PORT_NETWORK_PLAYER_SIZE)
 #define HALO_PORT_NETWORK_GAME_RANDOM_SEED_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 2)
-/* (then the gametype's PC options, struct game_variant_options: 0x2C bytes) */
+/* (then the gametype's PC + OpenCE + Firefight options, struct game_variant_options: 0x58 bytes;
+stock OpenCE is 0x2C bytes) */
 #define HALO_PORT_NETWORK_GAME_VARIANT_OPTIONS_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0xA)
-#define HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x36)
-#define HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x3A)
+#define HALO_PORT_STOCK_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x36)
+#define HALO_PORT_STOCK_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x3A)
+#define HALO_PORT_NETWORK_GAME_LOCAL_DATA_OFFSET (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x62)
+#define HALO_PORT_NETWORK_GAME_SIZE (HALO_PORT_NETWORK_GAME_PLAYERS_END + 0x66)
 
 /* ---------- system link protocol
 
@@ -161,8 +164,14 @@ multiplayer profile's tags, which moves theirs (randomizer.c); 7 its
 zombies' cries too, which move them again, and tells its first zombies
 (_distributed_message_floodfection_originals); 8 its leap and melee cries
 and its music, which move them again; 9 advertises the randomizer allies'
-own pool, whose tags a client copies too */
-#define HALO_PORT_MOD_NETWORK_VERSION 9
+own pool, whose tags a client copies too; 10 a Forge game's Tag Injector share
+(_distributed_message_tag_share's kind); 11 a Firefight variant's share (its
+kind) and the temporary skulls in Firefight's state; 12 a Forge marker's usage
+changing (!FU:), which dropship routes hang on, and a dropship's looks in
+Firefight's state; 13 a Forge AI spawn's settings (!FA:); 14 its spawn effect,
+in !FA: and shown by !FE:, and the campaign effects a Forge game imports; 15
+two of those effects gone, which moves the tags after them */
+#define HALO_PORT_MOD_NETWORK_VERSION 15
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

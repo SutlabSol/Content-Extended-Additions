@@ -193,6 +193,7 @@
 		<string text="[%s]: " map="188"/>
 		<string text=" Remaining" map="189"/>
 		<string text="Server IP Address - " map="190"/>
+		<string text="Firefight"/>
 	</strings>
 	<strings name="error/error_headers" map="ui\shell\error\error_headers">
 		<string text="ATTENTION" map="0"/>
@@ -224,6 +225,8 @@
 		<string text="OPENCE"/>
 		<string text="CUSTOM" map="2"/>
 		<string text="TAG INJECTION"/>
+		<string text="FIREFIGHT"/>
+		<string text="FORGE"/>
 	</strings>
 	<strings name="main_menu/main_menu_options" map="ui\shell\main_menu\main_menu_options">
 		<string text="NEW CAMPAIGN" map="0"/>
@@ -756,6 +759,7 @@
 		<string text="Sometimes you have to kill. \nNow is one of those times. \nWhack or be whacked.\nCurrent Rules:" map="2"/>
 		<string text="Become one with the ball. And \nkeep the ball away from every-\none else while you're at it.\nCurrent Rules:" map="3"/>
 		<string text="Complete the required number \nof laps before your opponents, \nblowing away the competition.\nCurrent Rules:" map="4"/>
+		<string text="Hold out against wave after\nwave of Covenant and Flood\nforces in Halo: Reach style.\nCurrent Rules:"/>
 		<string text=" \n \n \nCurrent Rules:" map="5"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/game_type_select/gametype_select_list_options" map="ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\game_type_select\gametype_select_list_options">
@@ -765,6 +769,7 @@
 		<string text="ODDBALL" map="3"/>
 		<string text="RACE" map="4"/>
 		<string text="SAVE CHANGES" map="5"/>
+		<string text="FIREFIGHT"/>
 	</strings>
 	<strings name="main_menu/settings_select/multiplayer_setup/playlist_edit/koth_edit/cap_koth" map="ui\shell\main_menu\settings_select\multiplayer_setup\playlist_edit\koth_edit\cap_koth">
 		<string text="During the course of the game, the Hill will teleport to\na random location." map="0"/>

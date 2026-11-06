@@ -280,7 +280,6 @@
 		<on event="back" run="port lobby preview leave" back="true"/>
 		<on event="start" run="port lobby preview add"/>
 		<on event="y" run="port lobby add player" open="main_menu/multiplayer_type_select/lobby/join4_screen"/>
-		<child widget="main_menu/new_select/sel_list_desc_bkd"/>
 		<child widget="main_menu/multiplayer_type_select/lobby/preview_list"/>
 		<child widget="main_menu/multiplayer_type_select/lobby/header_lobby"/>
 		<child widget="main_menu/multiplayer_type_select/lobby/lobby_join_help"/>

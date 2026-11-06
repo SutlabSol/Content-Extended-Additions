@@ -1108,6 +1108,20 @@ boolean network_game_client_port_advertised_modded(
 			HALO_PORT_ADVERTISED_TAG_SHARE_FLAG)) != 0;
 }
 
+/* port: an advertised game's host's network version, a modded game's base
+one (menu_functions.c's Forge browser) */
+unsigned short network_game_client_port_advertised_version(
+	short game_index)
+{
+	unsigned short version;
+
+	if (game_index < 0 || game_index >= MAXIMUM_NETWORK_ADVERTISED_GAMES)
+		return 0;
+	version = (unsigned short)network_game_client_advertised_versions[game_index].version;
+	return (version & HALO_PORT_MODDED_VERSION_MARK) == HALO_PORT_MODDED_VERSION_MARK ?
+		(unsigned short)network_game_client_advertised_versions[game_index].base_version : version;
+}
+
 boolean network_game_client_advertised_game_is_valid(
 	struct network_advertised_game *advertised_game)
 {
@@ -3463,6 +3477,13 @@ boolean network_game_client_advertised_game_compatible(
 	}
 	distributed = (network_game_client_advertised_versions[game_index].flags &
 		HALO_PORT_ADVERTISED_DISTRIBUTED_FLAG) != 0;
+	/* port: a Forge game wants the tags to place (forge_hooks.c) */
+	{
+		extern int forge_join_tags_missing(int tell);
+
+		if (theirs == ours && forge_join_tags_missing(tell))
+			return FALSE;
+	}
 	if (theirs == ours && distributed && !modded)
 	{
 		network_event("joining a host of network version %u", theirs);

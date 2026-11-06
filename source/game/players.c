@@ -253,6 +253,8 @@ symbols in this file:
 #include "interface/hud_weapon.h"
 #include "interface/player_ui.h"
 #include "interface/ui_widget.h"
+#include "saved games/player_profile.h"
+#include "halo_firefight.h"
 #include "items/equipment.h"
 #include "items/equipment_definitions.h"
 #include "items/projectiles.h"
@@ -854,6 +856,10 @@ void player_died(
 	return;
 }
 
+static void players_coop_color_unit(
+	long unit_index,
+	real_rgb_color const *color);
+
 void players_set_local_player_unit(
 	short local_player_index,
 	long unit_index)
@@ -888,6 +894,15 @@ void players_set_local_player_unit(
 	player->unit_index = unit_index;
 	player->dead_unit_index = NONE;
 	player_control_new_unit(local_player_index, unit_index);
+
+	if (unit_index != NONE && player_index != NONE)
+	{
+		real_rgb_color change_color_storage;
+		real_rgb_color change_color = *game_engine_player_get_change_color(
+			&change_color_storage,
+			player_index);
+		players_coop_color_unit(unit_index, &change_color);
+	}
 
 	return;
 }
@@ -1284,7 +1299,25 @@ long player_new(
 		player->quit_out_of_game = FALSE;
 
 		if (network_player)
+		{
 			csmemcpy(&player->network_player_data, network_player, sizeof(struct network_player));
+		}
+		else if (local_player_index != NONE && local_player_index < MAXIMUM_NUMBER_OF_LOCAL_PLAYERS)
+		{
+			struct player_profile profile;
+			long prof_idx = player_ui_get_active_player_profile_index(local_player_index);
+			if (prof_idx == NONE && local_player_index == 0)
+				prof_idx = player_ui_get_player1_last_used_profile_index();
+			if (prof_idx != NONE && player_profile_get(prof_idx, &profile))
+			{
+				player->network_player_data.primary_color_index = profile.primary_color_index;
+				if (!player->name[0])
+				{
+					ustrncpy(player->name, profile.player_name, 11);
+					player->name[11] = 0;
+				}
+			}
+		}
 	}
 
 	machine_add_player(machine_index, player_index);
@@ -1340,7 +1373,8 @@ long find_best_starting_location_index(
 	no game engine) has no starting location for no game type, every one
 	being for its game types: the player starts at any of them, not at none
 	(outside the map, with no pause menu) */
-	if (best_starting_location_index == NONE && !game_engine_running() && starting_location_count > 0)
+	/* port: firefight */
+	if (best_starting_location_index == NONE && (!game_engine_running() || firefight_active()) && starting_location_count > 0)
 	{
 		best_starting_location_index = (short)PIN(
 			(short)(real_random_range(0.0f, 1.0f) * starting_location_count), 0, starting_location_count - 1);
@@ -1448,6 +1482,12 @@ static void player_spawn(
 		/* port: a network co-op respawn starts behind its teammate
 		(players_coop_spawn_location) */
 		starting_location = players_coop_spawn_location(&spawn_location);
+		if (!starting_location && firefight_active())
+		{
+			csmemset(&spawn_location, 0, sizeof(spawn_location));
+			if (firefight_select_player_spawn_point(player_index, &spawn_location.position, &spawn_location.facing))
+				starting_location = &spawn_location;
+		}
 		if (!starting_location && starting_location_index != NONE)
 			starting_location = player_get_starting_location(starting_location_index);
 		if (starting_location)
@@ -1459,18 +1499,23 @@ static void player_spawn(
 				struct game_globals_player_information);
 			if (player_information->player_unit.index != NONE)
 			{
-				if (game_engine_running())
+				/* port: firefight */
+				if (game_engine_running() && game_globals->multiplayer_information.count > 0)
 				{
 					multiplayer_information = TAG_BLOCK_GET_ELEMENT(
 						&game_globals->multiplayer_information,
 						0,
 						struct game_globals_multiplayer_information);
 					unit_definition_index = multiplayer_information->unit.index;
+					if (unit_definition_index == NONE)
+						unit_definition_index = player_information->player_unit.index;
 				}
 				else
 				{
 					unit_definition_index = player_information->player_unit.index;
 				}
+				if (firefight_active())
+					unit_definition_index = firefight_resolve_player_biped_tag(player_index, unit_definition_index);
 
 				object_placement_data_new(
 					&placement_data,
@@ -1488,7 +1533,8 @@ static void player_spawn(
 					&placement_data,
 					&change_color);
 				unit_index = object_new(&placement_data);
-				if (unit_index != NONE && network_coop_active())
+				/* port: firefight & campaign profile armor colors */
+				if (unit_index != NONE && (!game_engine_running() || network_coop_active() || firefight_active()))
 					players_coop_color_unit(unit_index, &change_color);
 				if (unit_index != NONE)
 				{

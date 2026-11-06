@@ -450,31 +450,45 @@ static void net_ctl_address(int code, char *text, size_t size)
 
 /* ---------- at the title's start */
 
-/* internet play's brokers (network.brokers_file), which the game reads
-beside config.toml: the title's copy (port/assets/network/brokers.txt,
-tools/ps5_build.py) written there at every start, as Android's app does, so
-an update's list replaces the old one */
-static void copy_brokers(void)
+/* a file of the title's (tools/ps5_build.py) that the game reads beside
+config.toml, written there at every start, as Android's app does, so an
+update's copy replaces the old one */
+static void copy_title_file(const char *name)
 {
-	char text[8192];
-	ssize_t length;
-	int in = open(PS5_TITLE_FOLDER "/brokers.txt", O_RDONLY), out;
+	char from[256], to[256], buffer[16384];
+	ssize_t length = 0;
+	int in, out, failed = 0;
 
+	snprintf(from, sizeof(from), "%s/%s", PS5_TITLE_FOLDER, name);
+	snprintf(to, sizeof(to), "%s/%s", PS5_DATA_FOLDER, name);
+	in = open(from, O_RDONLY);
 	if (in < 0)
 	{
-		ps5_log("network: " PS5_TITLE_FOLDER "/brokers.txt: %s", strerror(errno));
+		ps5_log("title files: %s: %s", from, strerror(errno));
 		return;
 	}
-	length = read(in, text, sizeof(text));
+	out = open(to, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+	failed = out < 0;
+	while (!failed && (length = read(in, buffer, sizeof(buffer))) > 0)
+		failed = write(out, buffer, (size_t)length) != length;
+	if (failed || length < 0)
+		ps5_log("title files: %s cannot be written: %s", to, strerror(errno));
 	close(in);
-	out = open(PS5_DATA_FOLDER "/brokers.txt", O_WRONLY | O_CREAT | O_TRUNC, 0666);
-	if (length <= 0 || out < 0 || write(out, text, (size_t)length) != length)
-		ps5_log("network: " PS5_DATA_FOLDER "/brokers.txt cannot be written: %s", strerror(errno));
 	if (out >= 0)
 	{
 		close(out);
-		chmod(PS5_DATA_FOLDER "/brokers.txt", 0666);
+		chmod(to, 0666);
 	}
+}
+
+/* internet play's brokers (network.brokers_file: port/assets/network/brokers.txt),
+and the game's data files (tools/linux_build.py's GAME_DATA_FILES: the rank
+icons, port/linux/game/firefight_hud.c) */
+static void copy_title_files(void)
+{
+	copy_title_file("brokers.txt");
+	copy_title_file("rank_icons.bin");
+	copy_title_file("forge_markers.bin");
 }
 
 void ps5_net_start(void)
@@ -484,7 +498,7 @@ void ps5_net_start(void)
 	uint64_t start;
 	int index, made;
 
-	copy_brokers();
+	copy_title_files();
 	/* the address the game takes for this machine's (posix_net.c), and the
 	console's own word on it */
 	ipv4_text(posix_local_ipv4_address(), route);

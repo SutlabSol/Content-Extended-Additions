@@ -1005,6 +1005,40 @@ function joinServer(code) {
   $('play-note').textContent += ' Play then joins the server you chose.';
 }
 
+// the game's own data files, which desktop builds put beside config.toml:
+// the site's copies (tools/web_build.py's GAME_FILES) written into the
+// private storage's root (/data) before the game starts, when not the same
+// already. A file that cannot be written is logged; the game does without it
+// (rank_icons.bin: port/linux/game/firefight_hud.c, no rank icons)
+const GAME_FILES = ['rank_icons.bin', 'forge_markers.bin'];
+
+async function copyGameFiles() {
+  let root;
+  try {
+    root = await navigator.storage.getDirectory();
+  } catch {
+    return;
+  }
+  for (const name of GAME_FILES) {
+    try {
+      const response = await fetch(name);
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = new Uint8Array(await response.arrayBuffer());
+      try {
+        const kept = new Uint8Array(await (await (await root.getFileHandle(name)).getFile()).arrayBuffer());
+        if (kept.length === data.length && kept.every((byte, index) => byte === data[index])) continue;
+      } catch {
+        // (not there yet)
+      }
+      const writable = await (await root.getFileHandle(name, { create: true })).createWritable();
+      await writable.write(data);
+      await writable.close();
+    } catch (error) {
+      logLine(`${name} could not be copied into the private storage: ${error && error.message ? error.message : error}`);
+    }
+  }
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement('script');
@@ -1034,6 +1068,7 @@ async function play() {
   }
   try {
     await prepareInit();
+    await copyGameFiles();
     await loadScript('halo.js');
     const options = {
       canvas,

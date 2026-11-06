@@ -1298,6 +1298,118 @@ void hs_runtime_port_shift_sleep_times(
 	}
 }
 
+/* SCRIPTDBG: a temporary log, for a campaign level's scripts stalling (a10's
+door): every few seconds of a level with no game engine, the threads that have
+gone on to something else to wait for, the machines near the player whose state
+changed, and where the player is. Lines start SCRIPTDBG; an expr is decoded
+against the map's scripts. Remove when that is found */
+#include "devices/device_machines.h"
+#include "devices/devices.h"
+#include "game/players.h"
+#include "game/game_engine.h"
+#include "objects/objects.h"
+#include "scenario/scenario_definitions.h"
+#include "units/units.h"
+
+enum
+{
+	SCRIPTDBG_PERIOD_TICKS = 90,
+	SCRIPTDBG_THREADS = 0x100,
+	SCRIPTDBG_MACHINES = 256
+};
+
+static void hs_scriptdbg_update(
+	void)
+{
+	static long last_time = 0;
+	static long last_where = 0;
+	static long thread_expressions[SCRIPTDBG_THREADS];
+	static long machine_indices[SCRIPTDBG_MACHINES];
+	static real machine_positions[SCRIPTDBG_MACHINES];
+	static real machine_powers[SCRIPTDBG_MACHINES];
+	struct scenario *scenario = global_scenario_try_and_get();
+	long time = game_time_get();
+	long player_index = local_player_get_player_index(0);
+	struct player_datum *player = player_index != NONE ? player_try_and_get(player_index) : NULL;
+	struct object_datum *unit = player && player->unit_index != NONE ? object_try_and_get(player->unit_index) : NULL;
+	struct data_iterator iterator;
+	struct hs_thread_datum *thread;
+
+	if (!scenario || scenario->type != _scenario_type_solo || game_engine_running())
+		return;
+	if (time < last_time)
+	{
+		error(_error_silent, "SCRIPTDBG revert: time %ld to %ld", last_time, time);
+		last_where = 0;
+	}
+	if (time == last_time || time % SCRIPTDBG_PERIOD_TICKS != 0)
+	{
+		last_time = time;
+		return;
+	}
+	last_time = time;
+
+	data_iterator_new(&iterator, hs_thread_data);
+	while ((thread = (struct hs_thread_datum *)data_iterator_next(&iterator)) != NULL)
+	{
+		long absolute = iterator.absolute_index;
+
+		if (absolute >= 0 && absolute < SCRIPTDBG_THREADS && thread->sleep_until >= 0 &&
+			thread->script_index >= 0 && thread->script_index < scenario->hs_scripts.count &&
+			thread->stack->expression_index != thread_expressions[absolute])
+		{
+			thread_expressions[absolute] = thread->stack->expression_index;
+			error(_error_silent, "SCRIPTDBG thread %s expr %ld time %ld",
+				TAG_BLOCK_GET_ELEMENT(&scenario->hs_scripts, thread->script_index, struct hs_script)->name,
+				thread->stack->expression_index, time);
+		}
+	}
+
+	if (!unit)
+		return;
+	if (time - last_where >= TICKS_PER_SECOND * 10)
+	{
+		last_where = time;
+		error(_error_silent, "SCRIPTDBG player %.1f %.1f %.1f bsp %d time %ld", unit->object.position.x, unit->object.position.y,
+			unit->object.position.z, (int)global_structure_bsp_index, time);
+	}
+	{
+		long machines[64];
+		short count = objects_in_sphere(_object_mask_machine, _object_mask_machine, &unit->object.location,
+			&unit->object.position, 20.0f, machines, NUMBEROF(machines));
+		short index;
+
+		for (index = 0; index < count; index++)
+		{
+			struct machine_datum *machine = machine_try_and_get(machines[index]);
+			short slot = (short)(DATUM_INDEX_TO_ABSOLUTE_INDEX(machines[index]) % SCRIPTDBG_MACHINES);
+
+			if (machine && (machine_indices[slot] != machines[index] ||
+				machine_positions[slot] != machine->device.position || machine_powers[slot] != machine->device.power))
+			{
+				char const *name = "";
+				short name_index;
+
+				for (name_index = 0; name_index < scenario->object_names.count; name_index++)
+				{
+					if (object_index_from_name_index(name_index) == machines[index])
+					{
+						name = TAG_BLOCK_GET_ELEMENT(&scenario->object_names, name_index, struct scenario_object_name)->name;
+						break;
+					}
+				}
+				machine_indices[slot] = machines[index];
+				machine_positions[slot] = machine->device.position;
+				machine_powers[slot] = machine->device.power;
+				error(_error_silent, "SCRIPTDBG machine '%s' %s position %.2f power %.2f flags %x at %.1f %.1f %.1f time %ld", name,
+					tag_get_name(machine->definition_index), machine->device.position, machine->device.power,
+					(unsigned)machine->machine.flags, machine->object.position.x, machine->object.position.y,
+					machine->object.position.z, time);
+			}
+		}
+	}
+}
+
 void hs_runtime_update(
 	void)
 {
@@ -1322,6 +1434,7 @@ void hs_runtime_update(
 		object_list_gc();
 		if (!console_command_running && game_time_get()%16==0)
 			hs_node_gc();
+		hs_scriptdbg_update();
 	}
 
 	return;

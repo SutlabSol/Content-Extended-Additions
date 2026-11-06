@@ -86,6 +86,7 @@ lobby) loads.
 #include "networking/network_game_manager.h"
 #include "halo_skulls.h"
 #include "halo_port_limits.h"
+#include "halo_firefight.h"
 #include "interface/ui_widget.h"
 #include "bitmaps/bitmap_group.h"
 #include "bitmaps/bitmap_group_lookup.h"
@@ -366,7 +367,11 @@ static boolean campaign_score_level(
 {
 	struct scenario *scenario;
 
-	if (!game_in_progress() || game_engine_running())
+	if (!game_in_progress())
+		return FALSE;
+	if (firefight_active())
+		return TRUE;
+	if (game_engine_running())
 		return FALSE;
 	scenario = global_scenario_try_and_get();
 	return scenario != NULL && scenario->type == _scenario_type_solo;
@@ -385,14 +390,16 @@ static boolean campaign_score_multiplayer(
 		changes = config_changes();
 		enabled = config_boolean("game.multiplayer_scoring") != 0;
 	}
-	return enabled && game_in_progress() && game_engine_running();
+	return enabled && game_in_progress() && game_engine_running() && !firefight_active();
 }
 
 /* the difficulty, as an index of the tables */
 static short campaign_score_difficulty(
 	void)
 {
-	short difficulty = game_difficulty_level_get();
+	short difficulty = firefight_active() ?
+		(short)global_variant.game_engine_variant.firefight.difficulty :
+		game_difficulty_level_get();
 
 	return PIN(difficulty, 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1);
 }
@@ -1034,9 +1041,13 @@ boolean campaign_score_multiplayer_hud(
 	return enabled && campaign_score_multiplayer();
 }
 
+/* (Firefight's report's numbers, kept once for the postgame) */
+static boolean campaign_score_firefight_report_filled = FALSE;
+
 void campaign_score_new_map(
 	void)
 {
+	campaign_score_firefight_report_filled = FALSE;
 	campaign_score_entry_count = 0;
 	campaign_score_postgame = FALSE;
 	campaign_score_full_logged = FALSE;
@@ -1203,6 +1214,11 @@ void campaign_score_unit_damaged(
 		if (!base)
 			base = campaign_score_actor_points(values->allies, values->ally_count, variant_index);
 	}
+	/* (the allies' tables go by type: in Firefight marines and their
+	vehicles can be the wave's, worth half what killing a friendly one
+	costs, about a Jackal's to an Elite's) */
+	if (base < 0 && firefight_active() && firefight_team_is_hostile(unit->object.owner_team_index))
+		base = -base / 2;
 	if (base < 0)
 	{
 		if (killing_player_index != NONE)
@@ -1241,10 +1257,25 @@ void campaign_score_unit_damaged(
 	}
 	if (slot != NONE)
 		campaign_score_hurt[slot] = unit_index;
-	campaign_score_note(_campaign_score_entry_kill, variant_index, killing_player_index,
-		(long)(base * campaign_score_style_multiplier(style) * values->difficulty[campaign_score_difficulty()] *
-			campaign_score_skulls_multiplier() + 0.5f),
-		style);
+	{
+		long scored_points = (long)(base * campaign_score_style_multiplier(style) *
+			values->difficulty[campaign_score_difficulty()] * campaign_score_skulls_multiplier() + 0.5f);
+
+		campaign_score_note(_campaign_score_entry_kill, variant_index, killing_player_index, scored_points, style);
+		if (!firefight_active())
+		{
+			char const *dmg_name = damage_definition_index != NONE ? tag_get_name(damage_definition_index) : NULL;
+			boolean is_grenade = (dmg_name && strstr(dmg_name, "grenade") != NULL);
+			boolean is_heavy = (base >= 50);
+			firefight_stats_notify_enemy_kill(
+				_ff_challenge_cat_campaign,
+				TEST_FLAG(style, _campaign_score_style_headshot_bit),
+				TEST_FLAG(style, _campaign_score_style_melee_bit) || TEST_FLAG(style, _campaign_score_style_backsmack_bit),
+				is_grenade,
+				is_heavy,
+				scored_points);
+		}
+	}
 	/* (and the medals it wins: campaign_medals.c) */
 	campaign_medals_enemy_killed(killing_player_index, killer_object_index, unit_index, damage_definition_index,
 		TEST_FLAG(style, _campaign_score_style_headshot_bit), TEST_FLAG(style, _campaign_score_style_melee_bit),
@@ -1268,6 +1299,7 @@ void campaign_score_award_medal(
 	{
 		struct player_datum const *player = player_try_and_get(player_index);
 
+		firefight_stats_record_medal(player_index, medal);
 		if (player && player->local_player_index != NONE)
 			campaign_score_note(_campaign_score_entry_medal, medal, player_index, 0, 0);
 		return;
@@ -1284,6 +1316,7 @@ void campaign_score_award_medal(
 	if (values->medal_scaled)
 		points *= values->difficulty[campaign_score_difficulty()] * campaign_score_skulls_multiplier();
 	campaign_score_note(_campaign_score_entry_medal, medal, player_index, (long)(points + 0.5f), 0);
+	firefight_stats_record_medal(player_index, medal);
 
 	return;
 }
@@ -1359,8 +1392,20 @@ void campaign_score_player_killed(
 	/* (an enemy's kill: not a suicide, a betrayal, nor the map's) */
 	if (killing_player_index != NONE && killing_player_index != dead_player_index && !friendly_fire)
 	{
+		char const *dmg_name = damage_definition_index != NONE ? tag_get_name(damage_definition_index) : NULL;
+		boolean is_grenade = (dmg_name && strstr(dmg_name, "grenade") != NULL);
 		campaign_medals_player_killed_player(killing_player_index, killing_object_index, dead_player_index,
 			damage_definition_index, headshot, melee, backsmack);
+		if (!firefight_active())
+		{
+			firefight_stats_notify_enemy_kill(
+				_ff_challenge_cat_multiplayer,
+				headshot,
+				melee || backsmack,
+				is_grenade,
+				FALSE,
+				100);
+		}
 	}
 	/* (and the dead player's sprees end; their killer is remembered) */
 	campaign_medals_player_died(dead_player_index,
@@ -1644,7 +1689,34 @@ static void campaign_score_win_compose(
 	boolean alone;
 
 	if (!campaign_score_enabled())
+	{
+		if (global_scenario_index != NONE && !firefight_active())
+		{
+			long player_idx = local_player_get_player_index(local_player_get_next(NONE));
+			long m_kills = player_idx != NONE ? campaign_score_player_kills(player_idx) : 0;
+			long m_deaths = player_idx != NONE ? campaign_score_player_deaths(player_idx) : 0;
+			long m_score = campaign_score_final(campaign_score_team_total());
+			long m_seconds = campaign_score_level_ticks() / TICKS_PER_SECOND;
+			short m_diff = campaign_score_difficulty();
+			short m_skulls = 0;
+			long m_medals = campaign_score_count_of(NONE, _campaign_score_entry_medal);
+			int sk;
+
+			for (sk = 0; sk < NUMBER_OF_SKULLS; sk++)
+				m_skulls += skull_active(sk) ? 1 : 0;
+
+			firefight_stats_record_campaign_mission_end(
+				tag_get_name(global_scenario_index),
+				m_score,
+				m_kills,
+				m_deaths,
+				m_seconds,
+				m_diff,
+				m_skulls,
+				m_medals);
+		}
 		return;
+	}
 	campaign_score_update();
 	community_result_clear();
 	campaign_score_pending_count = 0;
@@ -1685,9 +1757,25 @@ static void campaign_score_win_compose(
 		cooperative game) */
 		run.medals = campaign_score_count_of(campaign_score_competitive ? absolute_index : NONE,
 			_campaign_score_entry_medal);
-		records = community_daily_run() ? 0 : campaign_score_record_level(profile_index, &run);
+		records = community_daily_run() || firefight_stats_session_withheld() ? 0 :
+			campaign_score_record_level(profile_index, &run);
+		if (campaign_score_pending_count == 0 && global_scenario_index != NONE && !firefight_active())
+		{
+			long mission_kills = player_index != NONE ? campaign_score_player_kills(player_index) : 0;
+			long mission_deaths = player_index != NONE ? campaign_score_player_deaths(player_index) : 0;
+			firefight_stats_record_campaign_mission_end(
+				tag_get_name(global_scenario_index),
+				run.score,
+				mission_kills,
+				mission_deaths,
+				run.seconds,
+				run.difficulty,
+				run.skulls,
+				run.medals);
+		}
 		/* (the online leaderboard's, the level's or the daily challenge's) */
-		if (profile_index != NONE && global_scenario_index != NONE && player_profile_get(profile_index, &profile))
+		if (profile_index != NONE && global_scenario_index != NONE && !firefight_stats_session_withheld() &&
+			player_profile_get(profile_index, &profile))
 		{
 			struct community_run online;
 
@@ -1878,10 +1966,16 @@ real campaign_score_time_multiplier(
 	return 1.0f;
 }
 
+real campaign_score_difficulty_multiplier_for(
+	short difficulty)
+{
+	return campaign_score_values.difficulty[PIN(difficulty, 0, NUMBER_OF_GAME_DIFFICULTY_LEVELS - 1)];
+}
+
 real campaign_score_difficulty_multiplier(
 	void)
 {
-	return campaign_score_values.difficulty[campaign_score_difficulty()];
+	return campaign_score_difficulty_multiplier_for(campaign_score_difficulty());
 }
 
 real campaign_score_total_multiplier(
@@ -2605,10 +2699,137 @@ static void campaign_score_draw_multiplayer_view(
 	return;
 }
 
+/* Firefight's text beside the score row's: its smaller lines' size */
+#define CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE 0.66f
+
+enum
+{
+	/* (the rounds' and the waves' marks: a round's width, the current round's
+	waves' width, and their heights and gaps) */
+	CAMPAIGN_SCORE_FIREFIGHT_ROUND_WIDTH = 6,
+	CAMPAIGN_SCORE_FIREFIGHT_WAVE_WIDTH = 5,
+	CAMPAIGN_SCORE_FIREFIGHT_MARK_GAP = 2
+};
+
+/* how wide the rounds' and waves' marks are: the current round's opens into
+its waves, none with a bonus round's */
+static real campaign_score_firefight_marks_width(
+	void)
+{
+	short rounds = FIREFIGHT_ROUNDS_PER_SET;
+	real width = (rounds - 1) * CAMPAIGN_SCORE_FIREFIGHT_MARK_GAP;
+
+	if (ff_state.in_bonus_round)
+		return width + rounds * CAMPAIGN_SCORE_FIREFIGHT_ROUND_WIDTH;
+	return width + (rounds - 1) * CAMPAIGN_SCORE_FIREFIGHT_ROUND_WIDTH +
+		FIREFIGHT_WAVES_PER_ROUND * CAMPAIGN_SCORE_FIREFIGHT_WAVE_WIDTH + (FIREFIGHT_WAVES_PER_ROUND - 1);
+}
+
+/* the marks, their right edge at x1: the rounds done lit, the current round
+as its waves (those done lit, this one white, or orange for a boss's), those
+to come dark */
+static void campaign_score_firefight_marks_draw(
+	struct campaign_score_panel const *panel,
+	real x1,
+	real y,
+	real height)
+{
+	short round = PIN(ff_state.current_round, (short)1, (short)FIREFIGHT_ROUNDS_PER_SET);
+	short wave = PIN(ff_state.current_wave, (short)1, (short)FIREFIGHT_WAVES_PER_ROUND);
+	real x = x1 - campaign_score_firefight_marks_width();
+	short index;
+
+	for (index = 1; index <= FIREFIGHT_ROUNDS_PER_SET; index++)
+	{
+		if (index == round && !ff_state.in_bonus_round)
+		{
+			short wave_index;
+
+			for (wave_index = 1; wave_index <= FIREFIGHT_WAVES_PER_ROUND; wave_index++)
+			{
+				pixel32 color = CAMPAIGN_SCORE_STRIP_UNLIT;
+
+				if (wave_index < wave)
+					color = CAMPAIGN_SCORE_STRIP_FILL;
+				else if (wave_index == wave)
+					color = wave == FIREFIGHT_WAVES_PER_ROUND ? 0xFFFF6040 : 0xFFFFFFFF;
+				campaign_score_panel_quad(panel, x, y, x + CAMPAIGN_SCORE_FIREFIGHT_WAVE_WIDTH, y + height, color);
+				x += CAMPAIGN_SCORE_FIREFIGHT_WAVE_WIDTH + 1.0f;
+			}
+			x += CAMPAIGN_SCORE_FIREFIGHT_MARK_GAP - 1.0f;
+		}
+		else
+		{
+			campaign_score_panel_quad(panel, x, y, x + CAMPAIGN_SCORE_FIREFIGHT_ROUND_WIDTH, y + height,
+				index < round || ff_state.in_bonus_round ? CAMPAIGN_SCORE_STRIP_FILL : CAMPAIGN_SCORE_STRIP_UNLIT);
+			x += CAMPAIGN_SCORE_FIREFIGHT_ROUND_WIDTH + CAMPAIGN_SCORE_FIREFIGHT_MARK_GAP;
+		}
+	}
+
+	return;
+}
+
+/* the row of a Firefight game: the lives, the hostiles and the time on top;
+the player and their score; the set, round and wave at the left and their
+marks at the right */
+static void campaign_score_firefight_row(
+	struct campaign_score_panel const *panel,
+	real y,
+	real row_height,
+	wchar_t const *name,
+	char const *score,
+	char const *time,
+	char const *lives,
+	char const *hostiles,
+	char const *progress)
+{
+	real_argb_color text_color;
+	real_argb_color subline_color;
+	real_argb_color lives_color;
+	real const small = panel->line_height * CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE;
+	real const text_left = CAMPAIGN_SCORE_ROW_PADDING * 2;
+	real const text_right = panel->width - CAMPAIGN_SCORE_ROW_PADDING * 2;
+	real const name_top = y + CAMPAIGN_SCORE_ROW_PADDING + small;
+	real const progress_top = name_top + panel->line_height * 0.92f;
+
+	campaign_score_panel_quad(panel, 0.0f, y, panel->width, y + row_height, CAMPAIGN_SCORE_PANEL_FILL);
+	campaign_score_panel_frame(panel, 0.0f, y, panel->width, y + row_height, CAMPAIGN_SCORE_HUD_EDGE);
+	text_color.alpha = 1.0f;
+	text_color.red = text_color.green = text_color.blue = 0.95f;
+	subline_color.alpha = 1.0f;
+	subline_color.red = campaign_score_palette.subline.red;
+	subline_color.green = campaign_score_palette.subline.green;
+	subline_color.blue = campaign_score_palette.subline.blue;
+	lives_color = subline_color;
+	/* (the last life, in red) */
+	if (ff_state.shared_lives_remaining >= 0 && ff_state.shared_lives_remaining <= 1)
+	{
+		lives_color.red = 1.0f;
+		lives_color.green = 0.35f;
+		lives_color.blue = 0.35f;
+	}
+	campaign_score_panel_text(panel, lives, NULL, text_left, text_right, y + CAMPAIGN_SCORE_ROW_PADDING,
+		CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE, _campaign_score_text_left, &lives_color);
+	campaign_score_panel_text(panel, hostiles, NULL, text_left, text_right, y + CAMPAIGN_SCORE_ROW_PADDING,
+		CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE, _campaign_score_text_center, &subline_color);
+	campaign_score_panel_text(panel, time, NULL, text_left, text_right, y + CAMPAIGN_SCORE_ROW_PADDING,
+		CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE, _campaign_score_text_right, &subline_color);
+	campaign_score_panel_text(panel, NULL, name, text_left, text_right, name_top, 1.0f, _campaign_score_text_left,
+		&text_color);
+	campaign_score_panel_text(panel, score, NULL, text_left, text_right, name_top, 1.0f, _campaign_score_text_right,
+		&text_color);
+	campaign_score_panel_text(panel, progress, NULL, text_left, text_right, progress_top,
+		CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE, _campaign_score_text_left, &subline_color);
+	campaign_score_firefight_marks_draw(panel, text_right, progress_top + small * 0.2f, small * 0.6f);
+
+	return;
+}
+
 void campaign_score_draw_view(
 	long player_index)
 {
 	struct campaign_score_panel panel;
+	boolean firefight = firefight_active();
 	boolean competitive;
 	boolean coop;
 	real row_height;
@@ -2634,7 +2855,8 @@ void campaign_score_draw_view(
 		campaign_score_draw_multiplayer_view(player_index);
 		return;
 	}
-	if (!campaign_score_enabled() || !campaign_score_panel_begin(&panel, &width, &view_height))
+	/* (a Firefight game's panel is its HUD, whatever the campaign's says) */
+	if ((!campaign_score_enabled() && !firefight) || !campaign_score_panel_begin(&panel, &width, &view_height))
 		return;
 	campaign_score_update();
 	campaign_score_palette_set(player_index);
@@ -2644,6 +2866,12 @@ void campaign_score_draw_view(
 	/* (each row a line of the HUD's text and a smaller one beneath) */
 	row_height = panel.line_height * (1.0f + CAMPAIGN_SCORE_SUBLINE_SIZE) + CAMPAIGN_SCORE_ROW_PADDING * 2;
 	row_height = MAX(row_height, CAMPAIGN_SCORE_ROW_MINIMUM);
+	/* (Firefight's: a smaller line each side of the name's) */
+	if (firefight)
+	{
+		row_height = panel.line_height * (0.92f + CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE * 2.0f) +
+			CAMPAIGN_SCORE_ROW_PADDING * 2;
+	}
 	/* (and the multipliers' row, of the smaller text) */
 	multipliers_height = panel.line_height * CAMPAIGN_SCORE_SUBLINE_SIZE + CAMPAIGN_SCORE_ROW_PADDING * 2;
 	rows_top = CAMPAIGN_SCORE_STRIP_HEIGHT + CAMPAIGN_SCORE_STRIP_GAP + multipliers_height + CAMPAIGN_SCORE_ROW_GAP;
@@ -2710,15 +2938,58 @@ void campaign_score_draw_view(
 			CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
 	}
 
-	campaign_score_time_string(time, sizeof(time));
+	/* (Firefight's: the match's, which stops with it) */
+	if (firefight)
+		campaign_score_seconds_string(ff_state.session_elapsed_ticks / TICKS_PER_SECOND, time, sizeof(time));
+	else
+		campaign_score_time_string(time, sizeof(time));
 	snprintf(score, sizeof(score), "%ld",
 		competitive || !coop ? campaign_score_player_points(player_index) : campaign_score_team_total());
 	/* (the player's own name, their profile's; a cooperative co-op
 	game's row is the team's) */
 	campaign_score_player_display_name(player_index, own_name, NUMBEROF(own_name));
-	campaign_score_panel_row(&panel, rows_top, row_height,
-		coop && !competitive ? "TEAM" : NULL, coop && !competitive ? NULL : own_name, score,
-		campaign_score_difficulty_names[campaign_score_difficulty()], time);
+	if (firefight)
+	{
+		char lives[24];
+		char hostiles[24];
+		char progress[40];
+		wchar_t wide[40];
+		real needed;
+		long index;
+
+		if (ff_state.shared_lives_remaining < 0)
+			snprintf(lives, sizeof(lives), "LIVES: INF");
+		else
+			snprintf(lives, sizeof(lives), "LIVES: %d", (int)ff_state.shared_lives_remaining);
+		snprintf(hostiles, sizeof(hostiles), "HOSTILES: %d", (int)ff_state.enemies_alive);
+		if (ff_state.in_bonus_round)
+			snprintf(progress, sizeof(progress), "SET %d BONUS ROUND", (int)ff_state.current_set);
+		else
+		{
+			snprintf(progress, sizeof(progress), "SET %d RND %d WAVE %d", (int)ff_state.current_set,
+				(int)ff_state.current_round, (int)ff_state.current_wave);
+		}
+		/* (the row wider than the panel if its lines need it, leftward, as a
+		multiplayer game's is) */
+		for (index = 0; index < (long)NUMBEROF(wide) - 1 && progress[index]; index++)
+			wide[index] = (wchar_t)(unsigned char)progress[index];
+		wide[index] = 0;
+		needed = CAMPAIGN_SCORE_ROW_PADDING * 4 + CAMPAIGN_SCORE_ROW_TEXT_GAP / 2 +
+			campaign_score_panel_text_width(&panel, wide, CAMPAIGN_SCORE_FIREFIGHT_LINE_SIZE) +
+			campaign_score_firefight_marks_width();
+		if (needed > panel.width)
+		{
+			panel.left -= (needed - panel.width) * panel.scale;
+			panel.width = needed;
+		}
+		campaign_score_firefight_row(&panel, rows_top, row_height, own_name, score, time, lives, hostiles, progress);
+	}
+	else
+	{
+		campaign_score_panel_row(&panel, rows_top, row_height,
+			coop && !competitive ? "TEAM" : NULL, coop && !competitive ? NULL : own_name, score,
+			campaign_score_difficulty_names[campaign_score_difficulty()], time);
+	}
 
 	campaign_score_drawn_height = (short)(history_height + height + CAMPAIGN_SCORE_SKULLS_GAP + 0.5f);
 	/* the medals just won, at the center left (campaign_medals.c) */
@@ -3006,6 +3277,336 @@ static real campaign_score_card_layout(
 	}
 
 	return y + CAMPAIGN_SCORE_CARD_PADDING - 4.0f;
+}
+
+/* ---------- Firefight's report
+
+the match's report, a card as the level's summary is, in the postgame's 640 by
+480: the map and difficulty, how far the game got and the local player's
+numbers, the players' scores, the team's score and the local player's medals */
+
+enum
+{
+	CAMPAIGN_SCORE_FIREFIGHT_CARD_WIDTH = 584,
+	/* (the card's room above the prompt, at 410 of the 480) */
+	CAMPAIGN_SCORE_FIREFIGHT_CARD_BOTTOM = 402,
+	CAMPAIGN_SCORE_FIREFIGHT_CARD_PLAYERS = 8,
+	CAMPAIGN_SCORE_FIREFIGHT_CARD_ICON = 14,
+	/* (the numbers' column, and where the players' columns end from the
+	card's right) */
+	CAMPAIGN_SCORE_FIREFIGHT_NUMBERS_WIDTH = 216,
+	CAMPAIGN_SCORE_FIREFIGHT_SCORE_COLUMN = 96,
+	CAMPAIGN_SCORE_FIREFIGHT_KILLS_COLUMN = 60,
+	CAMPAIGN_SCORE_FIREFIGHT_DEATHS_COLUMN = 30
+};
+
+static struct campaign_score_report campaign_score_firefight_report;
+
+/* the card, from its top: its height, drawn or not */
+static real campaign_score_firefight_card_layout(
+	struct campaign_score_panel const *panel,
+	struct campaign_score_report const *report,
+	long const *players,
+	short player_count,
+	boolean draw)
+{
+	real const width = CAMPAIGN_SCORE_FIREFIGHT_CARD_WIDTH;
+	real const left = CAMPAIGN_SCORE_CARD_PADDING;
+	real const right = width - CAMPAIGN_SCORE_CARD_PADDING;
+	real const line = panel->line_height;
+	real const small = panel->line_height * CAMPAIGN_SCORE_SUBLINE_SIZE;
+	real const row = small + 5.0f;
+	long team_score = campaign_score_team_points();
+	real_argb_color color;
+	char text[64];
+	char value[48];
+	char other[24];
+	real y = CAMPAIGN_SCORE_CARD_PADDING;
+	short index;
+
+	/* the title, the map, its difficulty and skulls */
+	if (draw)
+	{
+		wchar_t level[64];
+
+		campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+		campaign_score_panel_text(panel, ff_state.phase_state == _ff_phase_victory ? "FIREFIGHT VICTORY" :
+			(ff_state.phase_state == _ff_phase_defeat ? "FIREFIGHT OVER" : "FIREFIGHT COMPLETE"), NULL, left, right, y,
+			1.0f, _campaign_score_text_center, &color);
+		campaign_score_card_color(&color, CAMPAIGN_SCORE_BLUE_RED + 0.2f, CAMPAIGN_SCORE_BLUE_GREEN + 0.2f, 1.0f);
+		ustrncpy(level, report->level, NUMBEROF(level) - 1);
+		level[NUMBEROF(level) - 1] = 0;
+		campaign_score_panel_text(panel, NULL, level, left, right, y + line + 2.0f, 1.0f, _campaign_score_text_center,
+			&color);
+	}
+	y += line * 2.0f + 4.0f;
+	campaign_score_multiplier_string(report->difficulty_multiplier, value, sizeof(value));
+	campaign_score_multiplier_string(report->skulls_multiplier, other, sizeof(other));
+	snprintf(text, sizeof(text), "%s %s   SKULLS %s", campaign_score_difficulty_names[report->difficulty], value,
+		other);
+	if (draw)
+	{
+		campaign_score_card_color(&color, 0.6f, 0.66f, 0.75f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, CAMPAIGN_SCORE_SUBLINE_SIZE,
+			_campaign_score_text_center, &color);
+	}
+	y += small + CAMPAIGN_SCORE_CARD_GAP;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += CAMPAIGN_SCORE_CARD_GAP;
+
+	/* the numbers at the left, the players at the right */
+	{
+		real const numbers_right = left + CAMPAIGN_SCORE_FIREFIGHT_NUMBERS_WIDTH;
+		real const players_left = numbers_right + 20.0f;
+		real const score_column = right - CAMPAIGN_SCORE_FIREFIGHT_SCORE_COLUMN;
+		real const kills_column = right - CAMPAIGN_SCORE_FIREFIGHT_KILLS_COLUMN;
+		real const deaths_column = right - CAMPAIGN_SCORE_FIREFIGHT_DEATHS_COLUMN;
+		short shown = (short)MIN(player_count, CAMPAIGN_SCORE_FIREFIGHT_CARD_PLAYERS);
+		real numbers_y = y;
+		real players_y = y;
+		char numbers[8][2][24];
+		short row_index;
+
+		if (ff_state.in_bonus_round)
+			snprintf(numbers[0][1], sizeof(numbers[0][1]), "SET %d BONUS", (int)ff_state.current_set);
+		else
+		{
+			snprintf(numbers[0][1], sizeof(numbers[0][1]), "SET %d RND %d WAVE %d", (int)ff_state.current_set,
+				(int)ff_state.current_round, (int)ff_state.current_wave);
+		}
+		snprintf(numbers[0][0], sizeof(numbers[0][0]), "REACHED");
+		snprintf(numbers[1][0], sizeof(numbers[1][0]), "TIME");
+		campaign_score_seconds_string(ff_state.session_elapsed_ticks / TICKS_PER_SECOND, numbers[1][1],
+			sizeof(numbers[1][1]));
+		snprintf(numbers[2][0], sizeof(numbers[2][0]), "KILLS");
+		snprintf(numbers[2][1], sizeof(numbers[2][1]), "%ld", report->kills);
+		snprintf(numbers[3][0], sizeof(numbers[3][0]), "HEADSHOTS");
+		snprintf(numbers[3][1], sizeof(numbers[3][1]), "%ld", report->headshots);
+		snprintf(numbers[4][0], sizeof(numbers[4][0]), "MELEE KILLS");
+		snprintf(numbers[4][1], sizeof(numbers[4][1]), "%ld", report->melee);
+		snprintf(numbers[5][0], sizeof(numbers[5][0]), "MEDALS");
+		snprintf(numbers[5][1], sizeof(numbers[5][1]), "%ld", report->medals);
+		snprintf(numbers[6][0], sizeof(numbers[6][0]), "DEATHS");
+		snprintf(numbers[6][1], sizeof(numbers[6][1]), "%ld", report->deaths);
+		snprintf(numbers[7][0], sizeof(numbers[7][0]), "LIVES LEFT");
+		if (ff_state.shared_lives_remaining < 0)
+			snprintf(numbers[7][1], sizeof(numbers[7][1]), "-");
+		else
+			snprintf(numbers[7][1], sizeof(numbers[7][1]), "%d", (int)ff_state.shared_lives_remaining);
+		for (row_index = 0; row_index < 8; row_index++)
+		{
+			campaign_score_card_pair(panel, draw, left, numbers_right, numbers_y, numbers[row_index][0],
+				numbers[row_index][1], FALSE);
+			numbers_y += row;
+		}
+
+		/* (the columns' names, then a row each: best first, the best marked) */
+		if (draw)
+		{
+			campaign_score_card_color(&color, 0.55f, 0.72f, 1.0f);
+			campaign_score_panel_text(panel, "PLAYER", NULL, players_left, right, players_y,
+				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+			campaign_score_panel_text(panel, "SCORE", NULL, players_left, score_column, players_y,
+				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+			campaign_score_panel_text(panel, "K", NULL, players_left, kills_column, players_y,
+				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+			campaign_score_panel_text(panel, "D", NULL, players_left, deaths_column, players_y,
+				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+			campaign_score_panel_text(panel, "M", NULL, players_left, right, players_y,
+				CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+		}
+		players_y += row;
+		for (index = 0; index < shown; index++)
+		{
+			long player_index = players[index];
+			struct player_datum *player = player_try_and_get(player_index);
+
+			if (draw && player)
+			{
+				struct firefight_mcc_rank_info rank;
+				struct firefight_emblem_info emblem;
+				short icon_x = (short)(panel->left + players_left * panel->scale);
+				short icon_y = (short)(panel->top + players_y * panel->scale);
+				real name_left = players_left + (CAMPAIGN_SCORE_FIREFIGHT_CARD_ICON + 2.0f) * 2.0f + 2.0f;
+
+				if (index == 0)
+				{
+					campaign_score_panel_quad(panel, players_left - 3.0f, players_y - 1.0f, right + 3.0f,
+						players_y + row - 2.0f, 0x30FFD040);
+				}
+				game_engine_player_rank_and_emblem(player_index, &rank, &emblem);
+				firefight_draw_mcc_rank_icon(icon_x, icon_y, CAMPAIGN_SCORE_FIREFIGHT_CARD_ICON, rank.tour_number,
+					rank.rank_in_tour, 1.0f);
+				firefight_draw_player_emblem((short)(icon_x + CAMPAIGN_SCORE_FIREFIGHT_CARD_ICON + 2), icon_y,
+					CAMPAIGN_SCORE_FIREFIGHT_CARD_ICON, &emblem, 1.0f);
+				if (player->local_player_index != NONE)
+					campaign_score_card_color(&color, 1.0f, 0.84f, 0.35f);
+				else
+					campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+				campaign_score_panel_text(panel, NULL, player->name, name_left, score_column - 44.0f, players_y,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+				snprintf(value, sizeof(value), "%ld", campaign_score_player_points(player_index));
+				campaign_score_panel_text(panel, value, NULL, players_left, score_column, players_y,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+				snprintf(value, sizeof(value), "%ld", firefight_player_kills(player_index));
+				campaign_score_panel_text(panel, value, NULL, players_left, kills_column, players_y,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+				snprintf(value, sizeof(value), "%d", (int)player->statistics.deaths);
+				campaign_score_panel_text(panel, value, NULL, players_left, deaths_column, players_y,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+				snprintf(value, sizeof(value), "%ld", firefight_stats_get_session_medals(player_index));
+				campaign_score_panel_text(panel, value, NULL, players_left, right, players_y,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_right, &color);
+			}
+			players_y += row;
+		}
+		if (player_count > shown)
+		{
+			if (draw)
+			{
+				snprintf(text, sizeof(text), "+%d MORE", (int)(player_count - shown));
+				campaign_score_card_color(&color, 0.6f, 0.66f, 0.75f);
+				campaign_score_panel_text(panel, text, NULL, players_left, right, players_y,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+			}
+			players_y += row;
+		}
+		y = MAX(numbers_y, players_y);
+	}
+	y += CAMPAIGN_SCORE_CARD_GAP - 5.0f;
+	if (draw)
+		campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+	y += CAMPAIGN_SCORE_CARD_GAP;
+
+	/* the team's score, and how it stands to the best on this map */
+	{
+		struct firefight_map_record best;
+		char const *map_name = global_scenario_index != NONE ? tag_get_name(global_scenario_index) : "map";
+		boolean record = firefight_stats_get_map_record(map_name, 0, &best);
+
+		if (draw)
+		{
+			snprintf(value, sizeof(value), "%ld", team_score);
+			campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+			campaign_score_panel_text(panel, "TEAM SCORE", NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
+			campaign_score_card_color(&color, 1.0f, 0.84f, 0.35f);
+			campaign_score_panel_text(panel, value, NULL, left, right, y, 1.0f, _campaign_score_text_right, &color);
+			if (record && best.best_score > 0)
+			{
+				if (team_score >= best.best_score)
+					snprintf(text, sizeof(text), "NEW RECORD!");
+				else
+				{
+					snprintf(text, sizeof(text), "BEST %ld (SET %d RND %d WAVE %d)", best.best_score,
+						(int)best.best_set, (int)best.best_round, (int)best.best_wave);
+					campaign_score_card_color(&color, 0.6f, 0.66f, 0.75f);
+				}
+				campaign_score_panel_text(panel, text, NULL, left, right, y + (line - small) / 2.0f,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_center, &color);
+			}
+		}
+		y += line + 4.0f;
+	}
+
+	/* the medals won, each with how many */
+	if (report->medals > 0)
+	{
+		long bitmap_index = campaign_medals_bitmap();
+		short per_row = (short)MAX((right - left) / CAMPAIGN_SCORE_CARD_MEDAL_SPACE, 1);
+		real space = (right - left) / per_row;
+		short shown = 0;
+
+		y += CAMPAIGN_SCORE_CARD_GAP - 4.0f;
+		if (draw)
+			campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
+		y += CAMPAIGN_SCORE_CARD_GAP;
+		for (index = 0; index < NUMBER_OF_CAMPAIGN_MEDALS && shown < per_row * 2; index++)
+		{
+			real x;
+
+			if (report->medal_counts[index] <= 0)
+				continue;
+			if (shown > 0 && shown % per_row == 0)
+				y += CAMPAIGN_SCORE_CARD_MEDAL_SIZE + 4.0f;
+			x = left + (shown % per_row) * space;
+			shown++;
+			if (draw)
+			{
+				struct bitmap_data *bitmap = bitmap_index != NONE ?
+					bitmap_group_try_and_get_bitmap(bitmap_index, index) : NULL;
+
+				if (bitmap)
+				{
+					rectangle2d bounds;
+
+					bounds.x0 = (short)(panel->left + x * panel->scale);
+					bounds.y0 = (short)(panel->top + y * panel->scale);
+					bounds.x1 = (short)(panel->left + (x + CAMPAIGN_SCORE_CARD_MEDAL_SIZE) * panel->scale);
+					bounds.y1 = (short)(panel->top + (y + CAMPAIGN_SCORE_CARD_MEDAL_SIZE) * panel->scale);
+					draw_bitmap_in_rect(bitmap, &bounds, NULL, NULL, 0xFFFFFFFF, NULL, TRUE);
+				}
+				snprintf(value, sizeof(value), "x%d", (int)report->medal_counts[index]);
+				campaign_score_card_color(&color, 0.95f, 0.95f, 0.95f);
+				campaign_score_panel_text(panel, value, NULL, x + CAMPAIGN_SCORE_CARD_MEDAL_SIZE + 4.0f,
+					x + space, y + (CAMPAIGN_SCORE_CARD_MEDAL_SIZE - small) / 2.0f,
+					CAMPAIGN_SCORE_SUBLINE_SIZE, _campaign_score_text_left, &color);
+			}
+		}
+		y += CAMPAIGN_SCORE_CARD_MEDAL_SIZE + 4.0f;
+	}
+
+	return y + CAMPAIGN_SCORE_CARD_PADDING - 4.0f;
+}
+
+void campaign_score_firefight_report_draw(
+	long const *players,
+	short player_count)
+{
+	struct campaign_score_panel panel;
+	struct font_header *font;
+	real vx0 = (real)(-render.camera.viewport_bounds.x0);
+	real vy0 = (real)(-render.camera.viewport_bounds.y0);
+	real height;
+
+	panel.font_index = hud_get_font_index();
+	if (panel.font_index == NONE)
+		return;
+	font = font_definition_get(panel.font_index);
+	panel.line_height = (short)(font->ascending_height + font->descending_height);
+	if (panel.line_height <= 0)
+		return;
+	panel.scale = 1.0f;
+	panel.width = CAMPAIGN_SCORE_FIREFIGHT_CARD_WIDTH;
+	/* (the match's numbers, once: and its XP and records, which the card's
+	best score reads, kept as it is first shown) */
+	if (!campaign_score_firefight_report_filled)
+	{
+		struct firefight_postgame_xp_summary xp;
+		long local_player = local_player_get_player_index(0);
+
+		firefight_stats_get_postgame_xp_summary(&xp);
+		campaign_score_report_fill(&campaign_score_firefight_report,
+			local_player != NONE ? (short)DATUM_INDEX_TO_ABSOLUTE_INDEX(local_player) : NONE);
+		campaign_score_level_title(campaign_score_firefight_report.level,
+			NUMBEROF(campaign_score_firefight_report.level));
+		campaign_score_firefight_report.difficulty = campaign_score_difficulty();
+		campaign_score_firefight_report.difficulty_multiplier = campaign_score_difficulty_multiplier();
+		campaign_score_firefight_report.skulls_multiplier = campaign_score_skulls_multiplier();
+		campaign_score_firefight_report_filled = TRUE;
+	}
+	panel.left = vx0;
+	panel.top = vy0;
+	campaign_score_panel_quad(&panel, 0.0f, 0.0f, 640.0f, 480.0f, 0xFF000000);
+	height = campaign_score_firefight_card_layout(&panel, &campaign_score_firefight_report, players, player_count, FALSE);
+	panel.left = vx0 + (640.0f - CAMPAIGN_SCORE_FIREFIGHT_CARD_WIDTH) / 2.0f;
+	panel.top = vy0 + MAX(6.0f, (CAMPAIGN_SCORE_FIREFIGHT_CARD_BOTTOM - height) / 2.0f);
+	campaign_score_panel_quad(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_FIREFIGHT_CARD_WIDTH, height, CAMPAIGN_SCORE_CARD_FILL);
+	campaign_score_panel_frame(&panel, 0.0f, 0.0f, CAMPAIGN_SCORE_FIREFIGHT_CARD_WIDTH, height,
+		CAMPAIGN_SCORE_PANEL_EDGE);
+	campaign_score_firefight_card_layout(&panel, &campaign_score_firefight_report, players, player_count, TRUE);
+
+	return;
 }
 
 void campaign_score_draw(

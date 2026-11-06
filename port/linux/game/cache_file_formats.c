@@ -474,9 +474,11 @@ struct load_state
 	struct custom_edition_load_report *report;
 	uint8_t *tag_cache;
 	/* the bytes of tag_cache in use, and the most that may be used: the
-	lowest structure BSP address, relative to the tag cache */
+	lowest structure BSP address, relative to the tag cache (and the end of
+	the highest structure BSP for 122 MB extended tag cache spillover) */
 	uint32_t used_bytes;
 	uint32_t usable_bytes;
+	uint32_t highest_structure_bsp_end;
 	/* the map's own tag data (the first used bytes), and where its tag
 	instances end within it: a tag the map keeps a header of (a resource
 	map's sound) must keep it in the tag data after the instances, so that
@@ -1507,7 +1509,16 @@ static enum cache_file_status tag_cache_allocate(
 
 	if (aligned < state->used_bytes || !range_fits(aligned, size, state->usable_bytes))
 	{
-		return load_fail(state, _cache_file_status_tag_cache_overflow, state->used_bytes);
+		if (state->highest_structure_bsp_end > state->usable_bytes &&
+			state->highest_structure_bsp_end < state->report->tag_cache_bytes)
+		{
+			aligned = (state->highest_structure_bsp_end + 3) & ~(uint32_t)3;
+			state->usable_bytes = state->report->tag_cache_bytes;
+		}
+		if (aligned < state->used_bytes || !range_fits(aligned, size, state->usable_bytes))
+		{
+			return load_fail(state, _cache_file_status_tag_cache_overflow, state->used_bytes);
+		}
 	}
 	*offset = aligned;
 	state->report->resource_tag_bytes += size + (aligned - state->used_bytes);
@@ -2012,6 +2023,10 @@ static enum cache_file_status structure_bsps_verify(
 		{
 			state->usable_bytes = bsp_address - CUSTOM_EDITION_TAG_CACHE_ADDRESS;
 			state->report->lowest_structure_bsp_address = bsp_address;
+		}
+		if ((bsp_address - CUSTOM_EDITION_TAG_CACHE_ADDRESS) + (uint32_t)size > state->highest_structure_bsp_end)
+		{
+			state->highest_structure_bsp_end = (bsp_address - CUSTOM_EDITION_TAG_CACHE_ADDRESS) + (uint32_t)size;
 		}
 		/* OpenSauce's CalculateChecksum takes the structure BSPs as packed
 		one after another from the end of the header */

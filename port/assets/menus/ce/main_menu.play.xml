@@ -11,18 +11,24 @@
 		<on event="back" back="true"/>
 		<child widget="main_menu/halo_logo" y="-44"/>
 		<child widget="main_menu/play/play_list"/>
-		<child widget="main_menu/play/menu_item_firefight" x="192" y="272"/>
 		<child widget="main_menu/current_profile_name"/>
 	</widget>
 	<widget name="main_menu/play/play_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items">
 		<on event="created" run="port play init"/>
 		<child widget="main_menu/main_menu_item_load_camp" x="194" y="208"/>
 		<child widget="main_menu/main_menu_item_multiplayer" x="192" y="240"/>
+		<child widget="main_menu/play/menu_item_firefight" x="192" y="272"/>
 		<child widget="main_menu/campaign_select/menu_item_daily" x="160" y="304"/>
 		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="336"/>
 	</widget>
-	<widget name="main_menu/main_menu_item_forge" width="256" height="33" bitmap="main_menu/menu_forge">
+	<widget name="main_menu/main_menu_item_forge" type="text" width="256" height="33" bitmap="main_menu/menu_forge">
+		<on event="a" run="gamemode select forge" open="main_menu/forge_select/forge_menu"/>
+		<on event="start" run="gamemode select forge" open="main_menu/forge_select/forge_menu"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/play/menu_item_firefight" width="256" height="33" bitmap="main_menu/menu_firefight">
+	<widget name="main_menu/play/menu_item_firefight" type="text" width="256" height="33" bitmap="main_menu/menu_firefight">
+		<on event="a" run="gamemode select firefight" open="main_menu/firefight_select/firefight_menu"/>
+		<on event="start" run="gamemode select firefight" open="main_menu/firefight_select/firefight_menu"/>
+		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 </menus>

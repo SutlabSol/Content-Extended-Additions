@@ -175,6 +175,8 @@ struct game_options;
 #include "saved games/game_state.h"
 #include "saved games/saved_game_files.h"
 #include "scenario/scenario.h"
+#include "scenario/scenario_definitions.h" /* port: firefight */
+#include "halo_firefight.h" /* port: firefight */
 #include "shaders/shaders.h"
 #include "sound/game_sound.h"
 #include "sound/sound_classes.h"
@@ -396,7 +398,8 @@ void game_tick(
 	/* port: in network co-op only the host runs the scripts. A client running
 	them would place the map's actors and objects a second time and make
 	decisions that belong to the host. */
-	if (!(network_game_distributed_client() && network_coop_active()))
+	if (!(network_game_distributed_client() && network_coop_active()) &&
+		!(firefight_active() && global_scenario_get()->type == _scenario_type_solo))
 		profile_scope(game_tick_hs_section, hs_update();)
 	profile_scope(game_tick_recorded_animations_section, recorded_animations_update();)
 	profile_scope(game_tick_objects_section, objects_update();)
@@ -757,6 +760,7 @@ void game_initialize_for_new_map(
 	cheats_initialize_for_new_map();
 	/* port: no skulls dropped or found yet (port/linux/game/skulls.c) */
 	skulls_initialize_for_new_map();
+	firefight_stats_on_map_initialize();
 	/* port: nor randomizer riders or infection forms counted
 	(port/linux/game/randomizer.c) */
 	{
@@ -767,7 +771,8 @@ void game_initialize_for_new_map(
 
 	game_globals->active = TRUE;
 	objects_place();
-	if (!game_in_editor())
+	/* port: firefight */
+	if (!game_in_editor() && !(firefight_active() && global_scenario_get()->type == _scenario_type_solo))
 		ai_place();
 	/* (the map's objects, placed as on the host: a distributed client's own
 	from now on go elsewhere, port/linux/game/network_objects.c) */
@@ -1036,6 +1041,9 @@ void game_precache_new_map(
 void game_dispose_from_old_map(
 	void)
 {
+	/* Record and sync any active session stats before player_data/game_state are disposed */
+	firefight_stats_on_map_dispose();
+
 	/* port: a replay being recorded ends with its map (port/linux/game/network_replay.c) */
 	network_replay_stop();
 	/* port: the Switch GPU may still be reading this map (port/switch/host/host_dk.c) */

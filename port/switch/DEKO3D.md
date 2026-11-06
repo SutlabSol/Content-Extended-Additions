@@ -163,9 +163,9 @@ mapped there has to be read first (`host_mman.c`, `host_memory.c`); if parts
 of it are ever unmapped, those parts cannot be GPU-mapped, and that build
 either commits the window in chunks too or copies.
 
-**Data outside the window goes through an upload buffer.** Index buffers
-made by `CreateIndexBuffer` are in ordinary guest memory (`calloc`,
-`d3d8_resources.c`; a map's own index data is in the window), immediate mode
+**Data outside the window goes through an upload buffer.** The dynamic index
+buffer is in ordinary guest memory (`calloc`, `d3d8_resources.c`; a map's own
+index data and static `CreateIndexBuffer` buffers are in the window), immediate mode
 (`Begin`/`End`) builds its vertices in the device, and quad lists need
 indices made for the draw. These are copied into a per-frame slice of a
 CPU-mapped buffer (`CpuUncached`), reused once the frame's fence has passed,
@@ -824,7 +824,7 @@ For each, the log's draw statistics (`gpu_stats`, every 60 frames) and the
 4. **Index and vertex data from the window**, through `window_read`. A range
    crossing from one 16 MB chunk of the window into the next is copied into
    the upload buffer instead (`range_read`); index data made by
-   `CreateIndexBuffer` is in ordinary guest memory, and copied too. Watch the
+   the dynamic `CreateIndexBuffer` is in ordinary guest memory, and copied too. Watch the
    log for "a frame needs more than ... bytes of uploads": the upload slice
    is 4 MB a frame (`UPLOAD_SLICE_SIZE`), and a draw whose data does not fit
    is skipped. The line of uploads a second says what fills it. Geometry written
@@ -925,7 +925,7 @@ changed since the last draw - most consecutive draws share most state):
 - **Vertex input**: per stream, either a window address (the host calls
   `window_read`, which cleans the CPU cache for it and gives the GPU address)
   or data the guest could not leave in place (immediate mode, a range
-  crossing two window chunks, CreateIndexBuffer's index data in ordinary
+  crossing two window chunks, the dynamic index buffer's data in ordinary
   memory) for `upload_copy`; the stride; and per attribute its register,
   stream, offset and type. Map `D3DVSDT_*` to `DkVtxAttribSize`/`Type` (as
   `attribute_format` in `d3d8_gl.c` maps them to GL): `D3DCOLOR` is

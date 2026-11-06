@@ -584,9 +584,10 @@ boolean cache_files_precache_map_loaded(
 {
 	/* port: a Halo Custom Edition map (custom_maps\<name>) is read in place
 	and never copied to the cache partition; it is never the game's own map
-	of that file name (port/linux/game/custom_edition_cache.c) */
-	if (custom_edition_level_name(map_name))
-		return custom_edition_cache_playable(map_name);
+	of that file name (port/linux/game/custom_edition_cache.c). A Forge-saved
+	Xbox cache in custom_maps uses the standard Xbox cache partition path. */
+	if (custom_edition_level_name(map_name) && custom_edition_cache_playable(map_name))
+		return TRUE;
 	return cached_map_files_find_map(tag_name_strip_path(map_name)) != NONE;
 }
 
@@ -608,13 +609,17 @@ boolean cache_files_precache_map_begin(
 	its file name (port/linux/game/custom_edition_cache.c) */
 	if (custom_edition_level_name(map_name) && !custom_edition_cache_playable(map_name))
 	{
-		error(_error_silent, "couldn't find the Custom Edition map '%s' in custom_maps", map_name);
-		if (copy_map)
+		struct cache_file_header probe_header;
+		if (!cache_file_read_header_from_dvd(cache_map_name, &probe_header))
 		{
-			display_error_damaged_media();
-		}
+			error(_error_silent, "couldn't find the Custom Edition map '%s' in custom_maps", map_name);
+			if (copy_map)
+			{
+				display_error_damaged_media();
+			}
 
-		return FALSE;
+			return FALSE;
+		}
 	}
 	if (!cache_files_precache_map_loaded(map_name))
 	{
@@ -1295,6 +1300,22 @@ static void cache_file_get_map_path(
 	{
 		error(_error_silent, "map path for '%.64s' is too long", map_name);
 		path[0] = 0;
+	}
+	else
+	{
+		struct file_reference reference;
+
+		/* If not in d:\maps\, check d:\custom_maps\ (for Xbox v5 FLG1 Forge maps saved in custom_maps\) */
+		if (!file_exists(file_reference_create_from_path(&reference, path, FALSE)))
+		{
+			char custom_path[MAXIMUM_MAP_PATH_LENGTH];
+
+			if (custom_edition_map_file_named(map_name, custom_path))
+			{
+				strncpy(path, custom_path, MAXIMUM_MAP_PATH_LENGTH - 1);
+				path[MAXIMUM_MAP_PATH_LENGTH - 1] = 0;
+			}
+		}
 	}
 
 	return;

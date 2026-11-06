@@ -387,6 +387,15 @@ static char const *const port_function_names[] =
 	"mp profile init opence options", "mp profile set opence options",
 	/* (and its FLOODFECTION SETTINGS' screens: infection.c's settings) */
 	"mp profile init floodfection options", "mp profile set floodfection options",
+	/* (Firefight & Forge gamemode and rules handlers) */
+	"mp profile init firefight rules", "mp profile set firefight rules",
+	"mp edit game options", "firefight skulls open", "ss firefight skulls", "firefight tag profile open",
+	"gamemode menu init", "gamemode select standard", "gamemode select ranked", "gamemode select firefight",
+	"gamemode select forge", "gamemode select theater", "gamemode select creation hub", "gamemode select dedi server",
+	"service record init", "service record select tab", "service record check leaderboards",
+	"service record export json", "service record copy id", "service record link account",
+	"service record medals prev", "service record medals next",
+	"mp type menu initialize",
 	/* (Settings' OK: the Xbox's fails when the profile has no changes, the
 	settings' screens having written theirs to config.toml) */
 	"player profile save changes",
@@ -413,7 +422,7 @@ static char const *const port_function_names[] =
 	"port vk driver import",
 	/* (the map lists' IMPORT, Android's: menu_functions.c) */
 	"port map import",
-	/* (Settings > Gameplay > Tag Injector: menu_functions.c) */
+	/* (Forge > Tag Injector: menu_functions.c) */
 	"port tags init", "port tags close", "port tags choose", "port tags left", "port tags right", "port tags back",
 	"port tags new profile", "port tags profile button",
 	/* (Server Setup's RANDOMIZER and SKULLS rows, a co-op game's: the
@@ -493,7 +502,7 @@ static char const *const port_game_data_input_names[] =
 	"skulls screen update", "gameplay screen update",
 	/* (the main menu's Mods) */
 	"port mods update",
-	/* (Settings > Gameplay > Tag Injector) */
+	/* (Forge > Tag Injector) */
 	"port tags update",
 	/* (network co-op's pause menu's FRIENDLY FIRE: its text, ON or OFF) */
 	"port coop friendly fire text",
@@ -523,6 +532,7 @@ static char const *const port_game_data_input_names[] =
 	/* (Gamepad Setup's BUTTON LAYOUT, and the profile settings' picture of
 	it: a controller, and what the layout puts on its buttons) */
 	"port gamepad layout overlay",
+	"mp type screen update", "service record update",
 };
 
 static struct

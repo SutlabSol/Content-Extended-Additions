@@ -776,13 +776,48 @@ static void stream_flush(void)
 }
 
 /* room for a command of size bytes, its header filled in */
+/* why the stream was handed over before the frame's end: said every 300
+frames that had any, the render queue's count of streams saying only how many */
+enum
+{
+	EARLY_FLUSH_FULL,
+	EARLY_FLUSH_FREES,
+	EARLY_FLUSH_BUSY,
+	EARLY_FLUSH_DEVICE_BUSY,
+	EARLY_FLUSH_KICK,
+	EARLY_FLUSH_REASONS
+};
+static unsigned long early_flushes[EARLY_FLUSH_REASONS];
+static unsigned long early_flush_busy_common;
+
+static void early_flushes_report(void)
+{
+	static unsigned long frames;
+	unsigned long total = 0, reason;
+
+	if (++frames < 300)
+		return;
+	frames = 0;
+	for (reason = 0; reason < EARLY_FLUSH_REASONS; reason++)
+		total += early_flushes[reason];
+	if (total)
+		platform_log("deko3d: the stream handed over early %lu times in 300 frames: %lu full, %lu for frees, %lu for a "
+			"busy resource (the last's Common %08lx), %lu for IsBusy, %lu kicked", total,
+			early_flushes[EARLY_FLUSH_FULL], early_flushes[EARLY_FLUSH_FREES], early_flushes[EARLY_FLUSH_BUSY],
+			early_flush_busy_common, early_flushes[EARLY_FLUSH_DEVICE_BUSY], early_flushes[EARLY_FLUSH_KICK]);
+	memset(early_flushes, 0, sizeof(early_flushes));
+}
+
 static void *stream_command(uint32_t type, unsigned long size)
 {
 	struct dk_command_header *header;
 
 	size = (size + 3) & ~3UL;
 	if (stream_used + size > STREAM_SIZE)
+	{
+		early_flushes[EARLY_FLUSH_FULL]++;
 		stream_flush();
+	}
 	header = (struct dk_command_header *)((unsigned char *)stream + stream_used);
 	header->type = type;
 	header->size = (uint32_t)size;
@@ -800,7 +835,10 @@ void dk_stream_free_after_handover(void *buffer, unsigned long size)
 	pending_frees[pending_free_count++] = buffer;
 	pending_free_bytes += size;
 	if (pending_free_count == PENDING_FREE_LIMIT || pending_free_bytes >= PENDING_FREE_BYTES)
+	{
+		early_flushes[EARLY_FLUSH_FREES]++;
 		stream_flush();
+	}
 }
 
 static void color_to_vec4(D3DCOLOR color, float *out)
@@ -1537,6 +1575,11 @@ void WINAPI D3DDevice_SetRenderTarget(D3DSurface *render_target, D3DSurface *dep
 	viewport_update_constants();
 }
 
+void WINAPI D3DDevice_GetViewport(D3DVIEWPORT8 *viewport)
+{
+	*viewport = device.viewport;
+}
+
 void WINAPI D3DDevice_SetViewport(CONST D3DVIEWPORT8 *viewport)
 {
 	device.viewport = *viewport;
@@ -1686,7 +1729,11 @@ BOOL halo_resource_busy(D3DResource *resource)
 	Xbox's runtime kicks off its push buffer, or a caller spinning on IsBusy
 	would wait for a submission that never comes */
 	if (last == submission)
+	{
+		early_flushes[EARLY_FLUSH_BUSY]++;
+		early_flush_busy_common = resource->Common;
 		stream_flush();
+	}
 	return host_dk_retired() < last;
 }
 
@@ -1707,12 +1754,14 @@ void halo_resource_wait(D3DResource *resource)
 
 BOOL WINAPI D3DDevice_IsBusy(void)
 {
+	early_flushes[EARLY_FLUSH_DEVICE_BUSY]++;
 	stream_flush();
 	return host_dk_retired() < submission - 1;
 }
 
 void WINAPI D3DDevice_KickPushBuffer(void)
 {
+	early_flushes[EARLY_FLUSH_KICK]++;
 	stream_flush();
 }
 
@@ -3211,6 +3260,7 @@ a larger list is read where it is, as before */
 in the Xbox window - the map's own index buffers, where the game keeps them,
 and Custom Edition's converted geometry (custom_edition_geometry.c) - which
 nothing writes while the map is loaded, or in Custom Edition's tag cache.
+Static index buffers are in the window too (D3DDevice_CreateIndexBuffer).
 The others are the lists the game remakes as it draws, its dynamic index
 buffer's (D3DDevice_CreateIndexBuffer's, in the C heap: d3d8_resources.c):
 split screen remakes them for the second view where the first's were. Only
@@ -3664,6 +3714,7 @@ void WINAPI D3DDevice_Present(CONST RECT *source_rectangle, CONST RECT *destinat
 		}
 	}
 	stream_flush();
+	early_flushes_report();
 	if (screenshot_pixels)
 	{
 		/* (the host writes the pixels as it runs the present, on its render

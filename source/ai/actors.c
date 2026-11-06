@@ -281,6 +281,7 @@ symbols in this file:
 /* ---------- headers */
 
 #include "cseries.h"
+#include "opence_features.h"
 #include "actors.h"
 #include "actor_definitions.h"
 #include "actor_placement.h"
@@ -2876,6 +2877,14 @@ long actor_place(
 		short default_state = actor_default_state_none;
 
 		actor_customize_unit(actor_variant_definition_index, unit_index);
+		/* port: a Forge AI spawn's own weapon (port/forge/src/forge_ai.c) */
+#if OPENCE_ENABLE_FORGE
+		{
+			extern void forge_ai_unit_placed(long unit_index, struct actor_starting_location const *location);
+
+			forge_ai_unit_placed(unit_index, starting_location);
+		}
+#endif
 
 		if (encounter_index != NONE)
 		{

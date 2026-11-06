@@ -69,11 +69,13 @@ the players and their records social_menu.c's.
 #include "campaign_medals.h"
 #include "campaign_score.h"
 #include "community.h"
+#include "halo_firefight.h"
 #include "network_privacy.h"
 #include "network_replay.h"
 #include "social.h"
 #include "social_chat.h"
 #include "social_menu.h"
+#include "social_extensions.h"
 #include "social_sync.h"
 #include "../src/community_net.h"
 #include "../src/port_config.h"
@@ -107,6 +109,9 @@ enum
 	/* how often an account not answered is asked for again, and a record
 	not sent sent again; how many times a record is tried */
 	SOCIAL_RETRY_MILLISECONDS = 60000,
+	/* (an emblem sent this long after its last change: each step of its
+	rows is one) */
+	SOCIAL_EMBLEM_SEND_MILLISECONDS = 2000,
 	SOCIAL_RECORD_ATTEMPTS = 5,
 	SOCIAL_CODE_SIZE = 16,
 	SOCIAL_NAME_SIZE = 40,
@@ -199,7 +204,7 @@ static struct
 	char presence_said[SOCIAL_PRESENCE_SIZE];
 	long friends_online;
 	long requests_waiting;
-	/* a multiplayer game being played (one a replay plays is not), and
+	/* a multiplayer game being played (one a replay plays or Forge is not), and
 	whether its end was recorded; when it started */
 	boolean match_running;
 	boolean match_recorded;
@@ -225,6 +230,23 @@ static struct
 	long totals[4];
 	struct social_record records[SOCIAL_PENDING_RECORDS];
 	char answer[SOCIAL_ANSWER_SIZE];
+	/* the server's word on the rank and emblem (social_account_take) */
+	boolean account_known;
+	boolean ranks_served;
+	boolean emblem_had;
+	struct firefight_emblem_info emblem;
+	boolean rank_done;
+	long account_xp;
+	struct firefight_rank_history history;
+	/* the emblem chosen, to send as the choosing stops */
+	boolean emblem_dirty;
+	boolean emblem_taking;
+	unsigned long emblem_changed_at;
+	int emblem_ticket;
+	/* the rank's records counted, to say */
+	boolean rank_due;
+	unsigned long rank_at;
+	int rank_ticket;
 } social = { 0, TRUE, 0, "", "", "", NONE, "", (unsigned long)-1 };
 
 /* ---------- the account */
@@ -243,6 +265,7 @@ char const *social_account_code(
 
 static void social_answer_text(char const *answer, char const *path, char *text, int size);
 static void social_answer_totals(char const *answer);
+static void social_account_take(char const *answer);
 
 /* the name and colour the account picked, from an answer that says them
 (prefix "account." in the account's answers, "" in the presence's) */
@@ -410,6 +433,316 @@ static void social_settings_text(
 	text[MIN(index, size - 1)] = 0;
 }
 
+static boolean social_recording(
+	void);
+
+void social_firefight_changed(
+	void)
+{
+	social.hello_due = TRUE;
+}
+
+/* the career's Firefight totals in POST /account: the server keeps the last
+sent, as they are, for other players' cards. None for a profile with none,
+which would wipe what another of the account's devices sent */
+static void social_firefight_json(
+	struct server_json *json)
+{
+	struct firefight_career_stats career;
+
+	if (!social_recording() || !firefight_stats_get_career(NONE, &career) ||
+		(!career.ff_matches && !career.total_sets_completed && !career.total_waves_cleared))
+		return;
+	server_json_object_begin(json, "firefight");
+	server_json_integer(json, "matches", career.ff_matches);
+	server_json_integer(json, "sets", career.total_sets_completed);
+	server_json_integer(json, "waves", career.total_waves_cleared);
+	server_json_integer(json, "kills", career.ff_kills);
+	server_json_integer(json, "bossKills", career.total_boss_kills);
+	server_json_integer(json, "deaths", career.ff_deaths);
+	server_json_integer(json, "assists", career.ff_assists);
+	server_json_integer(json, "bestSpree", career.ff_best_spree);
+	server_json_integer(json, "score", career.ff_score);
+	server_json_integer(json, "seconds", career.ff_seconds);
+	server_json_object_end(json);
+}
+
+/* ---------- the rank and the emblem */
+
+static long social_json_number(
+	struct server_json_document const *document,
+	int token,
+	char const *key)
+{
+	int member = token >= 0 ? server_json_member(document, token, key) : -1;
+	double value;
+
+	return member >= 0 && server_json_get_number(document, member, &value) ? (long)value : 0;
+}
+
+/* the emblem at token's `emblem`: FALSE for none */
+static boolean social_emblem_read(
+	struct server_json_document const *document,
+	int token,
+	struct firefight_emblem_info *emblem)
+{
+	int member = token >= 0 ? server_json_member(document, token, "emblem") : -1;
+	int layer;
+	int secondary = 0;
+
+	if (member < 0 || server_json_is_null(document, member))
+		return FALSE;
+	layer = server_json_member(document, member, "secondaryLayer");
+	if (layer >= 0)
+		server_json_get_boolean(document, layer, &secondary);
+	emblem->foreground = (short)PIN(social_json_number(document, member, "foreground"), 0, FIREFIGHT_EMBLEM_FOREGROUND_COUNT - 1);
+	emblem->background = (short)PIN(social_json_number(document, member, "background"), 0, FIREFIGHT_EMBLEM_BACKGROUND_COUNT - 1);
+	emblem->secondary_layer = secondary != 0;
+	emblem->primary_color = (short)PIN(social_json_number(document, member, "primaryColor"), 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	emblem->secondary_color = (short)PIN(social_json_number(document, member, "secondaryColor"), 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	emblem->background_color = (short)PIN(social_json_number(document, member, "backgroundColor"), 0, FIREFIGHT_EMBLEM_COLOR_COUNT - 1);
+	emblem->nameplate = (short)PIN(social_json_number(document, member, "nameplate"), 0, FIREFIGHT_NAMEPLATE_COUNT - 1);
+	return TRUE;
+}
+
+void social_emblem_json(
+	struct server_json *json,
+	char const *key,
+	struct firefight_emblem_info const *emblem)
+{
+	server_json_object_begin(json, key);
+	server_json_integer(json, "foreground", emblem->foreground);
+	server_json_integer(json, "background", emblem->background);
+	server_json_boolean(json, "secondaryLayer", emblem->secondary_layer ? 1 : 0);
+	server_json_integer(json, "primaryColor", emblem->primary_color);
+	server_json_integer(json, "secondaryColor", emblem->secondary_color);
+	server_json_integer(json, "backgroundColor", emblem->background_color);
+	server_json_integer(json, "nameplate", emblem->nameplate);
+	server_json_object_end(json);
+}
+
+void social_person_note(
+	struct server_json_document const *document,
+	int token,
+	char const *code,
+	char const *name)
+{
+	struct firefight_emblem_info emblem;
+	boolean had = social_emblem_read(document, token, &emblem);
+	int xp = token >= 0 ? server_json_member(document, token, "xp") : -1;
+	double value = -1.0;
+
+	/* (null: an account of a build before ranks, as a player off the fork) */
+	if (xp < 0 || !server_json_get_number(document, xp, &value))
+		value = -1.0;
+	social_extensions_cache_person_stats(code, name, (long)value, had ? &emblem : NULL);
+}
+
+boolean social_account_known(
+	void)
+{
+	return social.account_known;
+}
+
+boolean social_account_ranks_served(
+	void)
+{
+	return social.ranks_served;
+}
+
+boolean social_account_emblem(
+	struct firefight_emblem_info *out_emblem)
+{
+	if (social.emblem_had && out_emblem)
+		*out_emblem = social.emblem;
+	return social.emblem_had;
+}
+
+void social_account_apply(
+	void)
+{
+	struct firefight_career_stats career;
+	struct firefight_emblem_info local;
+
+	if (!social_menu_has_profile())
+		return;
+	if (social.emblem_had && !social.emblem_dirty)
+	{
+		firefight_stats_get_emblem(NONE, &local);
+		if (local.foreground != social.emblem.foreground || local.background != social.emblem.background ||
+			!local.secondary_layer != !social.emblem.secondary_layer || local.primary_color != social.emblem.primary_color ||
+			local.secondary_color != social.emblem.secondary_color || local.background_color != social.emblem.background_color)
+		{
+			social.emblem_taking = TRUE;
+			firefight_stats_set_emblem(NONE, &social.emblem);
+			social.emblem_taking = FALSE;
+		}
+	}
+	/* (a rank earned on another device; until the records are counted the
+	catch-up says what it is) */
+	if (social.rank_done && firefight_stats_get_career(NONE, &career) && social.account_xp > career.career_xp)
+		firefight_stats_set_career_xp(social.account_xp);
+}
+
+/* the account's rank, emblem and records, from an answer that has the account */
+static void social_account_take(
+	char const *answer)
+{
+	struct server_json_document document;
+	int token;
+	int stats;
+	int multiplayer;
+	int campaign;
+	int firefight;
+	int done;
+	int flag = 0;
+
+	if (!server_json_parse(&document, answer, (int)strlen(answer), 16))
+		return;
+	token = server_json_member(&document, 0, "data");
+	token = token >= 0 ? server_json_member(&document, token, "account") : -1;
+	if (token < 0)
+	{
+		server_json_document_free(&document);
+		return;
+	}
+	social.account_known = TRUE;
+	/* (a server before ranks says none of it) */
+	done = server_json_member(&document, token, "rankDone");
+	social.ranks_served = done >= 0;
+	if (done >= 0)
+		server_json_get_boolean(&document, done, &flag);
+	social.rank_done = flag != 0;
+	social.account_xp = social_json_number(&document, token, "xp");
+	social.emblem_had = social_emblem_read(&document, token, &social.emblem);
+	stats = server_json_member(&document, token, "stats");
+	multiplayer = stats >= 0 ? server_json_member(&document, stats, "multiplayer") : -1;
+	campaign = stats >= 0 ? server_json_member(&document, stats, "campaign") : -1;
+	firefight = stats >= 0 ? server_json_member(&document, stats, "firefight") : -1;
+	social.history.multiplayer_matches = social_json_number(&document, multiplayer, "matches");
+	social.history.multiplayer_kills = social_json_number(&document, multiplayer, "kills");
+	social.history.multiplayer_assists = social_json_number(&document, multiplayer, "assists");
+	social.history.multiplayer_medals = social_json_number(&document, multiplayer, "medals");
+	social.history.campaign_levels = social_json_number(&document, campaign, "matches");
+	social.history.campaign_kills = social_json_number(&document, campaign, "kills");
+	social.history.campaign_medals = social_json_number(&document, campaign, "medals");
+	social.history.firefight_matches = social_json_number(&document, firefight, "matches");
+	social.history.firefight_sets = social_json_number(&document, firefight, "sets");
+	social.history.firefight_waves = social_json_number(&document, firefight, "waves");
+	social.history.firefight_kills = social_json_number(&document, firefight, "kills");
+	server_json_document_free(&document);
+	social_account_apply();
+}
+
+void social_account_answer(
+	char const *answer)
+{
+	social_name_take(answer, "account.");
+	social_answer_totals(answer);
+	social_account_take(answer);
+}
+
+void social_rank_catch_up(
+	void)
+{
+	if (!social.account_known || !social.ranks_served || !social.emblem_had || social.rank_done)
+		return;
+	firefight_stats_rank_catch_up(&social.history);
+	social.rank_done = TRUE;
+	social.rank_due = TRUE;
+	social.rank_at = 0;
+}
+
+void social_emblem_changed(
+	void)
+{
+	if (social.emblem_taking)
+		return;
+	social.emblem_dirty = TRUE;
+	social.emblem_changed_at = system_milliseconds();
+}
+
+/* the rank counted, and the emblem chosen, said to the server */
+static void social_rank_update(
+	unsigned long now)
+{
+	struct server_json json;
+	int status = 0;
+	int result;
+
+	if (social.rank_ticket)
+	{
+		result = community_net_poll(social.rank_ticket, &status, social.answer, sizeof(social.answer));
+		if (result == _community_net_waiting)
+			return;
+		social.rank_ticket = 0;
+		if (result == _community_net_answered && status == 200)
+			social.rank_due = FALSE;
+		else
+			social.rank_at = now + SOCIAL_RETRY_MILLISECONDS;
+		return;
+	}
+	if (social.rank_due && (!social.rank_at || (long)(now - social.rank_at) >= 0))
+	{
+		struct firefight_career_stats career;
+
+		if (!firefight_stats_get_career(NONE, &career))
+			return;
+		server_json_begin(&json);
+		server_json_object_begin(&json, NULL);
+		server_json_integer(&json, "xp", MAX(0L, career.career_xp));
+		server_json_boolean(&json, "done", 1);
+		server_json_object_end(&json);
+		social.rank_ticket = social_send("/account/rank", server_json_text(&json));
+		server_json_free(&json);
+		if (!social.rank_ticket)
+			social.rank_at = now + SOCIAL_RETRY_MILLISECONDS;
+	}
+}
+
+static void social_emblem_update(
+	unsigned long now)
+{
+	struct firefight_emblem_info emblem;
+	struct server_json json;
+	int status = 0;
+	int result;
+
+	if (social.emblem_ticket)
+	{
+		result = community_net_poll(social.emblem_ticket, &status, social.answer, sizeof(social.answer));
+		if (result == _community_net_waiting)
+			return;
+		social.emblem_ticket = 0;
+		if (result != _community_net_answered || status != 200)
+		{
+			social.emblem_dirty = TRUE;
+			social.emblem_changed_at = now + SOCIAL_RETRY_MILLISECONDS;
+		}
+		return;
+	}
+	/* (none on the server yet: the first goes with the setup) */
+	if (!social.emblem_dirty || !social.emblem_had ||
+		(long)(now - social.emblem_changed_at) < SOCIAL_EMBLEM_SEND_MILLISECONDS)
+	{
+		return;
+	}
+	firefight_stats_get_emblem(NONE, &emblem);
+	server_json_begin(&json);
+	server_json_object_begin(&json, NULL);
+	social_emblem_json(&json, "emblem", &emblem);
+	server_json_object_end(&json);
+	social.emblem_ticket = social_send("/account/emblem", server_json_text(&json));
+	server_json_free(&json);
+	if (social.emblem_ticket)
+	{
+		social.emblem_dirty = FALSE;
+		social.emblem = emblem;
+	}
+	else
+		social.emblem_changed_at = now + SOCIAL_RETRY_MILLISECONDS;
+}
+
 void social_presence_counts(
 	long *friends_online,
 	long *requests_waiting)
@@ -519,6 +852,7 @@ static void social_hello_update(
 			social_answer_totals(social.answer);
 			social_sync_answer(social.answer);
 			social_name_take(social.answer, "account.");
+			social_account_take(social.answer);
 			if (code[0])
 			{
 				if (strcmp(code, social.code))
@@ -578,6 +912,13 @@ static void social_hello_update(
 			}
 		}
 		server_json_object_end(&json);
+		social_firefight_json(&json);
+		{
+			struct firefight_career_stats career;
+
+			if (firefight_stats_get_career(NONE, &career) && career.career_xp > 0)
+				server_json_integer(&json, "xp", career.career_xp);
+		}
 		server_json_object_end(&json);
 		social.hello_ticket = social_send("/account", server_json_text(&json));
 		server_json_free(&json);
@@ -1110,7 +1451,7 @@ static void social_match_left(
 static void social_match_update(
 	void)
 {
-	boolean playing = game_in_progress() && game_engine_running() && !network_replay_playing();
+	boolean playing = game_in_progress() && game_engine_running() && !firefight_stats_session_withheld();
 	unsigned long now = system_milliseconds();
 
 	if (!social.match_file_looked && social_enabled())
@@ -1455,6 +1796,8 @@ void social_update(
 	if (social_enabled())
 	{
 		social_hello_update(now);
+		social_rank_update(now);
+		social_emblem_update(now);
 		social_records_update(now);
 		social_presence_update(now);
 		social_sync_update(now);

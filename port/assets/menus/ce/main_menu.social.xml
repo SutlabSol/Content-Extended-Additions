@@ -115,13 +115,13 @@
 		<child widget="main_menu/social/social_details_name"/>
 		<child widget="main_menu/social/social_details_text"/>
 	</widget>
-	<widget name="main_menu/social/social_details_name" type="text" controller="1" left="412" top="84" width="200" height="44" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/social/social_details_name" type="text" controller="1" left="422" top="84" width="194" height="44" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
-	<widget name="main_menu/social/social_details_text" type="text" controller="1" left="412" top="130" width="200" height="272" font="ui\small_ui" color="#FF2896FF">
+	<widget name="main_menu/social/social_details_text" type="text" controller="1" left="422" top="130" width="194" height="272" font="ui\small_ui" color="#FF2896FF">
 	</widget>
 	<widget name="main_menu/social/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
-		<child widget="main_menu/social/button_join" x="250" y="1"/>
-		<child widget="main_menu/social/button_options" x="380" y="1"/>
+		<child widget="main_menu/social/button_join" x="230" y="1"/>
+		<child widget="main_menu/social/button_options" x="370" y="1"/>
 		<child widget="main_menu/social/button_back" x="510" y="1"/>
 	</widget>
 	<widget name="main_menu/social/button_join" type="text" width="128" height="24" bitmap="bitmaps/text_button_background" text="JOIN" font="ui\small_ui" color="#FFFFFFFF" align="center" text_y="2">

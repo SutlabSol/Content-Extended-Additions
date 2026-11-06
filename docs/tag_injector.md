@@ -20,7 +20,7 @@ and the maps in `custom_maps`, with Custom Edition's `bitmaps.map` and
 
 ## The menu
 
-**Settings > Gameplay > Tag Injector** is laid out as the Mods screen is: a
+**Forge > Tag Injector** (PLAY > FORGE) is laid out as the Mods screen is: a
 list on the left, and in the frame on the right what the row chosen is and
 what A does with it. B, or **BACK**, goes back up a list, and from the
 first leaves. Its first list has:
@@ -814,3 +814,55 @@ map is loaded it is as it was. The pause menu's QUIT leaves the range.
 The game's log says what is taken out and added (`tag injector:`), and why
 a map cannot be read, a tag cannot be taken out (a tag it names is of a
 group this build cannot bundle), or a bundle is left out.
+
+## In Forge
+
+The Tag Injector is Forge's source of custom tags, and its only one: Forge's
+menu opens it (TAG INJECTOR).
+
+- **The palette** is Forge's default tags, the profile chosen, and the tags
+  saved in the map. The default tags are a tag pack, `watanoge_forge` (about
+  565 MB), written at the main menu once Forge's menu has been opened; a tag is
+  read from it the moment it is placed, so a level holds only what it uses.
+  What it can place is kept in `Faber_data/cached_tags/pack_palette.txt`.
+- **Choosing.** After the map, in Single Player, Multiplayer and Edit Maps, a
+  TAG PROFILE screen lists NONE and each profile with a tag on (no such
+  profile, or Custom Edition maps off: it is skipped). The choice lasts the
+  session.
+- **Online.** A Forge game shares the whole profile, not only its weapons, as
+  co-op does: its share kind is `_share_forge`, the host swaps nothing, and
+  a game with a profile is a modded one (flag 0x40) on Forge's own network
+  version. Scenery and doors spawn on each machine, so whether a door is open
+  is not kept the same.
+- **Saved maps.** Saving on a stock map stores the tags of what is placed that
+  are not the game's in the map: an `OCETAGS1` archive after the map's other
+  trailers, found by the state's `BAKED_TAGS|offset|size|id` line. Only the
+  tags objects use are kept, so a tag nothing uses is dropped at the next save.
+  As the map loads, on every machine and in any game, the archive is unpacked
+  once into `tag_injector/.baked/<id>/` and read before any profile: a baked
+  tag stays as it was saved, even over a tag of the same path in the profile.
+  A Custom Edition base has its tags in the file already. An old save's tag
+  no one has any more stays in the map, and the HUD says it cannot be shown.
+- **Snap points** are each tag's own, kept by its path in
+  `Faber_data/cached_tags/snap_points.txt`. A scenery or door tag's page in a
+  profile has **SNAP POINTS**, which lists its points over its turning model
+  (the white one is chosen): LAYOUT sets them by the model's box, and each is
+  moved by its rows. A stock tag has no page: **SNAP POINTS** in Object
+  Properties, on an object of it, chooses none or a layout. That replaces any
+  points the tag had.
+- **Spawns, teleporters and objectives** of a stock map are saved in the same
+  state (`PLAYER_SPAWN|`, `NETGAME_FLAG|`, with `PLAYER_SPAWNS_SAVED` and
+  `NETGAME_FLAGS_SAVED` to say they stand in place of the map's) and put in the
+  scenario as the level loads, so they play the same solo, for a client, and
+  in a normal game of the saved map.
+
+## In Firefight
+
+A Firefight variant can play a profile. Open **PLAY > FIREFIGHT > FIREFIGHT VARIANTS**, edit a variant, open **GAME OPTIONS > SKULLS & TRAITS** and press A on **TAG PROFILE**. The variant keeps the profile's folder as a hash (`firefight_tag_profile` in its options), so renaming a profile keeps it and a variant moved to a machine without the profile shows NOT ON THIS MACHINE and plays without it.
+
+In the game:
+
+- The profile's AI join the waves alongside the stock enemies, whatever the variant's faction: about half of each wave's picks are theirs. Each is placed by its type (the tag's `type` setting, else its unit's): grunts and infection forms are fodder, elites and carriers are commanders, hunters are bosses, and the rest are infantry. They always fight the players.
+- The profile's weapons join the ordnance drops, one per player per drop. A heavy drop prefers the ones whose class is power.
+
+The host shares the profile's tags as it does a Forge game's (`_share_firefight`), so its clients download them. A game playing a profile is a modded game: only builds with the same mod version see it. Solo games do the same on this machine alone.

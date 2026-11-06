@@ -54,6 +54,9 @@ fill the widget's shape whichever way it has turned.
 units, for screens several times the menus' 640x480 */
 #define TAG_PREVIEW_TEXTURE_WIDTH 512
 #define TAG_PREVIEW_TEXTURE_HEIGHT 256
+/* how far a marked point's square reaches from it, in texels */
+#define TAG_PREVIEW_MARKER_SIZE 5
+#define TAG_PREVIEW_MARKER_CHOSEN_SIZE 8
 /* how long a tag is chosen before its model is read, and how often its
 picture is drawn again */
 #define TAG_PREVIEW_SETTLE_MILLISECONDS 150
@@ -149,6 +152,12 @@ static struct
 	and the blue of its edge */
 	float (*projected)[3];
 	float (*shading)[2];
+	/* its box, and the points marked on it (tag_preview_markers) */
+	float minimum[3];
+	float maximum[3];
+	float markers[TAG_PREVIEW_MAXIMUM_MARKERS][3];
+	short marker_count;
+	short marker_chosen;
 	/* the picture and its texels' depths (failed: they could not be made,
 	and are not tried again until the menu closes), and when it was drawn
 	(drawn: since its model was read) */
@@ -184,6 +193,7 @@ static void tag_preview_forget(
 	tag_preview.read = FALSE;
 	tag_preview.readable = FALSE;
 	tag_preview.drawn = FALSE;
+	tag_preview.marker_count = 0;
 }
 
 /* a 16-bit color of 5, 6 and 5 bits as 0xFFRRGGBB */
@@ -437,7 +447,11 @@ static void tag_preview_fit(
 		}
 	}
 	for (axis = 0; axis < 3; axis++)
+	{
 		tag_preview.center[axis] = (minimum[axis] + maximum[axis]) * 0.5f;
+		tag_preview.minimum[axis] = minimum[axis];
+		tag_preview.maximum[axis] = maximum[axis];
+	}
 	for (index = 0; index < mesh->vertex_count; index++)
 	{
 		float x = mesh->positions[index][0] - tag_preview.center[0];
@@ -747,6 +761,51 @@ static void tag_preview_triangle(
 	}
 }
 
+/* the points marked, over the model wherever they are: squares, the one
+chosen larger and white */
+static void tag_preview_markers_draw(
+	uint32_t *texels,
+	float turn)
+{
+	float across = tag_preview.scale * TAG_PREVIEW_TEXTURE_WIDTH / TAG_PREVIEW_WIDTH;
+	float down = tag_preview.scale * TAG_PREVIEW_TEXTURE_HEIGHT / TAG_PREVIEW_HEIGHT;
+	float turn_cosine = cosf(turn);
+	float turn_sine = sinf(turn);
+	float pitch_cosine = cosf(TAG_PREVIEW_PITCH);
+	float pitch_sine = sinf(TAG_PREVIEW_PITCH);
+	short index;
+
+	for (index = 0; index < tag_preview.marker_count; index++)
+	{
+		boolean chosen = index == tag_preview.marker_chosen;
+		short size = chosen ? TAG_PREVIEW_MARKER_CHOSEN_SIZE : TAG_PREVIEW_MARKER_SIZE;
+		uint32_t color = chosen ? 0xFFFFFFFFu : 0xFF28D8FFu;
+		float x = tag_preview.markers[index][0] - tag_preview.center[0];
+		float y = tag_preview.markers[index][1] - tag_preview.center[1];
+		float z = tag_preview.markers[index][2] - tag_preview.center[2];
+		/* (as tag_preview_project) */
+		float toward = x * turn_cosine - y * turn_sine;
+		float right = x * turn_sine + y * turn_cosine;
+		float up = z * pitch_cosine - toward * pitch_sine;
+		long middle_x = (long)(TAG_PREVIEW_TEXTURE_WIDTH * 0.5f + right * across);
+		long middle_y = (long)(TAG_PREVIEW_TEXTURE_HEIGHT * 0.5f - up * down);
+		long texel_x;
+		long texel_y;
+
+		for (texel_y = middle_y - size; texel_y <= middle_y + size; texel_y++)
+		{
+			for (texel_x = middle_x - size; texel_x <= middle_x + size; texel_x++)
+			{
+				if (texel_x >= 0 && texel_x < TAG_PREVIEW_TEXTURE_WIDTH &&
+					texel_y >= 0 && texel_y < TAG_PREVIEW_TEXTURE_HEIGHT)
+				{
+					texels[texel_y * TAG_PREVIEW_TEXTURE_WIDTH + texel_x] = color;
+				}
+			}
+		}
+	}
+}
+
 /* the picture drawn again, the model turned as it is now */
 static void tag_preview_draw(
 	unsigned long now)
@@ -763,6 +822,7 @@ static void tag_preview_draw(
 		tag_preview.depths[index] = -FLT_MAX;
 	for (index = 0; index < tag_preview.mesh.triangle_count; index++)
 		tag_preview_triangle(texels, index);
+	tag_preview_markers_draw(texels, turn);
 	rasterizer_bitmap_changed(tag_preview.bitmap);
 	tag_preview.drawn_time = now;
 	tag_preview.drawn = TRUE;
@@ -828,6 +888,29 @@ short tag_preview_needs(
 		return _tag_preview_needs_unreadable;
 	*needs = tag_preview.needs;
 	return _tag_preview_needs_read;
+}
+
+boolean tag_preview_bounds(
+	float minimum[3],
+	float maximum[3])
+{
+	if (!tag_preview.read || tag_preview.mesh.vertex_count <= 0 || !tag_preview.projected)
+		return FALSE;
+	memcpy(minimum, tag_preview.minimum, sizeof(tag_preview.minimum));
+	memcpy(maximum, tag_preview.maximum, sizeof(tag_preview.maximum));
+	return TRUE;
+}
+
+void tag_preview_markers(
+	float const (*points)[3],
+	short count,
+	short chosen)
+{
+	count = (short)MIN(count, TAG_PREVIEW_MAXIMUM_MARKERS);
+	if (count > 0)
+		memcpy(tag_preview.markers, points, (size_t)count * sizeof(tag_preview.markers[0]));
+	tag_preview.marker_count = count;
+	tag_preview.marker_chosen = chosen;
 }
 
 void tag_preview_dispose(

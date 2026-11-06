@@ -18,6 +18,10 @@ import sys
 from pathlib import Path
 from xml.sax.saxutils import quoteattr
 
+# (Content Extended's menus, beside this: multiplayer_files)
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import content_extended_menus  # noqa: E402
+
 PE = "main_menu/settings_select/player_setup/player_profile_edit"
 # the mods' screen, and its rows (_mods); the main menu's items
 # (ce/main_menu.xml), MAIN_MENU_ITEM_SPACING apart, in its left column (the
@@ -46,7 +50,7 @@ THEATER_ITEM_PLACE = main_menu_item_place("theater")
 QUIT_ITEM_PLACE = main_menu_item_place("quit_game")
 FORGE_ITEM_PLACE = main_menu_item_place("forge")
 FORGE_ITEM = "main_menu/main_menu_item_forge"
-# PLAY's FIREFIGHT (not yet: greyed, out of its list, after Multiplayer)
+# PLAY's FIREFIGHT (Content Extended's, after Multiplayer: _play)
 FIREFIGHT_ITEM = "main_menu/play/menu_item_firefight"
 # PLAY's screen (_play): Campaign's and Multiplayer's items, and Back, where
 # the main menu's were
@@ -771,8 +775,6 @@ SCREENS["gameplay"] = {
         ("SCORING", "gameplay/scoring", "The campaign's score, its time and par times,\nand medals, in multiplayer too."),
         ("COMMUNITY", "gameplay/community",
          "Online leaderboards, the daily challenge, and\nthe community server."),
-        ("TAG INJECTOR", "gameplay/tag_injector",
-         "Weapons and AI of Custom Edition maps, in\nprofiles the randomizer can add."),
     ],
 }
 SCREENS["gameplay/ragdolls"] = {
@@ -1118,8 +1120,14 @@ SCREENS["network_setup/in_game"] = {
 
 # Controls Setup: the keyboard and mouse's actions, in groups (the order of
 # port/linux/game/menu_functions.c's table of them)
-CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "COMMUNICATION"]
-CONTROL_ROWS = 7
+CONTROL_GROUPS = ["MOVEMENT", "WEAPONS", "ACTIONS", "COMMUNICATION",
+                  # (Content Extended's Forge editor's, keyboard and pad:
+                  # port/forge's forge_hooks.c fills their rows; a build
+                  # without Forge shows them empty)
+                  "FORGE", "FORGE PAD"]
+# (the rows a group shows: menu_functions.c's CONTROL_ROWS of the game's own
+# groups, Forge's more)
+CONTROL_ROWS = 11
 
 # the settings whose rows have the wider spinner (a device's name)
 WIDE_SETTINGS = {"audio.output_device", "audio.input_device", "streamer.slurs", "streamer.swearing",
@@ -1458,9 +1466,11 @@ def _setting_screen(folder: str, spec: dict) -> list:
 def _controls_screen() -> list:
     folder = "controls_setup"
     base = f"{PE}/{folder}"
-    spec = {"screen": "controls_settings_screen", "spacing": 30,
+    # (the rows' places in pixels: SHOW: at the top, the commands under it
+    # 24 apart, for the eleven a group may have; the help lower, under them)
+    spec = {"screen": "controls_settings_screen", "spacing": 1, "help_top": 368, "help_height": 44,
             "header": ("header_profile_controls_settings", f"{base}/header_profile_controls_settings")}
-    rows, extra = [(f"{base}/op_group", None)], []
+    rows, extra = [(f"{base}/op_group", None, 0)], []
     extra += _widget(f"{base}/op_group", [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                           ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                      [f'<child{attributes([("widget", f"{base}/group_label")])}/>',
@@ -1477,7 +1487,7 @@ def _controls_screen() -> list:
                       ("footer_bounds", "7 300 19 306")], [])
     for index in range(CONTROL_ROWS):
         row = f"{base}/op_command_{index + 1}"
-        rows.append((row, None))
+        rows.append((row, None, 26 + 24 * index))
         extra += _widget(row, [("width", 512), ("height", 28), ("flags", "pass_unhandled_to_focused_child"),
                                ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
                          ['<on event="a" run="controls begin binding"/>',
@@ -1571,7 +1581,7 @@ def _gameplay_profile_item() -> list:
 
 
 def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: list,
-                        labels: str = "labels") -> list:
+                        labels: str = "labels", label_width: int = 300) -> list:
     """one row of the randomizer screen: its label and the setting it shows.
     Every row's spinner is as wide as the widest choice needs, so the arrows
     of all of them line up, OFF/ON's too"""
@@ -1582,7 +1592,7 @@ def _randomizer_spinner(base: str, key: str, index: int, setting: str, choices: 
                    [f'<child widget="{base}/{key}_label"/>',
                     f'<child{attributes([("widget", f"{base}/{key}_spinner"), ("x", x), ("y", 1)])}/>']) + \
         _widget(f"{base}/{key}_label",
-                [("type", "text"), ("controller", 1), ("width", 300), ("height", 22),
+                [("type", "text"), ("controller", 1), ("width", label_width), ("height", 22),
                  ("string_list", f"{base}/{labels}"), ("string_index", index), ("font", "ui\\large_ui"),
                  ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], []) + \
         _widget(f"{base}/{key}_spinner",
@@ -1825,7 +1835,7 @@ def _randomizer_screen() -> list:
                      [("controller", 1), ("left", 35), ("top", 11), ("width", 605), ("height", 59),
                       ("bitmap", f"{base}/header_randomizer")], [])
     lines += _widget(f"{base}/help",
-                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 384), ("width", 482), ("height", 28),
                       ("string_list", f"{base}/help_strings"), ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
     children = ['<data input="port settings help"/>', '<data input="randomizer hub update"/>']
     extra = []
@@ -2067,7 +2077,8 @@ def _skulls_random_screen(base: str) -> list:
     extra = []
     for index, (key, _, setting) in enumerate(SKULLS_RANDOM_ROWS):
         children.append(f'<child{attributes([("widget", f"{base}/op_{key}"), ("x", 64), ("y", 190 + index * 32)])}/>')
-        extra += _randomizer_spinner(base, key, index, setting, choices)
+        # (the labels short of the spinners, which start at 256)
+        extra += _randomizer_spinner(base, key, index, setting, choices, label_width=250)
     children.append(f'<child{attributes([("widget", f"{base}/random_button_bar"), ("y", 414)])}/>')
     lines += _widget(f"{base}/random_menu",
                      [("type", "column_list"), ("width", 640), ("height", 480),
@@ -2104,7 +2115,7 @@ def _randomizer_profiles_screen(base: str) -> list:
                      f'<child widget="{base}/header_randomizer"/>',
                      f'<child widget="{base}/profiles_menu"/>'])
     lines += _widget(f"{base}/profiles_help",
-                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 388), ("width", 482), ("height", 24),
+                     [("type", "text"), ("controller", 1), ("left", 68), ("top", 384), ("width", 482), ("height", 28),
                       ("font", "ui\\small_ui"), ("color", "#FFFFFFFF")], [])
     children = ['<data input="randomizer profiles update"/>', '<on event="created" run="randomizer profiles init"/>']
     extra = []
@@ -2200,7 +2211,7 @@ def _randomizer_tag_profiles_screen(base: str) -> list:
 
 
 # the Tag Injector (port/linux/game/tag_injector.c, docs/tag_injector.md):
-# Gameplay's TAG INJECTOR, a screen laid out as the mods' is (_mods), its rows
+# Forge's TAG INJECTOR, a screen laid out as the mods' is (_mods), its rows
 # a list at a time. The first: TAG INJECTION (on or off), TAG PROFILES and
 # MAPS. TAG PROFILES lists the profiles, each with its size; A on one lists
 # its tags (where each came from, and its size), left and right turning one
@@ -2216,18 +2227,21 @@ def _randomizer_tag_profiles_screen(base: str) -> list:
 # (menu_functions.c's "port tags" functions)
 TAG_INJECTOR = f"{PE}/gameplay/tag_injector"
 TAG_INJECTOR_ROWS = MOD_ROWS
+# the details beside the Tag Injector's, Mods' and Social's lists: their left
+# and width (clear of the list's scroll bar)
+DETAILS_LEFT, DETAILS_WIDTH = 422, 194
 # the preview of a tag's model under its details (port/linux/game/tag_preview.c,
 # whose picture is of its shape), and under it, at the frame's foot, what the
 # tag needs to work: left, top, width and height
-TAG_PREVIEW_BOUNDS = (412, 256, 200, 80)
-TAG_NEEDS_BOUNDS = (412, 338, 200, 64)
+TAG_PREVIEW_BOUNDS = (DETAILS_LEFT, 256, DETAILS_WIDTH, 80)
+TAG_NEEDS_BOUNDS = (DETAILS_LEFT, 338, DETAILS_WIDTH, 64)
 # the screens of a category that are no settings screen (_setting_screen),
 # made by a function of their own
 CUSTOM_SCREENS = {"gameplay/tag_injector": {"screen": "tag_injector_screen"}}
 
 
 def _tag_injector_screen() -> list:
-    """Gameplay's TAG INJECTOR: on the left two thirds the rows of the list
+    """Forge's TAG INJECTOR: on the left two thirds the rows of the list
     shown, a row each with its name and state (ON, a profile's size, a tag's,
     a setting's value, a folder's maps, a kind's tags, ADDED); on the right
     third, in the lobby's frame, the row chosen's details, the word of the
@@ -2273,10 +2287,11 @@ def _tag_injector_screen() -> list:
                      [f'<child widget="{base}/tag_details_name"/>', f'<child widget="{base}/tag_details_text"/>',
                       f'<child widget="{base}/tag_preview"/>', f'<child widget="{base}/tag_needs"/>'])
     lines += _widget(f"{base}/tag_details_name",
-                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
+                     [("type", "text"), ("controller", 1), ("left", DETAILS_LEFT), ("top", 84), ("width", DETAILS_WIDTH),
+                      ("height", 44),
                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     lines += _widget(f"{base}/tag_details_text",
-                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 130), ("width", 200),
+                     [("type", "text"), ("controller", 1), ("left", DETAILS_LEFT), ("top", 130), ("width", DETAILS_WIDTH),
                       ("height", 272), ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
     left, top, width, height = TAG_PREVIEW_BOUNDS
     lines += _widget(f"{base}/tag_preview", [("controller", 1), ("left", left), ("top", top), ("width", width),
@@ -2288,8 +2303,8 @@ def _tag_injector_screen() -> list:
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child widget="{base}/button_new" y="1"/>',
-                      f'<child widget="{base}/button_profile" x="164" y="1"/>',
+                     [f'<child widget="{base}/button_new" x="20" y="1"/>',
+                      f'<child widget="{base}/button_profile" x="196" y="1"/>',
                       f'<child widget="{base}/button_back" x="510" y="1"/>'])
     # (their words, and whether they are there, the code's: NEW PROFILE or
     # DUPLICATE PROFILE, DELETE PROFILE or VIEW <name> PROFILE)
@@ -2463,6 +2478,8 @@ def replaced(folder: str) -> bool:
 # ---------- multiplayer (PLAN.md section 11)
 
 MT = "main_menu/multiplayer_type_select"
+# the gametype editor's list of gametypes
+GAMETYPE_SELECT = "main_menu/settings_select/multiplayer_setup/playlist_edit/game_type_select"
 
 # Multiplayer's rows, in order: the PC version's, Create Game's LOCAL
 # (_create_local) and CO-OP CAMPAIGN (_coop), 29 apart (not the PC version's
@@ -2661,6 +2678,13 @@ STRING_INSERTS = {
         "Two hundred and fifty kills to win.",
         "Five hundred kills to win. You'll be here a while.",
     ])],
+    # (Content Extended's Firefight gametype: its engine's name after the PC
+    # version's, and the gametype editor's row, its words and its picture's,
+    # after RACE's: _content_extended_gametypes)
+    "multiplayer_game_text": [(191, ["Firefight"])],
+    f"{GAMETYPE_SELECT}/gametype_select_list_options": [(6, ["FIREFIGHT"])],
+    f"{GAMETYPE_SELECT}/gametype_select_list_extended_dsc_text": [(5, [
+        "Hold out against wave after\\nwave of Covenant and Flood\\nforces in Halo: Reach style.\\nCurrent Rules:"])],
 }
 
 
@@ -2692,7 +2716,10 @@ STRING_OVERRIDES.update({
     ],
     # (and the port's OPENCE: OpenCE's gametypes, port/linux/game/game_modes.c;
     # and TAG INJECTION: this fork's takes on them, Floodfection and Tag Gun Game)
-    "main_menu/gametype_select/var_gametype_banks": ["STANDARD", "OPENCE", "CUSTOM", "TAG INJECTION"],
+    # (and Content Extended's banks: menu_functions.c's GAMETYPE_BANK_FIREFIGHT
+    # and GAMETYPE_BANK_FORGE)
+    "main_menu/gametype_select/var_gametype_banks": ["STANDARD", "OPENCE", "CUSTOM", "TAG INJECTION", "FIREFIGHT",
+                                                     "FORGE"],
     # (the PC's weapon sets, then the Xbox's NO GRENADES: menu_functions.c's
     # gametype_options maps them to the engine's)
     "main_menu/settings_select/multiplayer_setup/item_options_edit/item_options_labels": ["INFINITE GRENADES:", "WEAPON SET:", "VEHICLE SET:", "STARTING EQUIPMENT:",
@@ -2740,7 +2767,7 @@ OVERRIDE_ORIGINALS = {
     f"{PE}/profile_edit_descriptions": [0, None, None, None, None, None, None, 7, None, None, None],
     f"{MT}/multiplayer_options": [0, 1, 2, 3, None, 5, None, None, None],
     f"{MT}/multiplayer_option_descriptions": [0, 1, None, None, 4, None, None, 5],
-    "main_menu/gametype_select/var_gametype_banks": [0, None, 2, None],
+    "main_menu/gametype_select/var_gametype_banks": [0, None, 2, None, None, None],
     "main_menu/settings_select/multiplayer_setup/item_options_edit/item_options_labels": [0, 1, 2, 3, 4] + [None] * 4,
     # (the first's note that infinite grenades work only with 4 players or
     # fewer is left out: not so here)
@@ -2883,9 +2910,39 @@ def _hint_widgets(base: str, hints: list, pictures: list = ()) -> list:
     return lines
 
 
+# Content Extended's menu pictures (Firefight's and Forge's), PNGs kept in
+# port/assets/menus/content_extended at the path they take under ce/port/
+# (ce_menus.py copies them: Art.port_frames)
+CONTENT_EXTENDED_ART = "content_extended"
+# frames of the PC version's bitmaps (by our names) that the port replaces or
+# adds: {index: (png, width, height)}, png a frame's path under
+# port/assets/menus (ce/port/...: CONTENT_EXTENDED_ART's)
+BITMAP_FRAME_PATCHES = {
+    # (Firefight's gametype picture, and its rules' picture in place of
+    # the PC version's sixth)
+    "bitmaps/game_type_grafix": {6: ("ce/port/bitmaps/game_type_grafix__6.png", 256, 128)},
+    "main_menu/settings_select/multiplayer_setup/playlist_edit/game_type_select/rules_options":
+        {5: ("ce/port/gamemode/firefight_logo__0.png", 256, 256)},
+}
+# the port's bitmaps made of PNGs (frames as BITMAP_FRAME_PATCHES'): Forge's
+# name box
+PORT_BITMAPS = {
+    "main_menu/multiplayer_type_select/gamemode/forge_name_input_box": [
+        # (its PNGs' own size: drawn at one pixel each)
+        ("ce/port/gamemode/name_input_box__0.png", 184, 28),
+        ("ce/port/gamemode/name_input_box__1.png", 184, 28)],
+}
+
+
 # changes to the PC version's widgets (by our names): attributes set, all
 # their handlers replaced, children added or removed, game data inputs added
 WIDGET_PATCHES = {
+    # (GAME OPTIONS: a Firefight variant has no type to choose, and goes
+    # straight to its rules: menu_functions.c's gametype_game_options_open)
+    f"{PLAYLIST_EDIT}/playlist_edit_game_type_item": {"handlers": [
+        f'<on event="{event}" run="mp edit game options" '
+        f'open="{PLAYLIST_EDIT}/game_type_select/gametype_select_screen"/>' for event in ("a", "start")] +
+        ['<on event="left_mouse" run="mouse emit accept event"/>']},
     # The host returns here after a round with no menu history. Back must
     # reopen the main menu when it closes the last screen, as the lobby does.
     f"{MT}/connected/connected_map_select_wrapper": {"set": {
@@ -2899,6 +2956,8 @@ WIDGET_PATCHES = {
         "insert_before": {
         "main_menu/main_menu_item_profile": [
             f'<child widget="main_menu/main_menu_item_play" x="{PLAY_ITEM_PLACE[0]}" y="{PLAY_ITEM_PLACE[1]}"/>',
+            # (Content Extended's FORGE, among them: _play)
+            f'<child widget="{FORGE_ITEM}" x="{FORGE_ITEM_PLACE[0]}" y="{FORGE_ITEM_PLACE[1]}"/>',
             f'<child widget="main_menu/main_menu_item_theater" x="{THEATER_ITEM_PLACE[0]}" y="{THEATER_ITEM_PLACE[1]}"/>'],
         "main_menu/main_menu_item_quit_game": [
             f'<child widget="main_menu/main_menu_item_mods" x="{MODS_ITEM_PLACE[0]}" y="{MODS_ITEM_PLACE[1]}"/>']},
@@ -2912,9 +2971,7 @@ WIDGET_PATCHES = {
     # (and the hint that X opens it, over the build number: a tap or a click
     # on it presses X, its picture a key's icon to the pointer, x_butn_news)
     # (and the social column: _social's social_home and social_home_chat)
-    # (and FORGE, greyed, in its place among the items, out of their list)
     "main_menu/main_menu": {"insert_before": {"main_menu/build_number": [
-        f'<child widget="{FORGE_ITEM}" x="{FORGE_ITEM_PLACE[0]}" y="{FORGE_ITEM_PLACE[1]}"/>',
         f'<child widget="{SOCIAL}/social_home"/>',
         f'<child widget="{SOCIAL}/social_home_chat"/>',
         f'<child widget="{SOCIAL}/y_butn_social" x="{SOCIAL_HINT_PLACE[0]}" y="{SOCIAL_HINT_PLACE[1]}"/>',
@@ -2970,7 +3027,27 @@ WIDGET_PATCHES = {
         f"{MT}/multiplayer_type_gametypes_item": [
             f'<child widget="{MT}/{row}" y="{multiplayer_row_place(row)[1]}"/>'
             for row in ["multiplayer_type_create_local_item", "multiplayer_type_coop_item"]],
-    }},
+    },
+        # (Content Extended's: the screen as the mode chosen on PLAY or Forge's
+        # menu has it, its header and rows: menu_functions.c)
+        "inputs": ["mp type screen update"]},
+    # (and B goes back from it; its header the mode's: STANDARD, FIREFIGHT
+    # or FORGE, TITLES)
+    f"{MT}/multiplayer_type_select_screen": {
+        "handlers": ['<on event="created" run="mp type menu initialize"/>', '<on event="b" back="true"/>',
+                     '<on event="back" back="true"/>'],
+        "insert_before": {f"{MT}/multiplayer_type_select_list": [
+            f'<child widget="{MT}/header_{mode}"/>' for mode in ("standard", "firefight", "forge")]}},
+    # (the gametype editor's FIREFIGHT, Content Extended's, after RACE:
+    # _content_extended_gametypes; its rules' words wider)
+    f"{GAMETYPE_SELECT}/gametype_select_list": {"insert_before": {f"{GAMETYPE_SELECT}/gametype_select_button_bar": [
+        f'<child widget="{GAMETYPE_SELECT}/gametype_select_firefight_item"/>']}},
+    f"{GAMETYPE_SELECT}/rules_label": {"set": {"width": 305}},
+    # (the gametype editor's Oddball and vehicle options' help clear of the
+    # button bar, as the port's own screens' are: _setup_option_screen)
+    "main_menu/settings_select/multiplayer_setup/playlist_edit/oddball_edit/oddball_options_help":
+        {"set": {"height": 71}},
+    "main_menu/settings_select/multiplayer_setup/vehicle_options_edit/vehicle_options_help": {"set": {"height": 71}},
     # (the Map screen's and New Game's lists: SINGLEPLAYER or MULTIPLAYER
     # maps, the first row's chooser's (_map_kind); B on the Map screen goes
     # from a co-op level's difficulties back to the level, else out of the
@@ -3142,6 +3219,11 @@ WIDGET_PATCHES = {
 # the titles this port has that the PC version has not, set as its headers
 # are (port/assets/menus/port_svg): bitmap name, text
 TITLES = {
+    # (Content Extended's Multiplayer screen, which says which of its modes
+    # it hosts: menu_functions.c's "mp type screen update")
+    "main_menu/multiplayer_type_select/header_standard": "STANDARD",
+    "main_menu/multiplayer_type_select/header_firefight": "FIREFIGHT",
+    "main_menu/multiplayer_type_select/header_forge": "FORGE",
     "main_menu/mods/header_mods": "MODS",
     "main_menu/map_manager/header_maps": "MAPS",
     "main_menu/social/header_social": "SOCIAL",
@@ -3579,6 +3661,48 @@ def _server_settings() -> list:
                                              ("font", "ui\\large_ui"), ("color", "#FF2896FF"), ("text_x", 13),
                                              ("text_y", 4)], [])
     rows.append((f"{base}/op_{key}", None, SETUP_OPTIONS_PLACE + len(SETUP_OPTION_SCREENS)))
+    # Firefight's SCALE WITH PLAYERS and SCORING (GAME SETTINGS', a Firefight
+    # game's: menu_functions.c's server_settings_update, FF_PLAYER_SCALE_HELP
+    # and SERVER_SCORING_HELP), their labels after the sections' (FLOODFECTION
+    # SETTINGS' the last of the rows' own, then SERVER_SETUP_SECTIONS')
+    firefight_label = 15 + len(COOP_SETUP_SCREENS) + len(CAMPAIGN_SETUP_SCREENS) + len(SERVER_SETUP_SECTIONS)
+    for index, (key, _, choices, _) in enumerate(FIREFIGHT_SETUP_ROWS):
+        if choices is None:
+            run = "ss firefight skulls"
+            extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                                 ("flags", "pass_unhandled_to_focused_child"),
+                                                 ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                             [f'<on event="a" run="{run}"/>', f'<on event="start" run="{run}"/>',
+                              '<on event="left_mouse" run="mouse emit accept event"/>',
+                              f'<child widget="{base}/{key}_label"/>',
+                              f'<child widget="{base}/{key}_value" x="230" y="1"/>'])
+            extra += _widget(f"{base}/{key}_value", [("type", "text"), ("controller", 1), ("width", 280), ("height", 22),
+                                                     ("font", "ui\\small_ui"), ("color", "#FF2896FF"), ("align", "center"),
+                                                     ("text_y", 5), ("text_flags", "no_focus_test")], [])
+            extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 230),
+                                                     ("height", 22), ("string_list", f"{base}/labels"),
+                                                     ("string_index", firefight_label + index), ("font", "ui\\large_ui"),
+                                                     ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+            rows.append((f"{base}/op_{key}", None))
+            continue
+        extra += _widget(f"{base}/op_{key}", [("width", 512), ("height", 28),
+                                             ("flags", "pass_unhandled_to_focused_child"),
+                                             ("bitmap", "bitmaps/option_bkds"), ("color", "#FF2896FF")],
+                         [f'<child widget="{base}/{key}_label"/>',
+                          f'<child widget="{base}/{key}_spinner" x="320" y="1"/>'])
+        extra += _widget(f"{base}/{key}_label", [("type", "text"), ("controller", 1), ("width", 300),
+                                                 ("height", 22), ("string_list", f"{base}/labels"),
+                                                 ("string_index", firefight_label + index), ("font", "ui\\large_ui"),
+                                                 ("color", "#FF2896FF"), ("text_x", 13), ("text_y", 4)], [])
+        extra += _widget(f"{base}/{key}_spinner",
+                         [("type", "spinner"), ("left", 3), ("top", 2), ("width", 147), ("height", 20),
+                          ("flags", "pass_unhandled_to_focused_child left_right_tabs_items"),
+                          ("strings", "|".join(choices)), ("font", "ui\\large_ui"),
+                          ("color", "#FF2896FF"), ("align", "center"), ("text_y", 1),
+                          ("header_bitmap", "bitmaps/arrow_sm_left"), ("footer_bitmap", "bitmaps/arrow_sm_right"),
+                          ("header_bounds", "7 -6 19 0"), ("footer_bounds", "7 150 19 156")],
+                         ['<on event="left_mouse" run="mouse spinner 1wide click"/>'])
+        rows.append((f"{base}/op_{key}", None))
     extra += _button(f"{base}/button_defaults", 3, [])
     extra += _widget(f"{base}/button_ok", [("type", "text"), ("width", 128), ("height", 24),
                                            ("bitmap", "bitmaps/text_button_background"), ("text", "START GAME"),
@@ -3597,6 +3721,9 @@ def _server_settings() -> list:
     # (the sections' rows on the hub, after the rows' own: SERVER_SETUP_SECTIONS)
     section_label = len(labels)
     labels += [f"{title}:" for _, title, _, _ in SERVER_SETUP_SECTIONS]
+    # (Firefight's rows', after them: FIREFIGHT_SETUP_ROWS)
+    assert len(labels) == firefight_label
+    labels += [f"{title}:" for _, title, _, _ in FIREFIGHT_SETUP_ROWS]
     extra += _strings(f"{base}/labels", labels)
     help_strings = [
         "",
@@ -3631,6 +3758,9 @@ def _server_settings() -> list:
         "The Spartans' loadout and last stands, and the\\ninfected's forms, for this game.",
         # (the sections' rows on the hub: menu_functions.c's SERVER_SETUP_SECTION_HELP)
         *(help_text for _, _, help_text, _ in SERVER_SETUP_SECTIONS),
+        # (Firefight's rows': menu_functions.c's FF_PLAYER_SCALE_HELP and
+        # SERVER_SCORING_HELP)
+        *(help_text for _, _, _, help_text in FIREFIGHT_SETUP_ROWS),
     ]
     extra += _strings(f"{base}/help_strings", help_strings)
     # the sections (SERVER_SETUP_SECTIONS): Server Setup itself is a hub of
@@ -3790,7 +3920,7 @@ BOTS_SKILLS = ["recruit", "easy", "normal", "heroic", "veteran", "legendary"]
 # levels, then each level: bots_combat.c's bots_combat_distributed_skill)
 BOTS_SKILL_CHOICES = ["distributed", *BOTS_SKILLS]
 BOTS_SETUP = ("bots_options", "BOTS",
-              "Computer players in this game: how many, how well\\nthey play. Slayer, CTF and King of the Hill.", [
+              "Computer players in this game: how many, how well\\nthey play. Slayer, CTF, KOTH and Firefight.", [
     ("bots_enabled", "BOTS:", ["ON", "OFF"], [
         "Bots join this game, as many as COUNT says.",
         "No bots join this game; COUNT is kept for later.",
@@ -3827,9 +3957,21 @@ SERVER_SETUP_SECTIONS = [
      ["max_players", "invite", "listing", "password", "map_share_options"]),
     ("game_settings", "GAME SETTINGS", "The gametype and its rules for this game (co-op's\\noptions, for a co-op game).",
      ["game_type", "player_options", "item_options", "vehicle_options", "indicator_options", "team_options",
-      "coop_options", "voice_options"]),
+      "coop_options", "voice_options", "ff_player_scale", "ff_start_skulls", "scoring"]),
     ("fork_settings", "FORK SETTINGS", "This fork's own: game modes' settings, the tag\\nprofile, the randomizer and skulls.",
      ["floodfection_options", "tag_profile", "randomizer", "skulls"]),
+]
+# GAME SETTINGS' rows of a Firefight game's (Content Extended's: firefight.c's
+# player scale, the setting game.campaign_score): key, title, spinner
+# choices (menu_functions.c's ff_player_scale_percents; ON first), help
+FIREFIGHT_SETUP_ROWS = [
+    ("ff_player_scale", "SCALE WITH PLAYERS", ["0%", "5%", "10%", "20%", "50%"],
+     "Extra enemies added per player from the 2nd player\\nonwards (non-compounding from the base count)."),
+    ("scoring", "SCORING", ["ON", "OFF"], "Turn Campaign and Firefight scoring on or off for\\nthis game."),
+    # (no choices: a row that opens the skulls screen, with the variant's own
+    # locked on: menu_functions.c's "ss firefight skulls")
+    ("ff_start_skulls", "STARTING SKULLS", None,
+     "Add skulls for this game. Those the variant starts\\nwith stay on."),
 ]
 # Server Setup's TAG PROFILE (port/linux/game/tag_multiplayer.c, the setting
 # game.multiplayer_tag_profile), a multiplayer game's on one of the game's own
@@ -3907,7 +4049,7 @@ def _setup_option_screen(base: str, key: str, rows: list, fit: bool = False) -> 
                     [f'<child widget="{base}/header_{key}"/>', f'<child widget="{base}/{key}_menu"/>'])
     lines += _header(f"{base}/header_{key}", f"{base}/header_{key}")
     lines += _widget(f"{base}/{key}_help", [("type", "text"), ("controller", 1), ("left", 68), ("top", 341),
-                                           ("width", 482), ("height", 79), ("string_list", f"{base}/cap_{key}"),
+                                           ("width", 482), ("height", 71), ("string_list", f"{base}/cap_{key}"),
                                            ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     children = ['<data input="game settings lists text update"/>',
                 '<on event="created" run="port setup options init"/>']
@@ -4178,7 +4320,8 @@ def _lobby() -> list:
                       '<on event="back" run="port lobby preview leave" back="true"/>',
                       '<on event="start" run="port lobby preview add"/>',
                       f'<on event="y" run="port lobby add player" open="{base}/join4_screen"/>',
-                      '<child widget="main_menu/new_select/sel_list_desc_bkd"/>',
+                      # (no description backdrop: as the lobby's, the docked
+                      # chat has its own box)
                       f'<child widget="{base}/preview_list"/>',
                       f'<child widget="{base}/header_lobby"/>',
                       f'<child widget="{base}/lobby_join_help"/>'])
@@ -4473,7 +4616,7 @@ def _floodfection_options() -> list:
                                                      ("font", "ui\\large_ui"), ("color", "#FFFFFFFF"), ("text_x", 13),
                                                      ("text_y", 16)], [])
     lines += _widget(f"{base}/floodfection_help", [("type", "text"), ("controller", 1), ("left", 68), ("top", 341),
-                                                   ("width", 482), ("height", 79),
+                                                   ("width", 482), ("height", 71),
                                                    ("string_list", f"{base}/cap_floodfection"),
                                                    ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     lines += _widget(f"{base}/floodfection_menu", [("type", "column_list"), ("width", 640), ("height", 480),
@@ -4558,7 +4701,10 @@ def _map_kind() -> list:
     # (and the daily challenges, today's and the days before: community.c's,
     # each played at its own difficulty with its own randomizer and skulls)
     lines += _strings("main_menu/new_select/var_map_kinds",
-                      ["SINGLEPLAYER", "MULTIPLAYER", "CUSTOM SINGLEPLAYER", "CUSTOM MULTIPLAYER", "DAILY CHALLENGES"])
+                      ["SINGLEPLAYER", "MULTIPLAYER", "CUSTOM SINGLEPLAYER", "CUSTOM MULTIPLAYER", "DAILY CHALLENGES",
+                       # (Content Extended's saved Forge maps: port/forge's
+                       # forge_hooks.c lists them, a build without Forge none)
+                       "FORGE MAPS"])
     lines += _text_button(MAP_IMPORT, "IMPORT", ['<on event="a" run="port map import"/>'])
     return lines
 
@@ -5072,6 +5218,9 @@ def multiplayer_files() -> dict:
                                             "(tools/port_settings.py) -->", head[2]] + _social() + ["</menus>", ""],
         PLAY.replace("/", ".") + ".xml": [head[0], "<!-- The main menu's PLAY, in the PC version's style "
                                           "(tools/port_settings.py) -->", head[2]] + _play() + ["</menus>", ""],
+        # (and Content Extended's: Firefight's rules and Forge's menus)
+        **content_extended_menus.files([head[0], "<!-- Content Extended's menus: Firefight's rules and Forge's "
+                                        "(tools/content_extended_menus.py) -->", head[2]]),
     }
 
 
@@ -5106,7 +5255,24 @@ MENU_ITEM_SPACES = {"MO": 3.17, "OD": 2.8, "DS": 2.3,
                     # of the same shapes: OR as ON, RG as RO, IR as IP, RE as
                     # PR, EF as ER, GH as GN, HT as NT)
                     "FO": 1.6, "OR": 3.18, "RG": 1.6, "FI": 2.73, "IR": 4.13, "RE": 2.76, "EF": 3.24,
-                    "IG": 3.47, "GH": 3.39, "HT": 1.66}
+                    "IG": 3.47, "GH": 3.39, "HT": 1.66,
+                    # (Firefight's and Forge's menus' rows, MENU_ITEMS: set
+                    # by eye from the pairs above of the same shapes)
+                    "SO": 2.6, "OL": 3.0, "LO": 0.4, "T V": 8.5, "VA": -3.5, "AR": 1.0, "RI": 3.2, "IA": 1.2,
+                    "AN": 1.1, "NT": 1.7, "TS": 1.6, "SI": 3.3, "IN": 4.2, "GL": 3.3, "E P": 12.0, "YE": 0.5,
+                    "ED": 3.3, "DI": 3.4, "IT": 2.0, "T M": 11.0, "MA": 1.2, "AP": 1.0, "PS": 2.0, "TA": 0.4,
+                    "AG": 1.0, "G I": 13.0, "NJ": 3.0, "JE": 3.8, "EC": 2.9, "CT": 1.5, "TO": 1.4}
+# letters no redraw has, drawn from theirs: V from A's strokes, J from L's
+MENU_ITEM_LETTERS = {"V": "M0,0L4.67,0L11.44,16.6L18.21,0L22.88,0L14.11,21.5L8.77,21.5Z",
+                     "J": "M10.24,0L14.92,0L14.92,14.24C14.92,18.25 11.67,21.5 7.66,21.5L0,21.5L0,17.66L6.79,17.66"
+                          "C8.69,17.66 10.24,16.12 10.24,14.22Z"}
+# Firefight's and Forge's menus' rows, as Campaign's: each picture's name, its
+# words and its width (content_extended_menus.py centres them by it)
+MENU_ITEMS = [("main_menu/menu_solo", "SOLO", 256),
+              ("main_menu/menu_firefight_variants", "FIREFIGHT VARIANTS", 384),
+              ("main_menu/menu_single_player", "SINGLE PLAYER", 320),
+              ("main_menu/menu_edit_maps", "EDIT MAPS", 256),
+              ("main_menu/menu_tag_injector", "TAG INJECTOR", 320)]
 # the mods' status icons (port/assets/icons/lucide): a mod out of the order it
 # asks for, and one that cannot be played (another mod says it cannot be
 # played with it, or this build cannot play it): menu_functions.c's
@@ -5136,7 +5302,7 @@ def menu_item_frames(text: str, redraws: Path, width: int = 256, disabled: bool 
     from fontTools.pens.boundsPen import BoundsPen
     from fontTools.svgLib.path import parse_path
 
-    letters = redraw_letters(redraws)
+    letters = {**MENU_ITEM_LETTERS, **redraw_letters(redraws)}
     glyphs = text.replace(" ", "")
     widths = []
     for letter in glyphs:
@@ -5264,19 +5430,20 @@ def _mods() -> list:
                      [f'<child widget="{base}/mod_details_name"/>', f'<child widget="{base}/mod_details_status"/>',
                       f'<child widget="{base}/mod_details_text"/>'])
     lines += _widget(f"{base}/mod_details_name",
-                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
+                     [("type", "text"), ("controller", 1), ("left", DETAILS_LEFT), ("top", 84), ("width", DETAILS_WIDTH),
+                      ("height", 44),
                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
-    lines += _widget(f"{base}/mod_details_status", [("controller", 1), ("left", 411), ("top", 132), ("width", 16),
+    lines += _widget(f"{base}/mod_details_status", [("controller", 1), ("left", DETAILS_LEFT), ("top", 132), ("width", 16),
                                                     ("height", 16), ("bitmap", "mods/status_small")], [])
     lines += _widget(f"{base}/mod_details_text",
-                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 130), ("width", 200),
+                     [("type", "text"), ("controller", 1), ("left", DETAILS_LEFT), ("top", 130), ("width", DETAILS_WIDTH),
                       ("height", 272), ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
                      [f'<child widget="{base}/button_up" y="1" platform="desktop android web"/>',
-                      f'<child widget="{base}/button_down" x="130" y="1" platform="desktop android web"/>',
-                      f'<child widget="{base}/button_ok" x="380" y="1" platform="desktop android web"/>',
+                      f'<child widget="{base}/button_down" x="140" y="1" platform="desktop android web"/>',
+                      f'<child widget="{base}/button_ok" x="370" y="1" platform="desktop android web"/>',
                       '<child widget="common_button_cancel" x="510" y="1" platform="desktop android web"/>'])
     # (Android's, under MOVE UP and MOVE DOWN)
     lines += _widget(f"{base}/button_bar_files",
@@ -5533,7 +5700,8 @@ def _play() -> list:
                     [("type", "text"), ("width", 256), ("height", 33), ("bitmap", "main_menu/menu_play")],
                     [f'<on event="a" open="{base}/play_screen"/>', f'<on event="start" open="{base}/play_screen"/>',
                      '<on event="left_mouse" run="mouse emit accept event"/>'])
-    # (its items' places: FIREFIGHT's, greyed, in the screen, out of the list)
+    # (its items' places, FIREFIGHT's in the list: Content Extended's, which
+    # chooses its gametypes before Multiplayer's screen)
     places = [("main_menu/main_menu_item_load_camp", 194), ("main_menu/main_menu_item_multiplayer", 192),
               (FIREFIGHT_ITEM, 192), (DAILY_ITEM, 160), ("main_menu/campaign_select/menu_item_back", 192)]
     top = {name: MAIN_MENU_ITEM_TOP + 32 + MAIN_MENU_ITEM_SPACING * index for index, (name, _) in enumerate(places)}
@@ -5541,15 +5709,21 @@ def _play() -> list:
                                              ("flags", "pass_unhandled_to_focused_child")],
                      ['<on event="b" back="true"/>', '<on event="back" back="true"/>',
                       f'<child widget="main_menu/halo_logo" y="{MAIN_MENU_LOGO_TOP}"/>', f'<child widget="{base}/play_list"/>',
-                      f'<child widget="{FIREFIGHT_ITEM}" x="192" y="{top[FIREFIGHT_ITEM]}"/>',
                       '<child widget="main_menu/current_profile_name"/>'])
     lines += _widget(f"{base}/play_list", [("type", "column_list"), ("width", 640), ("height", 480),
                                            ("flags", "pass_unhandled_to_focused_child up_down_tabs_items")],
                      ['<on event="created" run="port play init"/>'] +
-                     [f'<child widget="{name}" x="{x}" y="{top[name]}"/>' for name, x in places if name != FIREFIGHT_ITEM])
-    # (the items not there yet: their pictures alone, greyed)
-    lines += _widget(FORGE_ITEM, [("width", 256), ("height", 33), ("bitmap", "main_menu/menu_forge")], [])
-    lines += _widget(FIREFIGHT_ITEM, [("width", 256), ("height", 33), ("bitmap", "main_menu/menu_firefight")], [])
+                     [f'<child widget="{name}" x="{x}" y="{top[name]}"/>' for name, x in places])
+    # (FORGE, Content Extended's: its own menu, port/forge's; FIREFIGHT: its
+    # own too, whose games are Firefight's; "gamemode select" says which,
+    # menu_functions.c)
+    for item, mode, bitmap, target in [
+            (FORGE_ITEM, "forge", "main_menu/menu_forge", "main_menu/forge_select/forge_menu"),
+            (FIREFIGHT_ITEM, "firefight", "main_menu/menu_firefight", "main_menu/firefight_select/firefight_menu")]:
+        lines += _widget(item, [("type", "text"), ("width", 256), ("height", 33), ("bitmap", bitmap)],
+                         [f'<on event="a" run="gamemode select {mode}" open="{target}"/>',
+                          f'<on event="start" run="gamemode select {mode}" open="{target}"/>',
+                          '<on event="left_mouse" run="mouse emit accept event"/>'])
     return lines
 
 
@@ -5594,16 +5768,17 @@ def _social() -> list:
     lines += _widget(f"{base}/social_details", [("width", 640), ("height", 480)],
                      [f'<child widget="{base}/social_details_name"/>', f'<child widget="{base}/social_details_text"/>'])
     lines += _widget(f"{base}/social_details_name",
-                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 84), ("width", 200), ("height", 44),
+                     [("type", "text"), ("controller", 1), ("left", DETAILS_LEFT), ("top", 84), ("width", DETAILS_WIDTH),
+                      ("height", 44),
                       ("font", "ui\\large_ui"), ("color", "#FFFFFFFF")], [])
     lines += _widget(f"{base}/social_details_text",
-                     [("type", "text"), ("controller", 1), ("left", 412), ("top", 130), ("width", 200),
+                     [("type", "text"), ("controller", 1), ("left", DETAILS_LEFT), ("top", 130), ("width", DETAILS_WIDTH),
                       ("height", 272), ("font", "ui\\small_ui"), ("color", "#FF2896FF")], [])
     lines += _widget(f"{base}/button_bar",
                      [("type", "column_list"), ("width", 640), ("height", 28),
                       ("flags", "pass_unhandled_to_focused_child left_right_tabs_items")],
-                     [f'<child widget="{base}/button_join" x="250" y="1"/>',
-                      f'<child widget="{base}/button_options" x="380" y="1"/>',
+                     [f'<child widget="{base}/button_join" x="230" y="1"/>',
+                      f'<child widget="{base}/button_options" x="370" y="1"/>',
                       f'<child widget="{base}/button_back" x="510" y="1"/>'])
     # (JOIN: a player's card's, a game of theirs that may be joined; OPTIONS:
     # a player's card's, another's only; "port social update" shows them)

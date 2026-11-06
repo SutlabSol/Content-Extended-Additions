@@ -14,9 +14,12 @@ own here.
 /* skulls.c: skulls to be found (game.skulls on, unlocking by playing) or
 their question not answered yet */
 extern int skulls_pack_wanted(void);
+/* forge_runtime_tags.c: the Forge menu opened on this machine, once */
+extern int forge_pack_wanted(void);
 
 struct tag_pack_condition const tag_pack_conditions[] =
 {
 	{ "skulls", skulls_pack_wanted },
+	{ "forge", forge_pack_wanted },
 	{ NULL, NULL },
 };

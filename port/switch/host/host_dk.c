@@ -15,7 +15,7 @@ It keeps:
   window (host_memory.c says which; DEKO3D.md, phase 3), so the GPU reads
   the game's vertex and index data where the game keeps it;
 - a ring slice of upload memory for vertex and index data that is not in
-  the window (CreateIndexBuffer's, immediate mode's);
+  the window (the dynamic index buffer's, immediate mode's);
 - the swapchain, on the console's default window, which the host leaves
   without an EGL surface under deko3d (host_sdl2.c).
 
@@ -89,7 +89,7 @@ it can be, HALO_GUEST_WINDOW_MAXIMUM (512 MB), is 32 of them */
 #define WINDOW_CHUNK_SIZE (16 * 1024 * 1024)
 #define WINDOW_CHUNKS (HALO_GUEST_WINDOW_MAXIMUM / WINDOW_CHUNK_SIZE)
 
-/* what a frame can upload (CreateIndexBuffer's index data, immediate-mode
+/* what a frame can upload (the dynamic index buffer's data, immediate-mode
 vertices, quad lists' indices); one slice per ring frame */
 #define UPLOAD_SLICE_SIZE (4 * 1024 * 1024)
 #define UPLOAD_ALIGNMENT 256

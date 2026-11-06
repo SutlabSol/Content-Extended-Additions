@@ -135,6 +135,7 @@ symbols in this file:
 #define real_random_range actor_combat_real_random_range_inline
 #define collision_test_line actor_combat_collision_test_line_inline
 #include "cseries.h"
+#include "cseries/errors.h" /* (FIREDBG, temporary) */
 
 #include "ai.h"
 #include "ai_communication.h"
@@ -2433,6 +2434,42 @@ void actor_combat_update(
 		}
 	}
 
+	/* FIREDBG: temporary, why Firefight's combat forms hold their fire (the
+	decision: ai_debug.h's _firing_* values, -1 none reached). In debug.txt.
+	Remove when found */
+	{
+		extern boolean firefight_active(void);
+		static long firedbg_last_time = 0;
+
+		if (firefight_active() && game_time_get() - firedbg_last_time >= 45)
+		{
+			char const *variant_name = tag_get_name(actor->meta.variant_definition_index);
+
+			if (strstr(variant_name, "fuel rod") ||
+				(strstr(variant_name, "flood") && !strstr(variant_name, "infection") && !strstr(variant_name, "carrier")))
+			{
+				long firedbg_weapon_index = actor_get_weapon(actor_index);
+				struct weapon_datum *firedbg_weapon = firedbg_weapon_index != NONE ? weapon_get(firedbg_weapon_index) : NULL;
+				struct unit_datum *firedbg_unit = unit_get(actor->meta.unit_index);
+
+				firedbg_last_time = game_time_get();
+				error(_error_silent,
+					"FIREDBG %s weapon %s rounds %d decision %d fire %d firestate %d ranged %d damageflags %lx mode %d status %d action %d target %d firetarget %d berserk %d moving %d busy %d range %.1f maxrange %.1f los %d rof %.2f",
+					variant_name,
+					firedbg_weapon ? tag_get_name(firedbg_weapon->definition_index) : "none",
+					firedbg_weapon ? (int)firedbg_weapon->weapon.magazines[0].rounds_loaded : -1,
+					(int)firing_decision, (int)fire, (int)actor->control.fire_state,
+					(int)actor_has_ranged_weapon(actor_index), (unsigned long)firedbg_unit->object.damage_flags,
+					(int)actor->state.mode, (int)actor->state.combat_status, (int)actor->state.action,
+					(int)actor->target.target_type, (int)actor->control.current_fire_target_type,
+					(int)actor->emotions.berserk, (int)actor->control.moving,
+					(int)actor_move_animation_busy(actor_index),
+					actor->control.current_fire_target_range, actor->control.weapon_maximum_range,
+					(int)actor->control.current_fire_target_line_of_sight,
+					firing_variant_definition->ranged_combat.rate_of_fire);
+			}
+		}
+	}
 	actor_debug_info->firing_decision = firing_decision;
 
 	return;

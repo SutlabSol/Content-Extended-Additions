@@ -3122,6 +3122,11 @@ void WINAPI D3DDevice_SetRenderTarget(D3DSurface *render_target, D3DSurface *dep
 	viewport_update_constants();
 }
 
+void WINAPI D3DDevice_GetViewport(D3DVIEWPORT8 *viewport)
+{
+	*viewport = device.viewport;
+}
+
 void WINAPI D3DDevice_SetViewport(CONST D3DVIEWPORT8 *viewport)
 {
 	device.viewport = *viewport;

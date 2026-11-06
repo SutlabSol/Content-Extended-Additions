@@ -15,8 +15,11 @@ which the menu says under it.
 
 /* the tag_preview widget's size in the menus' 640x480
 (tools/port_settings.py), which the picture is drawn in the shape of */
-#define TAG_PREVIEW_WIDTH 200
+#define TAG_PREVIEW_WIDTH 194
 #define TAG_PREVIEW_HEIGHT 80
+
+/* (a tag's snap points: FORGE_MAX_SNAP_POINTS_PER_TAG) */
+#define TAG_PREVIEW_MAXIMUM_MARKERS 16
 
 /* what is known of the needs of the tag the preview is of
 (tag_preview_needs) */
@@ -56,6 +59,20 @@ struct bitmap_data *tag_preview_picture(
 `needs` once it is read: what is known of them. */
 short tag_preview_needs(
 	struct tag_injector_needs *needs);
+
+/* The box of the model the preview is of, in the tag's own space, once it is
+read (FALSE until then, and for a tag without one). */
+boolean tag_preview_bounds(
+	float minimum[3],
+	float maximum[3]);
+
+/* Points of the tag's own space marked on the model (the tag's snap points:
+at most TAG_PREVIEW_MAXIMUM_MARKERS), `chosen` the one standing out. They last
+until the model is let go, or the tag changes. */
+void tag_preview_markers(
+	float const (*points)[3],
+	short count,
+	short chosen);
 
 /* the model and the picture let go (the menu closed) */
 void tag_preview_dispose(

@@ -83,7 +83,7 @@ port_tag_profiles.c) */
 #define TAG_FILE_LIMIT 0x10000000UL
 #define REGION_LIMIT 0x7F000000UL
 
-#define MAXIMUM_STORE_HANDLES 64
+#define MAXIMUM_STORE_HANDLES 128
 #define MAXIMUM_STORE_FOLDERS 4
 #define MAXIMUM_PATH_LENGTH 1024
 #define COPY_CHUNK 0x10000
@@ -1213,6 +1213,36 @@ done:
 	free(alive);
 	free(chunk);
 	return collected;
+}
+
+int port_tag_store_copy(const char *from, const char *file, const char *to, unsigned long *stored)
+{
+	unsigned long size = 0;
+	long handle = port_tag_store_open(from, file, &size);
+	struct store_handle const *found;
+	struct port_tag_store_region *regions = NULL;
+	unsigned char *bundle = NULL;
+	long place;
+	int copied = 0;
+
+	if (handle < 0)
+		return 0;
+	found = &port_tag_store.handles[handle];
+	bundle = malloc(size ? size : 1);
+	regions = malloc((size_t)(found->place_count ? found->place_count : 1) * sizeof(*regions));
+	if (bundle && regions && port_tag_store_read(handle, 0, bundle, size))
+	{
+		for (place = 0; place < found->place_count; place++)
+		{
+			regions[place].offset = found->places[place].offset;
+			regions[place].size = found->places[place].size;
+		}
+		copied = port_tag_store_write(to, file, bundle, size, found->tags_size, regions, found->place_count, stored);
+	}
+	free(regions);
+	free(bundle);
+	port_tag_store_close(handle);
+	return copied;
 }
 
 unsigned long port_tag_store_pack_size(const char *folder)

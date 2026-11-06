@@ -31,5 +31,11 @@
   a mod that cannot be played): `triangle-alert` and `circle-x` from
   [Lucide](https://lucide.dev) 1.53.0, under the same licence.
 
+- **The service ranks' insignia** (`port/assets/firefight/rank_insignia`):
+  Halo 3's UNSC insignia, redrawn as vectors by Beorn and
+  [shared with the community](https://forums.bungie.org/halo/archive29.pl?read=854391).
+  The tour shields behind them (`port/assets/firefight/rank_shields`) come from
+  Content Extended's rank icons; original artist attribution is unverified.
+
 - **Additional controller button styles**: supplied by the contributor
   (`port/assets/controller_buttons`); original artist attribution is unverified.

@@ -126,7 +126,7 @@ static boolean unit_is_passenger(
 boolean coop_spectating(
 	void)
 {
-	return network_coop_active();
+	return network_coop_active() || firefight_spectating_active();
 }
 
 long coop_spectate_unit(
@@ -152,6 +152,27 @@ long coop_spectate_unit(
 	}
 
 	return *watched != NONE ? player_get(*watched)->unit_index : NONE;
+}
+
+boolean coop_spectate_watching_rider(
+	short local_player_index)
+{
+	long self = local_player_get_player_index(local_player_index);
+	long watched = coop_spectate_watched[local_player_index];
+	long unit_index;
+	long driver_index;
+
+	if (self == NONE || player_get(self)->unit_index != NONE)
+		return FALSE;
+	/* the scripted camera may have been running since before this player
+	died, so nobody has been picked to watch yet */
+	if (watched == NONE || !player_try_and_get(watched) || player_get(watched)->unit_index == NONE)
+		watched = next_living_player(self, NONE);
+	unit_index = watched != NONE ? player_get(watched)->unit_index : NONE;
+	if (unit_index == NONE || !unit_is_passenger(unit_index))
+		return FALSE;
+	driver_index = unit_get(object_get(unit_index)->object.parent_object_index)->unit.driver_object_index;
+	return driver_index == NONE || unit_get(driver_index)->unit.player_index == NONE;
 }
 
 boolean coop_spectate_nothing_to_watch(
@@ -236,7 +257,9 @@ void coop_spectate_draw(
 			draw_bottom_text(L"JOINING THE GAME\r\nYou spawn beside a teammate once it is safe");
 		return;
 	}
-	if (!players_coop_waiting_to_start(local_player_get_player_index(local_player_index)))
+	if (firefight_active())
+		hint = L"Waiting for bonus life or round clear";
+	else if (!players_coop_waiting_to_start(local_player_get_player_index(local_player_index)))
 		hint = L"You come back beside them once it is safe";
 	else
 		hint = L"You join them when they're on foot";

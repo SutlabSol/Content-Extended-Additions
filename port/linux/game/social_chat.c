@@ -110,6 +110,7 @@ are kept in memory alone, gone with the game.
 #include "text/font_group.h"
 #include "text/unicode.h"
 
+#include "halo_firefight.h"
 #include "halo_keyboard.h"
 #include "network_chat.h"
 #include "network_replay.h"
@@ -1218,6 +1219,14 @@ static void social_chat_poll_answer(
 			social_chat_string(&document, member, "name", name, sizeof(name));
 			social_chat_wide_from_utf8(name, wide, NUMBEROF(wide));
 			social_chat_peer_note(code, wide, TRUE);
+			/* (its rank and emblem, by the name the game shows it by: who
+			has neither here is off the fork) */
+			{
+				char player[SOCIAL_CHAT_NAME_SIZE * 3];
+
+				social_chat_string(&document, member, "player", player, sizeof(player));
+				social_person_note(&document, member, code, player[0] ? player : name);
+			}
 		}
 		messages = server_json_member(&document, data, "messages");
 		for (index = 0; messages >= 0; index++)
@@ -2957,16 +2966,17 @@ static void social_chat_player_draw(
 	if (social_chat_player.profile)
 	{
 		real scale = (real)screen_height / 480.0f;
-		short card_left = (short)((screen_width - 600 * scale) / 2);
+		short card_width = (short)MIN(screen_width - 40 * scale, SOCIAL_MENU_CARD_MOST_WIDTH * scale);
+		short card_left = (short)((screen_width - card_width) / 2);
 		short card_top = (short)((screen_height - 335 * scale) / 2);
 		short bottom = social_menu_profile_card_draw(social_chat_player.code, card_left, card_top,
-			(short)(card_left + 600 * scale));
+			(short)(card_left + card_width), scale);
 
 		if (bottom > card_top)
 		{
 			social_chat_player.panel.x0 = card_left;
 			social_chat_player.panel.y0 = card_top;
-			social_chat_player.panel.x1 = (short)(card_left + 600 * scale);
+			social_chat_player.panel.x1 = (short)(card_left + card_width);
 			social_chat_player.panel.y1 = bottom;
 			bounds.x0 = card_left;
 			bounds.x1 = social_chat_player.panel.x1;
@@ -3335,6 +3345,9 @@ void social_chat_draw(
 	void)
 {
 	social_chat_draw_in(FALSE);
+	/* (the XP of a game just left, over the menus and the box) */
+	firefight_hud_xp_exit_draw((short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0),
+		(short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0));
 	/* (a friend's game being joined: its panel, over the box too) */
 	social_menu_join_draw((short)(render.camera.viewport_bounds.x1 - render.camera.viewport_bounds.x0),
 		(short)(render.camera.viewport_bounds.y1 - render.camera.viewport_bounds.y0));

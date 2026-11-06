@@ -279,6 +279,7 @@ symbols in this file:
 
 /* ---------- headers */
 
+#include "opence_features.h" /* port: OPENCE_ENABLE_FORGE */
 #include "cseries.h"
 #include "ai/actor_activation.h"
 #include "encounters.h"
@@ -3204,6 +3205,18 @@ static boolean encounter_place_actor(
 			}
 			starting_location = &spread_location;
 		}
+
+		/* port: a Forge AI spawn's units as they start, around its point; its
+		respawns at the point (port/forge/src/forge_ai.c) */
+#if OPENCE_ENABLE_FORGE
+		if (extra_number == 0)
+		{
+			extern struct actor_starting_location *forge_ai_location_for_unit(
+				struct actor_starting_location *location, boolean spawning, struct actor_starting_location *place);
+
+			starting_location = forge_ai_location_for_unit(starting_location, spawning, &spread_location);
+		}
+#endif
 
 		if (starting_location->actor_variant_index != NONE)
 			actor_palette_index = starting_location->actor_variant_index;
