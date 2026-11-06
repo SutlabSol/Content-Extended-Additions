@@ -484,6 +484,24 @@ void forge_render_world_3d_overlays(void const *lighting);
 /* an AI spawn's marker: a live instance whose edit_entry_index is its
 edit_state.ai_spawns entry, and tag_path its actor variant */
 #define FORGE_GROUP_AI_SPAWN 'aisp'
+/* the Actors tab's group rows, and a group's RANDOM row: their paths are these
+and the group's number. A spawn placed from RANDOM keeps a real rank's tag, and
+FORGE_AI_RANDOM_RANK, in gametype_flags' spare top bit, so saved maps and the
+network carry it as they are */
+#define FORGE_GROUP_AI_MENU 'aigp'
+#define FORGE_AI_GROUP_PATH "forge_group\\"
+#define FORGE_AI_RANDOM_PATH "forge_random\\"
+#define FORGE_AI_RANDOM_RANK 0x8000u
+#define FORGE_AI_KIND_OTHER (-1)
+#define FORGE_AI_KIND_HIDDEN (-2)
+int forge_ai_kind_of(char const *path);
+char const *forge_ai_kind_name(int kind);
+int forge_ai_kind_group(int kind);
+int forge_ai_group_count(void);
+char const *forge_ai_group_name(int group);
+int forge_ai_row_is_random(struct forge_catalog_entry const *entry);
+int forge_ai_row_group(struct forge_catalog_entry const *entry);
+int forge_ai_tag_is_poor(char const *path);
 /* the rows of an AI spawn's properties: its own, then the panel's */
 enum forge_ai_spawn_row
 {

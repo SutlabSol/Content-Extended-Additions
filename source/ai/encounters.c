@@ -3221,6 +3221,16 @@ static boolean encounter_place_actor(
 		if (starting_location->actor_variant_index != NONE)
 			actor_palette_index = starting_location->actor_variant_index;
 
+		/* port: a Forge AI spawn of any of its group's ranks: this one's
+		(port/forge/src/forge_ai.c) */
+#if OPENCE_ENABLE_FORGE
+		{
+			extern short forge_ai_squad_palette_index(void const *squad, short palette_index);
+
+			actor_palette_index = forge_ai_squad_palette_index(squad_definition, actor_palette_index);
+		}
+#endif
+
 		if (VALID_INDEX(actor_palette_index, scenario->ai_actor_palette.count))
 		{
 			struct tag_reference *actor_palette_entry = TAG_BLOCK_GET_ELEMENT(

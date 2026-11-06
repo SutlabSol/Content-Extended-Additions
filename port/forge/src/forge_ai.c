@@ -28,6 +28,7 @@
 #include "ai/encounters.h"
 #include "game/game_engine.h"
 #include "scenario/scenario.h"
+#include "math/real_math.h"
 #include "scenario/scenario_definitions.h"
 #include "physics/collisions.h"
 #include "units/unit_definitions.h"
@@ -238,9 +239,169 @@ struct forge_ai_added_encounter
 	short firing_position_count;
 };
 
+/* ---------- the actors the palette offers
+
+A campaign has an actor for each rank with each weapon. Forge offers a rank
+once, and the spawn's WEAPON row arms it: the palette lists these kinds, in
+their groups, each from the first of its tags. A rank's other tags stay good in
+a saved map's spawn, and show as their kind. */
+enum
+{
+	_forge_ai_group_grunts,
+	_forge_ai_group_jackals,
+	_forge_ai_group_elites,
+	_forge_ai_group_hunters,
+	_forge_ai_group_engineers,
+	_forge_ai_group_marines,
+	_forge_ai_group_crew,
+	_forge_ai_group_flood,
+	_forge_ai_group_sentinels,
+	_forge_ai_group_other,
+	NUMBER_OF_FORGE_AI_GROUPS
+};
+
+static char const *const s_ai_group_names[NUMBER_OF_FORGE_AI_GROUPS] =
+{
+	"GRUNTS", "JACKALS", "ELITES", "HUNTERS", "ENGINEERS", "MARINES", "CREW", "FLOOD", "SENTINELS", "OTHER"
+};
+
+/* a tag's kind: the first whose prefix its leaf starts with, and that has
+`also` in it if it asks for it. A kind with no name is not offered */
+static struct forge_ai_kind
+{
+	short group;
+	char const *prefix, *also, *name;
+} const s_ai_kinds[] =
+{
+	{ _forge_ai_group_grunts, "grunt flee", NULL, NULL },
+	{ _forge_ai_group_grunts, "grunt minor", NULL, "GRUNT MINOR" },
+	{ _forge_ai_group_grunts, "grunt major", NULL, "GRUNT MAJOR" },
+	{ _forge_ai_group_grunts, "grunt specops", NULL, "GRUNT SPECOPS" },
+	{ _forge_ai_group_jackals, "jackal minor", NULL, "JACKAL MINOR" },
+	{ _forge_ai_group_jackals, "jackal major", NULL, "JACKAL MAJOR" },
+	{ _forge_ai_group_elites, "elite minor", NULL, "ELITE MINOR" },
+	{ _forge_ai_group_elites, "elite major", NULL, "ELITE MAJOR" },
+	{ _forge_ai_group_elites, "elite specops", NULL, "ELITE SPECOPS" },
+	{ _forge_ai_group_elites, "elite commander", NULL, "ELITE COMMANDER" },
+	{ _forge_ai_group_elites, "stealth elite major", NULL, "ELITE STEALTH MAJOR" },
+	{ _forge_ai_group_elites, "stealth elite", NULL, "ELITE STEALTH" },
+	{ _forge_ai_group_hunters, "hunter major", NULL, "HUNTER MAJOR" },
+	{ _forge_ai_group_hunters, "hunter", NULL, "HUNTER" },
+	{ _forge_ai_group_engineers, "engineer major", NULL, "ENGINEER MAJOR" },
+	{ _forge_ai_group_engineers, "engineer", NULL, "ENGINEER" },
+	{ _forge_ai_group_marines, "marine_armored", " major", "ARMORED MARINE MAJOR" },
+	{ _forge_ai_group_marines, "marine_armored", NULL, "ARMORED MARINE" },
+	{ _forge_ai_group_marines, "marine_wounded", NULL, "WOUNDED MARINE" },
+	{ _forge_ai_group_marines, "marine_suicidal", NULL, "SUICIDAL MARINE" },
+	{ _forge_ai_group_marines, "marine", " major", "MARINE MAJOR" },
+	{ _forge_ai_group_marines, "marine", NULL, "MARINE" },
+	{ _forge_ai_group_crew, "crewman", NULL, "CREWMAN" },
+	{ _forge_ai_group_flood, "floodcombat elite", NULL, "FLOOD COMBAT ELITE" },
+	{ _forge_ai_group_flood, "floodcombat_human", NULL, "FLOOD COMBAT HUMAN" },
+	{ _forge_ai_group_flood, "floodcarrier", NULL, "FLOOD CARRIER" },
+	{ _forge_ai_group_flood, "flood_infection", NULL, "FLOOD INFECTION" },
+	{ _forge_ai_group_sentinels, "sentinel_shielded", " major", "SHIELDED SENTINEL MAJOR" },
+	{ _forge_ai_group_sentinels, "sentinel_shielded", NULL, "SHIELDED SENTINEL" },
+	{ _forge_ai_group_sentinels, "sentinel_defensive", NULL, "DEFENSIVE SENTINEL" },
+	{ _forge_ai_group_sentinels, "sentinel", " major", "SENTINEL MAJOR" },
+	{ _forge_ai_group_sentinels, "sentinel", NULL, "SENTINEL" },
+};
+
+/* a kind's tag not to arm it from when another is there */
+static char const *const s_ai_poor_tags[] = { "unarmed", "airdef", "ranged", "melee", "cinematic" };
+
+static char const *forge_ai_path_leaf(char const *path);
+
+/* the kind of an actor's tag; FORGE_AI_KIND_OTHER for an actor of no kind (a
+Custom Edition map's), FORGE_AI_KIND_HIDDEN for one not offered */
+int forge_ai_kind_of(char const *path)
+{
+	char lower[FORGE_TAG_PATH_MAX];
+	char const *leaf = forge_ai_path_leaf(path ? path : "");
+	size_t i;
+	int kind;
+
+	for (i = 0; leaf[i] && i + 1 < sizeof(lower); i++)
+		lower[i] = (char)tolower((unsigned char)leaf[i]);
+	lower[i] = 0;
+	for (kind = 0; kind < (int)NUMBEROF(s_ai_kinds); kind++)
+	{
+		struct forge_ai_kind const *entry = &s_ai_kinds[kind];
+
+		if (!strncmp(lower, entry->prefix, strlen(entry->prefix)) && (!entry->also || strstr(lower, entry->also)))
+			return entry->name ? kind : FORGE_AI_KIND_HIDDEN;
+	}
+	return FORGE_AI_KIND_OTHER;
+}
+
+char const *forge_ai_kind_name(int kind)
+{
+	return kind >= 0 && kind < (int)NUMBEROF(s_ai_kinds) ? s_ai_kinds[kind].name : NULL;
+}
+
+int forge_ai_kind_group(int kind)
+{
+	return kind >= 0 && kind < (int)NUMBEROF(s_ai_kinds) ? s_ai_kinds[kind].group : _forge_ai_group_other;
+}
+
+int forge_ai_group_count(void)
+{
+	return NUMBER_OF_FORGE_AI_GROUPS;
+}
+
+char const *forge_ai_group_name(int group)
+{
+	return group >= 0 && group < NUMBER_OF_FORGE_AI_GROUPS ? s_ai_group_names[group] : "";
+}
+
+/* FORGE_AI_RANDOM_PATH's or FORGE_AI_GROUP_PATH's group, else NONE */
+static int forge_ai_path_group(char const *path, char const *prefix)
+{
+	size_t length = strlen(prefix);
+
+	return path && !strncmp(path, prefix, length) ? atoi(path + length) : NONE;
+}
+
+int forge_ai_row_is_random(struct forge_catalog_entry const *entry)
+{
+	return forge_ai_path_group(entry->tag_path, FORGE_AI_RANDOM_PATH) != NONE;
+}
+
+int forge_ai_row_group(struct forge_catalog_entry const *entry)
+{
+	int group = forge_ai_path_group(entry->tag_path, FORGE_AI_RANDOM_PATH);
+
+	if (group == NONE)
+		group = forge_ai_path_group(entry->tag_path, FORGE_AI_GROUP_PATH);
+	return group != NONE ? group : forge_ai_kind_group(forge_ai_kind_of(entry->tag_path));
+}
+
+int forge_ai_tag_is_poor(char const *path)
+{
+	int i;
+
+	for (i = 0; i < (int)NUMBEROF(s_ai_poor_tags); i++)
+	{
+		if (strstr(path, s_ai_poor_tags[i]))
+			return 1;
+	}
+	return 0;
+}
+
+/* a spawn of any of its group's ranks: its squad, and the ranks in the palette */
+#define FORGE_AI_MAX_RANKS 8
+struct forge_ai_random_squad
+{
+	struct squad_definition const *squad;
+	short palette[FORGE_AI_MAX_RANKS];
+	short count;
+};
+
 /* what the scenario plays in place of its own blocks */
 static struct
 {
+	struct forge_ai_random_squad *randoms;
+	int random_count;
 	struct encounter_definition *encounters;
 	struct squad_definition *squads;
 	struct actor_starting_location *locations;
@@ -349,6 +510,7 @@ static void forge_ai_scenario_restore(struct scenario *scen)
 		scen->ai_actor_palette.address = s_built.original_palette;
 		scen->ai_actor_palette.count = s_built.original_palette_count;
 	}
+	free(s_built.randoms);
 	free(s_built.encounters);
 	free(s_built.squads);
 	free(s_built.locations);
@@ -383,7 +545,7 @@ int forge_ai_map_supported(void)
 
 static int forge_ai_entry_plays(struct forge_ai_spawn_entry const *entry)
 {
-	unsigned int flags = entry->gametype_flags;
+	unsigned int flags = entry->gametype_flags & ~(unsigned int)FORGE_AI_RANDOM_RANK;
 	long engine;
 
 	if (!entry->active)
@@ -401,7 +563,7 @@ static int forge_ai_entry_plays(struct forge_ai_spawn_entry const *entry)
 /* a spawn with a squad of its own */
 static int forge_ai_entry_own_squad(struct forge_ai_spawn_entry const *entry)
 {
-	return entry->encounter_index < 0 || entry->detached;
+	return entry->encounter_index < 0 || entry->detached || (entry->gametype_flags & FORGE_AI_RANDOM_RANK);
 }
 
 static short forge_ai_entry_team(struct forge_ai_spawn_entry const *entry, long variant)
@@ -613,6 +775,75 @@ static struct forge_ai_spawn_entry const *forge_ai_level_spawns(int *count, int 
 	return s_saved.entries;
 }
 
+/* the group's ranks the level has, one tag of each, as a spawn's squad's */
+static void forge_ai_random_tags_need(int group)
+{
+	int i;
+
+	for (i = 0; i < g_forge.catalog_count; i++)
+	{
+		struct forge_catalog_entry const *row = &g_forge.catalog[i];
+
+		if (row->group_tag == FORGE_GROUP_AI_SPAWN && !forge_ai_row_is_random(row) && forge_ai_row_group(row) == group)
+			forge_ai_tag_need('actv', row->tag_path);
+	}
+}
+
+static void forge_ai_random_squad_add(
+	struct squad_definition const *squad,
+	struct forge_ai_spawn_entry const *entry,
+	long *palette_count,
+	long palette_capacity)
+{
+	struct forge_ai_random_squad *random = &s_built.randoms[s_built.random_count];
+	int group = forge_ai_kind_group(forge_ai_kind_of(entry->actor_variant_path));
+	int kinds[FORGE_AI_MAX_RANKS];
+	long count, i;
+	struct forge_ai_tag_instance *instances;
+
+	forge_ai_random_tags_need(group);
+	instances = forge_ai_tag_instances(&count);
+	random->squad = squad;
+	random->count = 0;
+	for (i = 0; instances && i < count && random->count < FORGE_AI_MAX_RANKS; i++)
+	{
+		int kind, seen;
+
+		if ((uint32_t)instances[i].group_tag != 'actv' || !instances[i].name || !instances[i].base_address)
+			continue;
+		kind = forge_ai_kind_of(instances[i].name);
+		if (kind < 0 || forge_ai_kind_group(kind) != group || forge_ai_tag_is_poor(instances[i].name))
+			continue;
+		for (seen = 0; seen < random->count && kinds[seen] != kind; seen++)
+		{
+		}
+		if (seen < random->count)
+			continue;
+		kinds[random->count] = kind;
+		random->palette[random->count++] = forge_ai_palette_index(s_built.palette, palette_count, palette_capacity,
+			instances[i].tag_index);
+	}
+	if (random->count > 1)
+		s_built.random_count++;
+}
+
+/* the actor a squad's next unit is: a random spawn's any of its ranks, each as
+likely (encounters.c) */
+short forge_ai_squad_palette_index(void const *squad, short palette_index)
+{
+	int i;
+
+	for (i = 0; i < s_built.random_count; i++)
+	{
+		if (s_built.randoms[i].squad == squad)
+		{
+			return s_built.randoms[i].palette[seed_random_range(get_global_random_seed_address(), 0,
+				s_built.randoms[i].count)];
+		}
+	}
+	return palette_index;
+}
+
 static void forge_ai_encounters_build(void)
 {
 	struct scenario *scen = global_scenario_try_and_get();
@@ -623,6 +854,7 @@ static void forge_ai_encounters_build(void)
 	short *entry_added = NULL;
 	long *entry_variant = NULL;
 	long original_count = 0, original_palette_count = 0, palette_count;
+	long palette_room;
 	long own_squad_count = 0, squad_cursor = 0, location_cursor = 0, made_squads = 0, firing_cursor = 0;
 	int entry_count = 0, replace_own = 0, added_count = 0;
 	long e, s;
@@ -640,16 +872,21 @@ static void forge_ai_encounters_build(void)
 	if (!entries || scen->type != _scenario_type_multiplayer)
 		return;
 
+	/* (each spawn's actor, and a random one's ranks) */
+	palette_room = (long)entry_count * (FORGE_AI_MAX_RANKS + 1);
 	for (e = 0; e < original_count; e++)
 		own_squad_count += encounters[e].squads.count;
 	s_built.encounters = (struct encounter_definition *)calloc(
 		(size_t)(original_count + FORGE_AI_MAX_ADDED_ENCOUNTERS), sizeof(*s_built.encounters));
 	s_built.squads = (struct squad_definition *)calloc((size_t)(own_squad_count + entry_count + 1), sizeof(*s_built.squads));
 	s_built.locations = (struct actor_starting_location *)calloc((size_t)(entry_count + 1), sizeof(*s_built.locations));
-	s_built.palette = (struct tag_reference *)calloc((size_t)(original_palette_count + entry_count + 1), sizeof(*s_built.palette));
+	s_built.palette = (struct tag_reference *)calloc((size_t)(original_palette_count + palette_room + 1), sizeof(*s_built.palette));
+	s_built.randoms = (struct forge_ai_random_squad *)calloc((size_t)(entry_count + 1), sizeof(*s_built.randoms));
+	s_built.random_count = 0;
 	entry_added = (short *)malloc((size_t)(entry_count + 1) * sizeof(*entry_added));
 	entry_variant = (long *)malloc((size_t)(entry_count + 1) * sizeof(*entry_variant));
-	if (!s_built.encounters || !s_built.squads || !s_built.locations || !s_built.palette || !entry_added || !entry_variant)
+	if (!s_built.encounters || !s_built.squads || !s_built.locations || !s_built.palette || !s_built.randoms ||
+		!entry_added || !entry_variant)
 	{
 		platform_log("Forge: out of memory for the level's AI spawns");
 		forge_ai_scenario_restore(scen);
@@ -755,7 +992,7 @@ static void forge_ai_encounters_build(void)
 					locations[count] = own_locations[entry->location_index];
 					{
 						short palette_index = forge_ai_palette_index(s_built.palette, &palette_count,
-							original_palette_count + entry_count, entry_variant[i]);
+							original_palette_count + palette_room, entry_variant[i]);
 
 						/* (NONE: the squad's own actor) */
 						forge_ai_location_write(&locations[count], entry,
@@ -764,6 +1001,9 @@ static void forge_ai_encounters_build(void)
 					count++;
 				}
 				location_cursor += count;
+				/* (the rank chosen is the rank placed: no chance of the next one up) */
+				if (count > 0)
+					squad->major_upgrade = _actor_major_upgrade_none;
 				squad->starting_locations.address = locations;
 				squad->starting_locations.count = count;
 				if (count == 0)
@@ -822,7 +1062,7 @@ static void forge_ai_encounters_build(void)
 		a = &added[entry_added[i]];
 		pattern = a->source_encounter != NONE ? forge_ai_nearest_squad(&encounters[a->source_encounter], entry) : NULL;
 		palette_index = forge_ai_palette_index(s_built.palette, &palette_count,
-			original_palette_count + entry_count, entry_variant[i]);
+			original_palette_count + palette_room, entry_variant[i]);
 		squad = &a->squads[a->squads_filled];
 		location = &s_built.locations[location_cursor++];
 		if (pattern)
@@ -844,6 +1084,10 @@ static void forge_ai_encounters_build(void)
 		snprintf(squad->name, sizeof(squad->name), "forge_ai_%d", a->squads_filled);
 		a->squads_filled++;
 		squad->actor_palette_index = palette_index;
+		/* (the rank chosen is the rank placed: no chance of the next one up) */
+		squad->major_upgrade = _actor_major_upgrade_none;
+		if (entry->gametype_flags & FORGE_AI_RANDOM_RANK)
+			forge_ai_random_squad_add(squad, entry, &palette_count, original_palette_count + palette_room);
 		squad->platoon_index = NONE;
 		squad->maneuver_squad_index = NONE;
 		squad->flags &= ~(unsigned long)FLAG(_squad_delay_forever_bit);
@@ -1463,10 +1707,25 @@ static struct forge_ai_spawn_entry *forge_ai_entry_live(int32_t live_idx)
 }
 
 /* a new spawn's entry: its index, -1 with no room */
+static char const *forge_ai_group_first_path(int group)
+{
+	int i;
+
+	for (i = 0; i < g_forge.catalog_count; i++)
+	{
+		struct forge_catalog_entry const *row = &g_forge.catalog[i];
+
+		if (row->group_tag == FORGE_GROUP_AI_SPAWN && !forge_ai_row_is_random(row) && forge_ai_row_group(row) == group)
+			return row->tag_path;
+	}
+	return NULL;
+}
+
 int forge_ai_spawn_entry_new(int32_t live_idx, char const *variant_path, float x, float y, float z, float yaw, int16_t team)
 {
 	struct forge_scenario_edit_state *edits = &g_forge.edit_state;
 	struct forge_ai_spawn_entry *entry;
+	int random_group = forge_ai_path_group(variant_path, FORGE_AI_RANDOM_PATH);
 	int index;
 
 	(void)live_idx;
@@ -1479,6 +1738,15 @@ int forge_ai_spawn_entry_new(int32_t live_idx, char const *variant_path, float x
 		edits->ai_spawn_count++;
 	entry = &edits->ai_spawns[index];
 	memset(entry, 0, sizeof(*entry));
+	/* (RANDOM: its group's first rank stands for the group, as model and tag) */
+	if (random_group != NONE)
+	{
+		variant_path = forge_ai_group_first_path(random_group);
+		if (!variant_path)
+			return -1;
+		forge_ai_random_tags_need(random_group);
+		entry->gametype_flags = FORGE_AI_RANDOM_RANK;
+	}
 	snprintf(entry->actor_variant_path, sizeof(entry->actor_variant_path), "%s", variant_path);
 	entry->x = x;
 	entry->y = y;
@@ -1631,6 +1899,19 @@ static int forge_ai_table_index(int16_t const *table, int count, int value)
 	return count - 1;
 }
 
+/* a spawn's actor as Forge calls it: its kind, or the group's random */
+static void forge_ai_entry_name(struct forge_ai_spawn_entry const *entry, char *text, size_t text_size)
+{
+	int kind = forge_ai_kind_of(entry->actor_variant_path);
+
+	if (entry->gametype_flags & FORGE_AI_RANDOM_RANK)
+		snprintf(text, text_size, "%s: RANDOM", forge_ai_group_name(forge_ai_kind_group(kind)));
+	else if (kind >= 0)
+		snprintf(text, text_size, "%s", forge_ai_kind_name(kind));
+	else
+		forge_ai_upper_copy(text, text_size, forge_ai_path_leaf(entry->actor_variant_path));
+}
+
 void forge_ai_spawn_row_text(int32_t live_idx, int row, char *label, size_t label_size, char *value, size_t value_size)
 {
 	struct forge_ai_spawn_entry const *entry = forge_ai_entry_live(live_idx);
@@ -1644,7 +1925,7 @@ void forge_ai_spawn_row_text(int32_t live_idx, int row, char *label, size_t labe
 	{
 	case _forge_ai_row_variant:
 		snprintf(label, label_size, "AI:");
-		forge_ai_upper_copy(value, value_size, forge_ai_path_leaf(entry->actor_variant_path));
+		forge_ai_entry_name(entry, value, value_size);
 		break;
 	case _forge_ai_row_weapon:
 		snprintf(label, label_size, "WEAPON:");
@@ -1681,7 +1962,8 @@ void forge_ai_spawn_row_text(int32_t live_idx, int row, char *label, size_t labe
 		break;
 	case _forge_ai_row_game_mode:
 		snprintf(label, label_size, "GAME MODE:");
-		for (i = 0; i < (int)NUMBEROF(s_ai_gametypes) && s_ai_gametypes[i] != entry->gametype_flags; i++)
+		for (i = 0; i < (int)NUMBEROF(s_ai_gametypes) &&
+			s_ai_gametypes[i] != (entry->gametype_flags & ~FORGE_AI_RANDOM_RANK); i++)
 		{
 		}
 		snprintf(value, value_size, "%s", s_ai_gametype_names[i < (int)NUMBEROF(s_ai_gametypes) ? i : 0]);
@@ -1741,6 +2023,48 @@ static void forge_ai_tag_step(uint32_t group_tag, char *path, size_t path_size, 
 	snprintf(path, path_size, "%s", g_forge.catalog[i].tag_path);
 }
 
+/* the spawn's next actor of its group, RANDOM among them */
+static void forge_ai_variant_step(struct forge_ai_spawn_entry *entry, int dir)
+{
+	int kind = forge_ai_kind_of(entry->actor_variant_path);
+	int group = forge_ai_kind_group(kind);
+	int random = (entry->gametype_flags & FORGE_AI_RANDOM_RANK) != 0;
+	short rows[64];
+	int count = 0, place = 0, i;
+	struct forge_catalog_entry const *row;
+
+	for (i = 0; i < g_forge.catalog_count && count < (int)NUMBEROF(rows); i++)
+	{
+		row = &g_forge.catalog[i];
+		if (row->group_tag != FORGE_GROUP_AI_SPAWN || !forge_catalog_entry_allowed(row) || forge_ai_row_group(row) != group)
+			continue;
+		if (forge_ai_row_is_random(row) ? random :
+			(!random && (kind >= 0 ? forge_ai_kind_of(row->tag_path) == kind : !_stricmp(row->tag_path, entry->actor_variant_path))))
+		{
+			place = count;
+		}
+		rows[count++] = (short)i;
+	}
+	if (!count)
+		return;
+	row = &g_forge.catalog[rows[(place + count + dir) % count]];
+	if (forge_ai_row_is_random(row))
+	{
+		char const *first = forge_ai_group_first_path(group);
+
+		if (!first)
+			return;
+		snprintf(entry->actor_variant_path, sizeof(entry->actor_variant_path), "%s", first);
+		entry->gametype_flags |= FORGE_AI_RANDOM_RANK;
+		forge_ai_random_tags_need(group);
+	}
+	else
+	{
+		snprintf(entry->actor_variant_path, sizeof(entry->actor_variant_path), "%s", row->tag_path);
+		entry->gametype_flags &= ~FORGE_AI_RANDOM_RANK;
+	}
+}
+
 void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir)
 {
 	struct forge_ai_spawn_entry *entry = forge_ai_entry_live(live_idx);
@@ -1753,7 +2077,7 @@ void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir)
 	switch (row)
 	{
 	case _forge_ai_row_variant:
-		forge_ai_tag_step('actv', entry->actor_variant_path, sizeof(entry->actor_variant_path), dir, 0);
+		forge_ai_variant_step(entry, dir);
 		snprintf(inst->tag_path, sizeof(inst->tag_path), "%s", entry->actor_variant_path);
 		break;
 	case _forge_ai_row_weapon:
@@ -1785,12 +2109,14 @@ void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir)
 		entry->detached = 1;
 		break;
 	case _forge_ai_row_game_mode:
-		for (index = 0; index < (int)NUMBEROF(s_ai_gametypes) && s_ai_gametypes[index] != entry->gametype_flags; index++)
+		for (index = 0; index < (int)NUMBEROF(s_ai_gametypes) &&
+			s_ai_gametypes[index] != (entry->gametype_flags & ~FORGE_AI_RANDOM_RANK); index++)
 		{
 		}
 		if (index == (int)NUMBEROF(s_ai_gametypes))
 			index = 0;
-		entry->gametype_flags = s_ai_gametypes[(index + (int)NUMBEROF(s_ai_gametypes) + dir) % (int)NUMBEROF(s_ai_gametypes)];
+		entry->gametype_flags = (uint16_t)((entry->gametype_flags & FORGE_AI_RANDOM_RANK) |
+			s_ai_gametypes[(index + (int)NUMBEROF(s_ai_gametypes) + dir) % (int)NUMBEROF(s_ai_gametypes)]);
 		break;
 	case _forge_ai_row_spawn_effect:
 		entry->spawn_effect = (uint8_t)((entry->spawn_effect + (int)NUMBEROF(s_ai_spawn_effects) + dir) %
@@ -1810,17 +2136,23 @@ void forge_ai_spawn_row_step(int32_t live_idx, int row, int dir)
 void forge_ai_spawn_label(struct forge_live_instance const *inst, char *text, size_t text_size)
 {
 	struct forge_ai_spawn_entry const *entry = forge_ai_entry_of(inst);
+	char name[64];
 
-	snprintf(text, text_size, "AI: %s", forge_ai_path_leaf(inst->tag_path));
+	if (entry)
+		forge_ai_entry_name(entry, name, sizeof(name));
+	else
+		snprintf(name, sizeof(name), "%s", forge_ai_path_leaf(inst->tag_path));
+	snprintf(text, text_size, "AI: %s", name);
 	if (entry && entry->unit_count == 0 && entry->respawn_alive == 0)
-		snprintf(text, text_size, "AI: %s (Inactive)", forge_ai_path_leaf(inst->tag_path));
+		snprintf(text, text_size, "AI: %s (Inactive)", name);
 }
 
 /* ---------- what a saved map needs */
 
 int forge_ai_palette_entry_allowed(struct forge_catalog_entry const *entry)
 {
-	return forge_ai_map_editable() && entry->group_tag == FORGE_GROUP_AI_SPAWN;
+	return forge_ai_map_editable() &&
+		(entry->group_tag == FORGE_GROUP_AI_SPAWN || entry->group_tag == FORGE_GROUP_AI_MENU);
 }
 
 static void forge_ai_saved_tag_add(uint32_t group_tag, char const *path, char const *known_map)
@@ -1863,6 +2195,21 @@ void forge_ai_saved_tags_collect(void)
 			continue;
 		forge_ai_saved_tag_add('actv', edits->ai_spawns[i].actor_variant_path, NULL);
 		forge_ai_saved_tag_add('weap', edits->ai_spawns[i].weapon_path, NULL);
+		/* (a random spawn needs every rank it may place) */
+		if (edits->ai_spawns[i].gametype_flags & FORGE_AI_RANDOM_RANK)
+		{
+			int group = forge_ai_kind_group(forge_ai_kind_of(edits->ai_spawns[i].actor_variant_path));
+			int row;
+
+			for (row = 0; row < g_forge.catalog_count; row++)
+			{
+				if (g_forge.catalog[row].group_tag == FORGE_GROUP_AI_SPAWN &&
+					!forge_ai_row_is_random(&g_forge.catalog[row]) && forge_ai_row_group(&g_forge.catalog[row]) == group)
+				{
+					forge_ai_saved_tag_add('actv', g_forge.catalog[row].tag_path, NULL);
+				}
+			}
+		}
 		if (edits->ai_spawns[i].spawn_effect < NUMBEROF(s_ai_spawn_effects) &&
 			s_ai_spawn_effects[edits->ai_spawns[i].spawn_effect].map)
 		{

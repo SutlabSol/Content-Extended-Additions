@@ -18,6 +18,8 @@ THE GAME'S ORIGINS
 - bnunu/halo-1, its continuation: CC0 1.0
 
 ART AND DATA
+- Emblems: halo.bungie.org/news.html?item=27918
+- Medals: halo.bungie.org/misc/halo3_hiresmedals/
 - puginatux: the menu assets, the logo and the Switch's shared shader keys
 - MrBruh: the high-res HUD, from reference photos by Aerocatia
 - saulob: the controller's A, B, X and Y buttons

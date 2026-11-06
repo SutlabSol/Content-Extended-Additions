@@ -1799,6 +1799,13 @@ void xgpu_gl_texture_deleted(unsigned int texture)
 
 /* the scoreboard's: none, as on Android's OpenGL ES (d3d8_gl.c); a vote to
 kick starts from the console (votekick) */
+int halo_forge_pointer_update(int wanted, struct halo_ui_pointer *pointer)
+{
+	(void)wanted;
+	(void)pointer;
+	return 0;
+}
+
 int halo_scoreboard_pointer_update(int offered, struct halo_ui_pointer *pointer)
 {
 	(void)offered;

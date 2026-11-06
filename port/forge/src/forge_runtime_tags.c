@@ -788,13 +788,95 @@ static void add_catalog_entry(
 	uint8_t category,
 	uint8_t source_cache_id,
 	char const *tag_path,
+	char const *display_prefix);
+
+/* a rank's name, its group's row if it is the first, and RANDOM once the group
+has a choice */
+static int s_catalog_row_replaced = -1;
+
+static void add_ai_group_rows(struct forge_catalog_entry *rank, int kind)
+{
+	int group = forge_ai_kind_group(kind);
+	int ranks = 0, has_group = 0, i;
+	uint8_t category = rank->category;
+	char path[64];
+
+	if (kind >= 0)
+		snprintf(rank->display_name, sizeof(rank->display_name), "%s", forge_ai_kind_name(kind));
+	for (i = 0; i < g_forge.catalog_count; i++)
+	{
+		struct forge_catalog_entry const *row = &g_forge.catalog[i];
+
+		if (row->group_tag == FORGE_GROUP_AI_MENU && forge_ai_row_group(row) == group)
+			has_group = 1;
+		else if (row->group_tag == FORGE_GROUP_AI_SPAWN && !forge_ai_row_is_random(row) && forge_ai_row_group(row) == group)
+			ranks++;
+	}
+	/* (source 1, as the spawns' rows: 0 is a map's own, which each map's load
+	strips, and they stand for no tag of any map) */
+	if (!has_group)
+	{
+		int before = g_forge.catalog_count;
+
+		snprintf(path, sizeof(path), "%s%d", FORGE_AI_GROUP_PATH, group);
+		add_catalog_entry(FORGE_GROUP_AI_MENU, category, 1, path, NULL);
+		if (g_forge.catalog_count > before)
+		{
+			snprintf(g_forge.catalog[before].display_name, sizeof(g_forge.catalog[before].display_name), "%s",
+				forge_ai_group_name(group));
+		}
+	}
+	if (ranks >= 2 && kind >= 0)
+	{
+		int before = g_forge.catalog_count;
+
+		snprintf(path, sizeof(path), "%s%d", FORGE_AI_RANDOM_PATH, group);
+		add_catalog_entry(FORGE_GROUP_AI_SPAWN, category, 1, path, NULL);
+		if (g_forge.catalog_count > before)
+		{
+			snprintf(g_forge.catalog[before].display_name, sizeof(g_forge.catalog[before].display_name), "RANDOM");
+		}
+	}
+}
+
+static void add_catalog_entry(
+	uint32_t group_tag,
+	uint8_t category,
+	uint8_t source_cache_id,
+	char const *tag_path,
 	char const *display_prefix)
 {
 	int i;
+	int ai_kind = FORGE_AI_KIND_HIDDEN;
 	struct forge_catalog_entry *e;
 
 	if (!tag_path || !tag_path[0] || g_forge.catalog_count >= FORGE_MAX_CATALOG_ENTRIES)
 		return;
+
+	/* (an actor's rank once, whatever its weapon: forge_ai.c's kinds) */
+	if (group_tag == FORGE_GROUP_AI_SPAWN && strncmp(tag_path, FORGE_AI_RANDOM_PATH, strlen(FORGE_AI_RANDOM_PATH)))
+	{
+		ai_kind = forge_ai_kind_of(tag_path);
+		if (ai_kind == FORGE_AI_KIND_HIDDEN)
+			return;
+		if (ai_kind >= 0)
+		{
+			for (i = 0; i < g_forge.catalog_count; i++)
+			{
+				if (g_forge.catalog[i].group_tag == group_tag &&
+					forge_ai_kind_of(g_forge.catalog[i].tag_path) == ai_kind)
+				{
+					/* (armed if one of the rank's tags is) */
+					if (forge_ai_tag_is_poor(g_forge.catalog[i].tag_path) && !forge_ai_tag_is_poor(tag_path))
+					{
+						snprintf(g_forge.catalog[i].tag_path, sizeof(g_forge.catalog[i].tag_path), "%s", tag_path);
+						s_catalog_row_replaced = i;
+					}
+					return;
+				}
+			}
+		}
+	}
 
 	for (i = 0; i < g_forge.catalog_count; i++)
 	{
@@ -818,6 +900,8 @@ static void add_catalog_entry(
 	e->pad = 0;
 	snprintf(e->tag_path, sizeof(e->tag_path), "%s", tag_path);
 	make_short_display_name(tag_path, display_prefix, e->display_name, sizeof(e->display_name));
+	if (ai_kind != FORGE_AI_KIND_HIDDEN)
+		add_ai_group_rows(e, ai_kind);
 }
 
 static uint16_t forge_pack_map_mark(char const *name);
@@ -927,6 +1011,9 @@ static void scan_cached_tags_manifest(char const *manifest_path)
 					/* (the pack's map it is first in) */
 					if (g_forge.catalog_count > before)
 						g_forge.catalog[before].pad = forge_pack_map_mark(custom_label);
+					else if (s_catalog_row_replaced >= 0)
+						g_forge.catalog[s_catalog_row_replaced].pad = forge_pack_map_mark(custom_label);
+					s_catalog_row_replaced = -1;
 				}
 			}
 		}
@@ -7107,6 +7194,14 @@ static int resolve_marker_kind_and_color(
 	int *out_mesh_kind,
 	int *out_color_preset)
 {
+	/* (where a vehicle, weapon or powerup goes back to: forge_origins_reset) */
+	if (group_tag == 'vehi' || group_tag == 'weap' || group_tag == 'eqip')
+	{
+		*out_mesh_kind = _marker_mesh_firefight_spawn;
+		*out_color_preset = group_tag == 'vehi' ? _marker_color_blue_team :
+			group_tag == 'weap' ? _marker_color_oddball_purple : _marker_color_tele_green;
+		return 1;
+	}
 	if (group_tag == FORGE_GROUP_AI_SPAWN)
 	{
 		*out_mesh_kind = _marker_mesh_firefight_spawn;
@@ -7349,7 +7444,8 @@ static void render_world_objective_and_spawn_markers(void)
 		if (!inst->active)
 			continue;
 		if (inst->group_tag != 'spwn' && inst->group_tag != 'tele' && inst->group_tag != 'flag' && inst->group_tag != 'ffsp' &&
-			inst->group_tag != FORGE_GROUP_AI_SPAWN)
+			inst->group_tag != FORGE_GROUP_AI_SPAWN && inst->group_tag != 'vehi' && inst->group_tag != 'weap' &&
+			inst->group_tag != 'eqip')
 			continue;
 		if (!resolve_marker_kind_and_color(
 				inst->group_tag,
@@ -7554,17 +7650,19 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 	if (g_forge.active_modal != _forge_modal_spawn_palette || g_forge.h3_menu_stage != 1)
 		return;
 
-	for (i = 0; i < g_forge.catalog_count; i++)
 	{
-		if (g_forge.catalog[i].category == g_forge.current_category &&
-			forge_catalog_entry_allowed(&g_forge.catalog[i]))
+		extern int forge_palette_filtered_indices(int *out_indices, int max_out);
+		int filtered[512];
+		int count = forge_palette_filtered_indices(filtered, 512);
+
+		if (g_forge.palette_cursor >= 0 && g_forge.palette_cursor < count)
+			chosen_idx = filtered[g_forge.palette_cursor];
+		(void)match_count;
+		/* (a group's row, or RANDOM, is no tag to read) */
+		if (chosen_idx >= 0 && (g_forge.catalog[chosen_idx].group_tag == FORGE_GROUP_AI_MENU ||
+			forge_ai_row_is_random(&g_forge.catalog[chosen_idx])))
 		{
-			if (match_count == g_forge.palette_cursor)
-			{
-				chosen_idx = i;
-				break;
-			}
-			match_count++;
+			chosen_idx = -1;
 		}
 	}
 	if (chosen_idx < 0)

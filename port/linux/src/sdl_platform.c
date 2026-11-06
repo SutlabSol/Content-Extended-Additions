@@ -106,6 +106,9 @@ not to the aim and the triggers. Another right click, or the scoreboard
 closing, takes the mouse back for the aim. */
 static BOOL scoreboard_pointer_offered;
 static struct platform_ui_pointer scoreboard_pointer;
+/* (a Forge menu is open: the same pointer, for as long as it is:
+platform_forge_pointer) */
+static BOOL forge_pointer_wanted;
 #endif
 static BOOL scoreboard_pointer_active;
 
@@ -2279,6 +2282,28 @@ BOOL platform_scoreboard_pointer(BOOL offered, struct platform_ui_pointer *point
 }
 #endif
 
+#ifndef HALO_ANDROID
+BOOL platform_forge_pointer(BOOL wanted, struct platform_ui_pointer *pointer)
+{
+	BOOL active;
+
+	pthread_mutex_lock(&input_lock);
+	if (wanted && !scoreboard_pointer_active && !input_state.ui_pointer && platform_window)
+		scoreboard_pointer_start();
+	else if (!wanted && forge_pointer_wanted)
+		scoreboard_pointer_stop();
+	forge_pointer_wanted = wanted;
+	active = wanted && scoreboard_pointer_active;
+	*pointer = scoreboard_pointer;
+	scoreboard_pointer.moved = FALSE;
+	scoreboard_pointer.left_clicks = 0;
+	scoreboard_pointer.right_clicks = 0;
+	scoreboard_pointer.wheel_steps = 0;
+	pthread_mutex_unlock(&input_lock);
+	return active;
+}
+#endif
+
 void platform_scoreboard_scroll(int open, long *notches, long *pages)
 {
 	Uint64 now = SDL_GetTicks();
@@ -2411,8 +2436,8 @@ void platform_pump_events(void)
 	pthread_mutex_lock(&input_lock);
 #ifndef HALO_ANDROID
 	/* (the scoreboard closed, or no longer offering it: the pointer goes) */
-	if (scoreboard_pointer_active && (SDL_GetTicks() >= scoreboard_open_until_ms || !scoreboard_pointer_offered ||
-		input_state.ui_pointer))
+	if (scoreboard_pointer_active && (input_state.ui_pointer || (!forge_pointer_wanted &&
+		(SDL_GetTicks() >= scoreboard_open_until_ms || !scoreboard_pointer_offered))))
 	{
 		scoreboard_pointer_stop();
 	}
@@ -2534,6 +2559,21 @@ void platform_pump_events(void)
 				break;
 			}
 #ifndef HALO_ANDROID
+			/* a Forge menu's pointer: its clicks go to the menu, none to the game */
+			if (!input_state.ui_pointer && forge_pointer_wanted && scoreboard_pointer_active)
+			{
+				if (event.button.down && event.button.button == SDL_BUTTON_LEFT)
+				{
+					scoreboard_pointer.left_clicks++;
+					scoreboard_pointer.click_x = event.button.x;
+					scoreboard_pointer.click_y = event.button.y;
+				}
+				else if (event.button.down && event.button.button == SDL_BUTTON_RIGHT)
+				{
+					scoreboard_pointer.right_clicks++;
+				}
+				break;
+			}
 			/* the open scoreboard's pointer: a right click frees it (and
 			fires nothing), and another takes it back; its clicks pick */
 			if (!input_state.ui_pointer && SDL_GetTicks() < scoreboard_open_until_ms && scoreboard_pointer_offered &&
@@ -2588,6 +2628,13 @@ void platform_pump_events(void)
 				binding_captured_input = event.wheel.y > 0.0f ? INPUT_WHEEL_UP : INPUT_WHEEL_DOWN;
 				break;
 			}
+#ifndef HALO_ANDROID
+			if (forge_pointer_wanted && scoreboard_pointer_active)
+			{
+				scoreboard_pointer.wheel_steps += event.wheel.y > 0.0f ? 1 : event.wheel.y < 0.0f ? -1 : 0;
+				break;
+			}
+#endif
 			if (SDL_GetTicks() < scoreboard_open_until_ms)
 			{
 				/* whole notches, up (away) scrolling up */

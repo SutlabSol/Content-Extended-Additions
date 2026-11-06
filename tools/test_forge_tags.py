@@ -291,3 +291,44 @@ def test_forge_mode_holds_the_ai_and_any_ai_holds_any_weapon():
     assert "forge_ai_weapons_borrowed" in randomizer
     # (a bracketed name is cut to nothing by the palette's tidying)
     assert 'FORGE_GROUP_AI_SPAWN ? "[AI]"' not in (ROOT / "port/forge/src/forge_runtime_tags.c").read_text(encoding="latin-1")
+
+
+def test_an_ai_spawn_places_the_rank_chosen():
+    """a Forge squad never upgrades its actor: the rank chosen is the rank placed"""
+    ai = (ROOT / "port/forge/src/forge_ai.c").read_text()
+    assert ai.count("major_upgrade = _actor_major_upgrade_none") == 2
+    encounters = (ROOT / "source/ai/encounters.c").read_text()
+    assert encounters.index("forge_ai_squad_palette_index(squad_definition") < encounters.index(
+        "actor_variant_definition_get(actor_palette_entry->index)")
+
+
+def test_the_palette_offers_ranks_not_weapons():
+    """actors are offered by group and rank, a weapon's tag never on its own row"""
+    ai = (ROOT / "port/forge/src/forge_ai.c").read_text()
+    names = re.findall(r'\{ _forge_ai_group_\w+, "[^"]+", (?:NULL|"[^"]+"), "([^"]+)" \}', ai)
+    assert "GRUNT MINOR" in names and "ELITE MINOR" in names
+    assert not [name for name in names if re.search("PLASMA|NEEDLER|RIFLE|PISTOL|SWORD", name)]
+    assert len(names) == len(set(names))
+
+
+def test_leaving_forge_mode_places_what_is_held_and_entering_resets_origins():
+    forge = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
+    toggle = forge[forge.index("if (cur_f1 && !prev_f1 && allow_f1)"):]
+    assert "forge_place_held_item();" in toggle[:400] and "forge_cancel_or_release_held_item" not in toggle[:400]
+    assert "forge_ai_forge_mode_changed(1);\n\t\t\t\t\tforge_origins_reset();" in forge
+
+
+def test_the_actor_groups_outlast_a_map_load():
+    """a map's load strips the catalog's rows of source 0 (the map's own), so the
+    Actors tab's group and RANDOM rows must not be of it"""
+    runtime = RUNTIME.read_text()
+    assert "add_catalog_entry(FORGE_GROUP_AI_MENU, category, 1," in runtime
+    assert "add_catalog_entry(FORGE_GROUP_AI_SPAWN, category, 1," in runtime
+
+
+def test_origins_are_noted_early_and_marked():
+    forge = (ROOT / "port/forge/src/forge_3d_mode.c").read_text()
+    runtime = RUNTIME.read_text()
+    assert "s_origins_note_frames < FORGE_ORIGINS_NOTE_FRAMES" in forge
+    marker = runtime[runtime.index("static int resolve_marker_kind_and_color"):]
+    assert "group_tag == 'vehi' || group_tag == 'weap' || group_tag == 'eqip'" in marker[:500]
