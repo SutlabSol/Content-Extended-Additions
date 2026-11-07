@@ -1108,6 +1108,16 @@ boolean network_game_client_port_advertised_modded(
 			HALO_PORT_ADVERTISED_TAG_SHARE_FLAG)) != 0;
 }
 
+/* port: whether an advertised game has the modded signature, as a Firefight
+game of this fork has (network_server_message_handler.c), whatever its flags */
+boolean network_game_client_port_advertised_signed(
+	short game_index)
+{
+	return game_index >= 0 && game_index < MAXIMUM_NETWORK_ADVERTISED_GAMES &&
+		(network_game_client_advertised_versions[game_index].version & HALO_PORT_MODDED_VERSION_MARK) ==
+			HALO_PORT_MODDED_VERSION_MARK;
+}
+
 /* port: an advertised game's host's network version, a modded game's base
 one (menu_functions.c's Forge browser) */
 unsigned short network_game_client_port_advertised_version(

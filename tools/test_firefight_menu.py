@@ -219,7 +219,7 @@ def test_every_built_in_variant_s_settings_have_a_choice_to_load_into():
     for faction in set(re.findall(r"^\s+(_firefight_faction_\w+),$", profiles, re.M)):
         assert faction in factions
     numbers = re.findall(r"^\s+(-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+), (-?\d+),$", profiles, re.M)
-    assert len(numbers) == 6
+    assert len(numbers) == 8
     for place, spinner in enumerate(("ff_set_limit_spinner", "ff_starting_lives_spinner", "ff_round_lives_spinner",
                                      "ff_bonus_lives_spinner", "ff_max_lives_spinner", "ff_generators_spinner")):
         for row in numbers:

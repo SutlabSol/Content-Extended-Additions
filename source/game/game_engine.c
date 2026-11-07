@@ -4855,7 +4855,10 @@ void game_variant_options_default(
 	game_modes_options_default(options);
 	/* port: firefight */
 	if (variant && variant->game_engine_index == game_engine_firefight)
+	{
 		firefight_variant_options_default(options);
+		firefight_builtin_variant_options(variant, options);
+	}
 
 	return;
 }

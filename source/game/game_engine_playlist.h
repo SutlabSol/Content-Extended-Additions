@@ -78,6 +78,10 @@ struct game_variant *build_game_variant_gruntpocalypse(
 	struct game_variant *variant);
 struct game_variant *build_game_variant_rocketfight(
 	struct game_variant *variant);
+struct game_variant *build_game_variant_fiesta(
+	struct game_variant *variant);
+struct game_variant *build_game_variant_grunt_fiesta(
+	struct game_variant *variant);
 struct game_variant *build_game_variant_floodfight(
 	struct game_variant *variant);
 struct game_variant *build_game_variant_mythic_firefight(

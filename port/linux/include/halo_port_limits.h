@@ -170,8 +170,11 @@ kind) and the temporary skulls in Firefight's state; 12 a Forge marker's usage
 changing (!FU:), which dropship routes hang on, and a dropship's looks in
 Firefight's state; 13 a Forge AI spawn's settings (!FA:); 14 its spawn effect,
 in !FA: and shown by !FE:, and the campaign effects a Forge game imports; 15
-two of those effects gone, which moves the tags after them */
-#define HALO_PORT_MOD_NETWORK_VERSION 15
+two of those effects gone, which moves the tags after them; 100 a number
+Content Extended's fork, of the same signature and on 8, will not come to:
+machines of the two would list each other's games. A Firefight game is always
+of this signature (network_server_message_handler.c) */
+#define HALO_PORT_MOD_NETWORK_VERSION 100
 #define HALO_PORT_MODDED_VERSION_MARK 0xFF00
 #define HALO_PORT_ADVERTISED_MODDED_VERSION (HALO_PORT_MODDED_VERSION_MARK | HALO_PORT_MOD_NETWORK_VERSION)
 

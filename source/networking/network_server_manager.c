@@ -1570,7 +1570,8 @@ static void network_game_server_list(
 		p2p_set_game_listing(name, tag_name_strip_path(game->map.name), gametype, game->variant.game_engine_index,
 			game_modes_kind(&game->variant, &game->variant_options), open, in_progress,
 			game->variant.universal_variant.teams, randomizer_show_prefix(),
-			randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted());
+			randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted() ||
+			game->variant.game_engine_index == game_engine_firefight);
 	}
 }
 
@@ -2282,7 +2283,8 @@ boolean network_game_server_start_network_game(
 			extern int randomizer_show_prefix(void);
 			extern boolean tag_multiplayer_hosted(void);
 
-			if (randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted())
+			if (randomizer_show_prefix() || skulls_hosted() || tag_multiplayer_hosted() ||
+				server->game.variant.game_engine_index == game_engine_firefight)
 			{
 				long machine_index;
 

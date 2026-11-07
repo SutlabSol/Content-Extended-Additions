@@ -122,6 +122,10 @@ static short g_roster_count = 0;
 static real_point3d g_spawn_points[MAX_SPAWN_POINTS];
 static real g_spawn_facings[MAX_SPAWN_POINTS];
 static short g_spawn_point_count = 0;
+/* the players' base: the map's starting location everyone spawns about
+(firefight_select_player_spawn_point), chosen at the first spawn of a map */
+#define FF_PLAYER_BASE_SPAWNS 8
+static short g_player_base_location = NONE;
 
 static long g_friendly_units[MAX_FRIENDLY_UNITS];
 static short g_friendly_unit_count = 0;
@@ -804,9 +808,50 @@ boolean firefight_select_player_spawn_point(
 
 	if (valid_player_count > 0)
 	{
-		short pick = valid_player_spawns[(abs_player + (short)(spawner_rand() % (unsigned long)valid_player_count)) % valid_player_count];
-		struct player_starting_location *loc = TAG_BLOCK_GET_ELEMENT(
-			&scen->players, pick, struct player_starting_location);
+		/* everyone at one base, by the ordnance drop that lands by the first
+		living player: the starting locations nearest the first one chosen,
+		nearest first. A player's first spawn has a place of its own there, a
+		respawn any of them */
+		short nearest[FF_PLAYER_BASE_SPAWNS];
+		real nearest_distance[FF_PLAYER_BASE_SPAWNS];
+		short nearest_count = 0;
+		struct player_starting_location *base;
+		struct player_starting_location *loc;
+		struct player_datum *player = player_index != NONE && player_index != 0 ?
+			player_try_and_get(player_index) : NULL;
+		short turn = abs_player;
+
+		for (i = 0; i < valid_player_count && valid_player_spawns[i] != g_player_base_location; i++)
+			;
+		if (i == valid_player_count)
+			g_player_base_location = valid_player_spawns[spawner_rand() % (unsigned long)valid_player_count];
+		base = TAG_BLOCK_GET_ELEMENT(&scen->players, g_player_base_location, struct player_starting_location);
+		for (i = 0; i < valid_player_count; i++)
+		{
+			real distance;
+			short place;
+
+			loc = TAG_BLOCK_GET_ELEMENT(&scen->players, valid_player_spawns[i], struct player_starting_location);
+			distance = distance_squared3d(&base->position, &loc->position);
+			for (place = nearest_count; place > 0 && nearest_distance[place - 1] > distance; place--)
+			{
+				if (place < FF_PLAYER_BASE_SPAWNS)
+				{
+					nearest[place] = nearest[place - 1];
+					nearest_distance[place] = nearest_distance[place - 1];
+				}
+			}
+			if (place < FF_PLAYER_BASE_SPAWNS)
+			{
+				nearest[place] = valid_player_spawns[i];
+				nearest_distance[place] = distance;
+				if (nearest_count < FF_PLAYER_BASE_SPAWNS)
+					nearest_count++;
+			}
+		}
+		if (player && player->statistics.deaths > 0)
+			turn = (short)(spawner_rand() % (unsigned long)nearest_count);
+		loc = TAG_BLOCK_GET_ELEMENT(&scen->players, nearest[turn % nearest_count], struct player_starting_location);
 		*out_position = loc->position;
 		*out_facing = loc->facing;
 		return TRUE;
@@ -1014,6 +1059,7 @@ void firefight_spawner_initialize_map(void)
 	short i;
 
 	g_roster_count = 0;
+	g_player_base_location = NONE;
 	for (i = 0; i < MAX_FRIENDLY_UNITS; i++)
 		g_friendly_units[i] = NONE;
 	g_friendly_unit_count = 0;
@@ -4077,7 +4123,11 @@ void firefight_cleanup_natural_multiplayer_sandbox(boolean clear_weapons_and_equ
 		object_iterator_new(&iter, _object_mask_item, 0);
 		while ((obj = (struct object_datum *)object_iterator_next(&iter)) != NULL && delete_count < 128)
 		{
+			/* (on the ground: a weapon in a unit's inventory has no parent
+			until it is in hand, and is off the map. The first spawn's are
+			already there, this tick) */
 			if (obj->object.parent_object_index == NONE &&
+				TEST_FLAG(obj->object.flags, _object_connected_to_map_bit) &&
 				!TEST_FLAG(obj->object.flags, _object_cannot_be_garbage_bit))
 			{
 				to_delete[delete_count++] = iter.index;

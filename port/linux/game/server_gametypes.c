@@ -148,12 +148,13 @@ static boolean server_gametype_base(
 		!strcmp(name, "gruntpocalypse") ||
 		!strcmp(name, "rocketfight") ||
 		!strcmp(name, "floodfight") ||
-		!strcmp(name, "mythic_firefight"))
+		!strcmp(name, "mythic_firefight") ||
+		!strcmp(name, "fiesta") ||
+		!strcmp(name, "grunt_fiesta"))
 	{
 		if (!firefight_build_variant_by_name(name, variant))
 			*variant = *build_game_variant_firefight(&temporary);
 		game_variant_options_default(variant, options);
-		firefight_variant_options_default(options);
 		return TRUE;
 	}
 	return game_modes_gametype_by_name(name, variant, options);

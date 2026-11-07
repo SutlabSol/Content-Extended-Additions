@@ -304,7 +304,7 @@ enum
 	FIREFIGHT_STRAGGLER_THRESHOLD = 3,
 	FIREFIGHT_REINFORCEMENT_THRESHOLD = 2,
 	FIREFIGHT_DEFAULT_SCORE_LIFE_BONUS = 10000,
-	NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES = 6
+	NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES = 8
 };
 
 enum firefight_phase_state
@@ -741,9 +741,12 @@ struct game_variant *build_game_variant_generator_defense(struct game_variant *v
 struct game_variant *build_game_variant_gruntpocalypse(struct game_variant *variant);
 struct game_variant *build_game_variant_rocketfight(struct game_variant *variant);
 struct game_variant *build_game_variant_floodfight(struct game_variant *variant);
+struct game_variant *build_game_variant_fiesta(struct game_variant *variant);
+struct game_variant *build_game_variant_grunt_fiesta(struct game_variant *variant);
 struct game_variant *build_game_variant_mythic_firefight(struct game_variant *variant);
 void firefight_variant_cleanup(struct game_variant *variant);
 void firefight_variant_options_default(struct game_variant_options *options);
+void firefight_builtin_variant_options(struct game_variant const *variant, struct game_variant_options *options);
 struct firefight_globals const *firefight_globals_get(void);
 struct firefight_globals *firefight_globals_mutable(void);
 unsigned long firefight_active_skulls_get(void);

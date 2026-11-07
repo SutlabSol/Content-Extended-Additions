@@ -13559,6 +13559,7 @@ static boolean advertised_in_progress(struct advertised_game *game)
 /* (network_client_manager.c's) an advertised game's, by its place: whether
 it is modded, and its host's network version (a modded game's base one) */
 boolean network_game_client_port_advertised_modded(short game_index);
+boolean network_game_client_port_advertised_signed(short game_index);
 unsigned short network_game_client_port_advertised_version(short game_index);
 
 /* (forge_runtime_tags.c's) the network version of the game being looked for:
@@ -13568,6 +13569,9 @@ extern long forge_get_network_version(void);
 #define BROWSER_FORGE_ONLY (forge_get_network_version() != HALO_PORT_NETWORK_VERSION)
 /* (Firefight's Multiplayer lists only Firefight's games) */
 #define BROWSER_SHOWS_ENGINE(engine) (!multiplayer_firefight_mode() || (engine) == game_engine_firefight)
+/* (a Firefight game without the modded signature is another fork's, whose
+Firefight is not this one's: no browser lists it) */
+#define BROWSER_OTHER_FORK(engine, is_signed) ((engine) == game_engine_firefight && !(is_signed))
 
 static void browser_games_read(void)
 {
@@ -13590,7 +13594,8 @@ static void browser_games_read(void)
 				!network_game_client_port_advertised_modded(index) == (pass % 2 == 1) &&
 				game_from_peer(game) == (multiplayer.mode == _multiplayer_mode_direct_link) &&
 				(!BROWSER_FORGE_ONLY || network_game_client_port_advertised_version(index) == BROWSER_NETWORK_VERSION) &&
-				BROWSER_SHOWS_ENGINE(game->engine_type))
+				BROWSER_SHOWS_ENGINE(game->engine_type) &&
+				!BROWSER_OTHER_FORK(game->engine_type, network_game_client_port_advertised_signed(index)))
 			{
 				multiplayer.games[multiplayer.game_count++] = game;
 			}
@@ -14329,7 +14334,8 @@ static short lobby_browser_valid_games(struct p2p_listing *games, short count)
 		listing carries the host's own version either way) */
 		if (BROWSER_FORGE_ONLY && games[read].network_version != BROWSER_NETWORK_VERSION)
 			continue;
-		if (!BROWSER_SHOWS_ENGINE(games[read].engine_type))
+		if (!BROWSER_SHOWS_ENGINE(games[read].engine_type) ||
+			BROWSER_OTHER_FORK(games[read].engine_type, games[read].modded))
 			continue;
 		text_to_wide(games[read].name, name, NUMBEROF(name));
 		if (!player_name_clean(name, NUMBEROF(name)))
@@ -18693,6 +18699,11 @@ static struct gametype_option const gametype_options[] =
 	/* firefight options: Page 4 (Skulls & Traits) */
 	{ "ff_prog_skulls_spinner", _option_option_byte, OPTIONS_FIELD(firefight_skull_progression_mode), 0, 3,
 		{ _firefight_skull_prog_off, _firefight_skull_prog_standard, _firefight_skull_prog_random_round } },
+	/* (each player's two weapons: a custom loadout once kept) */
+	{ "ff_primary_spinner", _option_option_byte, OPTIONS_FIELD(primary_weapon), 0, 10,
+		{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } },
+	{ "ff_secondary_spinner", _option_option_byte, OPTIONS_FIELD(secondary_weapon), 0, 10,
+		{ 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 } },
 	{ "ff_shields_spinner", _option_option_byte, OPTIONS_FIELD(firefight_player_shields), 0, 6,
 		{ 0, 1, 0, 2, 2, 3 } },
 	{ "ff_speed_spinner", _option_option_byte, OPTIONS_FIELD(firefight_player_speed), 0, 4,
@@ -19260,8 +19271,10 @@ static boolean gametype_options_save(struct widget_instance *widget)
 	if (named(list, "ff_prog_skulls_spinner", 0))
 		edit_variant()->game_engine_variant.firefight.progression_skulls =
 			edit_options()->firefight_skull_progression_mode != _firefight_skull_prog_off;
-	/* (FLOODFECTION's SPARTAN LOADOUT: the weapons its own, a custom loadout) */
-	if (named(list, "primary_weapon_spinner", 0) && !named(list, "loadout_spinner", 0))
+	/* (FLOODFECTION's SPARTAN LOADOUT and Firefight's weapons: their own, a
+	custom loadout) */
+	if ((named(list, "primary_weapon_spinner", 0) && !named(list, "loadout_spinner", 0)) ||
+		named(list, "ff_primary_spinner", 0))
 		edit_options()->loadout = _loadout_custom;
 	/* (OPENCE OPTIONS: Infection is played on teams, Gun Game free for all:
 	game_modes_variant_mode) */

@@ -14,10 +14,12 @@
 extern "C" {
 #endif
 
-/* ---------- Forge Release Version & Network Protocol Isolation (v2.4.1, 0x4628) */
+/* ---------- Forge Release Version & Network Protocol Isolation (v2.4.1) */
 
 #define FORGE_VERSION_STRING "2.4.2"
-#define FORGE_NETWORK_VERSION 0x4628
+/* (this fork's own: Content Extended's Forge is 0x4628, and the two do not
+play together. The browser lists one number alone: forge_get_network_version) */
+#define FORGE_NETWORK_VERSION 0x4777
 /* Standard (non-Forge) sessions use OpenCE's own HALO_PORT_NETWORK_VERSION
  * (port/linux/include/halo_port_limits.h), read in forge_get_network_version(),
  * so an upstream protocol bump never leaves Forge unable to join stock games. */

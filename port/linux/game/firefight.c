@@ -93,6 +93,13 @@ struct firefight_builtin_profile
 	byte progression_skulls;
 	byte generator_attackers;
 	byte vehicle_drops_enabled;
+	/* its loadout (_loadout_weapon_*; 0 and 0: Firefight's own, the assault
+	rifle and pistol of firefight_variant_options_default), and whether
+	it starts with Outbreak, which is no Reach skull (custom_skulls has not
+	got it): firefight_builtin_variant_options */
+	byte primary_weapon;
+	byte secondary_weapon;
+	byte outbreak;
 };
 
 static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES] =
@@ -133,7 +140,8 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_grunts,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, FALSE, _firefight_generator_attackers_50, FALSE
+		TRUE, FALSE, _firefight_generator_attackers_50, FALSE,
+		_loadout_weapon_pistol, _loadout_weapon_none
 	},
 	/* 3: Rocketfight */
 	{
@@ -146,7 +154,8 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_mixed,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_frequent,
-		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE,
+		_loadout_weapon_rocket_launcher, _loadout_weapon_pistol
 	},
 	/* 4: Floodfight */
 	{
@@ -158,7 +167,8 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_faction_flood,
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
-		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE,
+		_loadout_weapon_shotgun, _loadout_weapon_assault_rifle, TRUE
 	},
 	/* 5: Mythic Firefight */
 	{
@@ -174,6 +184,34 @@ static struct firefight_builtin_profile const built_in_firefight_profiles[NUMBER
 		_firefight_generator_fail_all,
 		_firefight_ordnance_per_round,
 		TRUE, TRUE, _firefight_generator_attackers_50, TRUE
+	},
+	/* 6: Fiesta: Firefight's rules, two random weapons at each spawn */
+	{
+		"fiesta",
+		L"Fiesta",
+		0, 7, 1, 3, 15, 0,
+		0UL,
+		_firefight_difficulty_normal,
+		_firefight_faction_covenant,
+		_firefight_generator_fail_all,
+		_firefight_ordnance_per_round,
+		TRUE, TRUE, _firefight_generator_attackers_50, TRUE,
+		_loadout_weapon_random, _loadout_weapon_random
+	},
+	/* 7: Grunt Fiesta: Gruntpocalypse's rules, and the same */
+	{
+		"grunt_fiesta",
+		L"Grunt Fiesta",
+		1, 10, 1, 3, 20, 0,
+		(1UL << _firefight_skull_grunt_birthday_party_bit) |
+			(1UL << _firefight_skull_catch_bit) |
+			(1UL << _firefight_skull_cowbell_bit),
+		_firefight_difficulty_heroic,
+		_firefight_faction_grunts,
+		_firefight_generator_fail_all,
+		_firefight_ordnance_per_round,
+		TRUE, FALSE, _firefight_generator_attackers_50, FALSE,
+		_loadout_weapon_random, _loadout_weapon_random
 	}
 };
 
@@ -607,7 +645,8 @@ long firefight_resolve_player_biped_tag(
 
 static void firefight_give_player_weapon(
 	long unit_index,
-	char const *weapon_tag_path)
+	char const *weapon_tag_path,
+	long add_mode)
 {
 	long weap_def;
 	long weap_obj;
@@ -623,7 +662,7 @@ static void firefight_give_player_weapon(
 	weap_obj = object_new(&placement);
 	if (weap_obj != NONE)
 	{
-		if (!unit_add_weapon_to_inventory(unit_index, weap_obj, 1))
+		if (!unit_add_weapon_to_inventory(unit_index, weap_obj, add_mode))
 			object_delete(weap_obj);
 	}
 }
@@ -641,7 +680,9 @@ static char const *const s_ff_loadout_weapon_paths[] =
 	"weapons\\needler\\needler"
 };
 
-static char const *firefight_resolve_loadout_weapon_path(byte weapon_choice, short salt)
+/* a loadout's weapon's tag; a random one is any weapon of the list the map
+has, other than `other` (the loadout's other weapon) */
+static char const *firefight_resolve_loadout_weapon_path(byte weapon_choice, short salt, char const *other)
 {
 	switch (weapon_choice)
 	{
@@ -649,21 +690,23 @@ static char const *firefight_resolve_loadout_weapon_path(byte weapon_choice, sho
 		return NULL;
 	case _loadout_weapon_random:
 	{
-		static char const *const s_fiesta_pool[7] =
-		{
-			"weapons\\assault rifle\\assault rifle",
-			"weapons\\pistol\\pistol",
-			"weapons\\shotgun\\shotgun",
-			"weapons\\sniper rifle\\sniper rifle",
-			"weapons\\rocket launcher\\rocket launcher",
-			"weapons\\plasma pistol\\plasma pistol",
-			"weapons\\plasma rifle\\plasma rifle"
-		};
 		static unsigned long s_fiesta_rng = 0x9E3779B9UL;
-		short pick;
+		char const *pool[NUMBEROF(s_ff_loadout_weapon_paths)];
+		short count = 0;
+		short index;
+
+		for (index = 0; index < (short)NUMBEROF(s_ff_loadout_weapon_paths); index++)
+		{
+			if (tag_loaded(WEAPON_DEFINITION_TAG, s_ff_loadout_weapon_paths[index]) != NONE &&
+				(!other || strcmp(other, s_ff_loadout_weapon_paths[index]) != 0))
+			{
+				pool[count++] = s_ff_loadout_weapon_paths[index];
+			}
+		}
+		if (!count)
+			return s_ff_loadout_weapon_paths[0];
 		s_fiesta_rng = s_fiesta_rng * 1664525UL + 1013904223UL + (unsigned long)game_time_get() + (unsigned long)salt * 97UL;
-		pick = (short)((s_fiesta_rng >> 8) % 7);
-		return s_fiesta_pool[PIN(pick, 0, 6)];
+		return pool[(s_fiesta_rng >> 8) % (unsigned long)count];
 	}
 	case _loadout_weapon_assault_rifle:   return s_ff_loadout_weapon_paths[0];
 	case _loadout_weapon_pistol:          return s_ff_loadout_weapon_paths[1];
@@ -695,6 +738,7 @@ void firefight_apply_player_spawn_traits(
 	short frag_grens = 4;
 	short plasma_grens = 2;
 	byte preset = opts ? opts->firefight_player_faction_mode : _firefight_loadout_standard;
+	boolean rocketfight;
 
 	if (!firefight_active() || player_index == NONE || unit_index == NONE)
 		return;
@@ -727,10 +771,19 @@ void firefight_apply_player_spawn_traits(
 	else if (shield_mult > 1.0f)
 		unit->object.shield_vitality = shield_mult;
 
-	/* Resolve MCC Arcade Firefight Loadout Preset, Custom Item Options Loadout, or Weapon Set */
-	if (!_wcsicmp(global_variant.human_readable_game_description, L"Rocketfight") ||
+	rocketfight = !_wcsicmp(global_variant.human_readable_game_description, L"Rocketfight") ||
 		global_variant.game_engine_variant.firefight.ordnance_drops == _firefight_ordnance_frequent ||
-		preset == _firefight_loadout_rocketfight)
+		preset == _firefight_loadout_rocketfight;
+
+	/* Resolve the rules' Loadout, MCC Arcade Firefight Loadout Preset, or Weapon Set */
+	if (opts && opts->loadout == _loadout_custom)
+	{
+		pri_weap = firefight_resolve_loadout_weapon_path(opts->primary_weapon, 1, NULL);
+		sec_weap = firefight_resolve_loadout_weapon_path(opts->secondary_weapon, 3, pri_weap);
+		if (rocketfight)
+			plasma_grens = 4;
+	}
+	else if (rocketfight)
 	{
 		pri_weap = "weapons\\rocket launcher\\rocket launcher";
 		sec_weap = "weapons\\pistol\\pistol";
@@ -756,19 +809,6 @@ void firefight_apply_player_spawn_traits(
 		sec_weap = "weapons\\plasma pistol\\plasma pistol";
 		frag_grens = 2;
 		plasma_grens = 4;
-	}
-	else if (!_wcsicmp(global_variant.human_readable_game_description, L"Fiesta") ||
-		preset == _firefight_loadout_fiesta)
-	{
-		pri_weap = firefight_resolve_loadout_weapon_path(_loadout_weapon_random, 1);
-		sec_weap = firefight_resolve_loadout_weapon_path(_loadout_weapon_random, 4);
-		frag_grens = 2;
-		plasma_grens = 2;
-	}
-	else if (opts && opts->loadout == _loadout_custom)
-	{
-		pri_weap = firefight_resolve_loadout_weapon_path(opts->primary_weapon, 1);
-		sec_weap = firefight_resolve_loadout_weapon_path(opts->secondary_weapon, 3);
 	}
 	else
 	{
@@ -809,10 +849,12 @@ void firefight_apply_player_spawn_traits(
 	}
 
 	unit_delete_all_weapons(unit_index);
+	/* (the primary in hand, the secondary holstered: game_engine_give_loadout) */
 	if (pri_weap)
-		firefight_give_player_weapon(unit_index, pri_weap);
+		firefight_give_player_weapon(unit_index, pri_weap, _unit_add_weapon_replace);
 	if (sec_weap && (!pri_weap || strcmp(pri_weap, sec_weap) != 0))
-		firefight_give_player_weapon(unit_index, sec_weap);
+		firefight_give_player_weapon(unit_index, sec_weap,
+			pri_weap ? _unit_add_weapon_normal : _unit_add_weapon_replace);
 	unit->unit.grenade_counts[_unit_grenade_human_fragmentation] = (char)frag_grens;
 	unit->unit.grenade_counts[_unit_grenade_covenant_plasma] = (char)plasma_grens;
 }
@@ -1341,6 +1383,20 @@ struct game_variant *build_game_variant_mythic_firefight(
 	return variant;
 }
 
+struct game_variant *build_game_variant_fiesta(
+	struct game_variant *variant)
+{
+	firefight_build_variant_by_name("fiesta", variant);
+	return variant;
+}
+
+struct game_variant *build_game_variant_grunt_fiesta(
+	struct game_variant *variant)
+{
+	firefight_build_variant_by_name("grunt_fiesta", variant);
+	return variant;
+}
+
 void firefight_variant_cleanup(
 	struct game_variant *variant)
 {
@@ -1371,6 +1427,10 @@ void firefight_variant_options_default(
 	if (!options)
 		return;
 	options->friendly_fire = _friendly_fire_on;
+	/* (as the rules' PRIMARY and SECONDARY WEAPON rows show it) */
+	options->loadout = _loadout_custom;
+	options->primary_weapon = _loadout_weapon_assault_rifle;
+	options->secondary_weapon = _loadout_weapon_pistol;
 	options->firefight_custom_skulls = 0UL;
 	options->firefight_generator_health = 2000;
 	options->firefight_score_life_threshold = FIREFIGHT_DEFAULT_SCORE_LIFE_BONUS;
@@ -1400,6 +1460,45 @@ void firefight_variant_options_default(
 	options->firefight_ai_weapon_sandbox = _firefight_ai_weapons_default;
 	options->firefight_friendly_ai = _firefight_friendly_ai_off;
 	options->firefight_ragdolls = TRUE;
+}
+
+/* a built-in variant's own options, over firefight_variant_options_default's:
+its loadout, shown on the rules' PRIMARY and SECONDARY WEAPON rows, and its
+Outbreak. A built-in is known by its name as the variant keeps it, cut to
+fit (firefight_build_variant_by_name) */
+void firefight_builtin_variant_options(
+	struct game_variant const *variant,
+	struct game_variant_options *options)
+{
+	short profile;
+
+	if (!variant || !options)
+		return;
+	for (profile = 0; profile < NUMBER_OF_BUILT_IN_FIREFIGHT_PROFILES; profile++)
+	{
+		struct firefight_builtin_profile const *p = &built_in_firefight_profiles[profile];
+		short index = 0;
+
+		while (index < 11 && p->display_name[index] &&
+			p->display_name[index] == variant->human_readable_game_description[index])
+		{
+			index++;
+		}
+		if (index < 11 && p->display_name[index] != variant->human_readable_game_description[index])
+			continue;
+		if (p->primary_weapon || p->secondary_weapon)
+		{
+			options->loadout = _loadout_custom;
+			options->primary_weapon = p->primary_weapon;
+			options->secondary_weapon = p->secondary_weapon;
+		}
+		if (p->outbreak)
+		{
+			options->firefight_starting_skulls[_skull_outbreak >> 5] |= 1UL << (_skull_outbreak & 31);
+			options->firefight_starting_skulls[1] |= FIREFIGHT_STARTING_SKULLS_EXACT;
+		}
+		return;
+	}
 }
 
 /* ---------- engine vtable implementation */

@@ -252,6 +252,8 @@ static struct built_in_firefight_profile_entry const built_in_History_profiles[
 	{ L"Rocketfight",       build_game_variant_rocketfight },
 	{ L"Floodfight",        build_game_variant_floodfight },
 	{ L"Mythic Firefight",  build_game_variant_mythic_firefight },
+	{ L"Fiesta",            build_game_variant_fiesta },
+	{ L"Grunt Fiesta",      build_game_variant_grunt_fiesta },
 };
 
 wchar_t const *playlist_profile_built_in_display_name(

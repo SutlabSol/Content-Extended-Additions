@@ -1892,9 +1892,10 @@ static boolean network_game_server_handle_message_client_broadcast_game_search(
 			/* port: any of them makes the game a modded one, which builds
 			without the mod cannot play: its own signature in the version's
 			place, and the version after the mod's bytes (halo_port_limits.h) */
-			if (advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] &
+			if ((advertisement.reserved[HALO_PORT_ADVERTISED_FLAGS_OFFSET] &
 				(HALO_PORT_ADVERTISED_RANDOMIZER_FLAG | HALO_PORT_ADVERTISED_SKULLS_FLAG |
-				HALO_PORT_ADVERTISED_TAG_SHARE_FLAG))
+				HALO_PORT_ADVERTISED_TAG_SHARE_FLAG)) ||
+				game->variant.game_engine_index == game_engine_firefight)
 			{
 				advertisement.reserved[HALO_PORT_ADVERTISED_VERSION_OFFSET] =
 					(byte)(HALO_PORT_ADVERTISED_MODDED_VERSION & 0xFF);
