@@ -1264,6 +1264,7 @@ void forge_runtime_reload_catalogs(void)
 	add_catalog_entry('flag', _forge_cat_objectives, 1, "objective\\ctf_flag_blue", "[CTF] Blue Flag Base");
 	add_catalog_entry('flag', _forge_cat_objectives, 1, "objective\\oddball_spawn", "[ODDBALL] Ball Spawn Marker");
 	add_catalog_entry('flag', _forge_cat_objectives, 1, "objective\\koth_hill", "[KOTH] Hill Marker");
+	add_catalog_entry('flag', _forge_cat_objectives, 1, "objective\\firefight_generator", "[FF] Generator");
 	add_catalog_entry('flag', _forge_cat_objectives, 1, "objective\\race_track", "[RACE] Race Marker / Checkpoint");
 
 	/* 1. The tags of the map's bake and the chosen Tag Injector profile (at the top of each category), then the pack's */
@@ -7277,6 +7278,13 @@ static int resolve_marker_kind_and_color(
 	}
 	if (group_tag == 'flag' || (tag_path && strncmp(tag_path, "objective\\", 10) == 0))
 	{
+		if (netgame_flag_type == FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR ||
+			(tag_path && strstr(tag_path, "firefight_generator")))
+		{
+			*out_mesh_kind = _marker_mesh_firefight_spawn;
+			*out_color_preset = _marker_color_blue_team;
+			return 1;
+		}
 		if (netgame_flag_type == 2 /* _netgame_flag_oddball_ball_spawn */ ||
 			(tag_path && strstr(tag_path, "oddball")))
 		{
@@ -7456,6 +7464,14 @@ static void draw_dropship_route_piece(float const *from, float const *to, int ki
 	draw_translucent_beam_3d(&p0, &p1, colors[kind], 3.0f);
 }
 
+/* the model of a Firefight generator, as a match shows it
+(firefight_generators.c's find_generator_scenery_tag): the map's, or read from
+Forge's pack, as it is not a multiplayer map's. NONE: the marker's mesh shows */
+static long forge_generator_model_tag(void)
+{
+	return forge_resolve_engine_tag('scen', "scenery\\c_uplink\\c_uplink", NULL);
+}
+
 static void render_world_objective_and_spawn_markers(void)
 {
 	int i, hill_id;
@@ -7526,7 +7542,8 @@ static void render_world_objective_and_spawn_markers(void)
 		about its middle, and pos may be its foot, so a margin) */
 		if (!is_hi)
 		{
-			float cull_radius = s_marker_meshes.meshes[mesh_kind].radius * 1.5f + 0.5f;
+			float cull_radius = s_marker_meshes.meshes[mesh_kind].radius * 1.5f +
+				(inst->netgame_flag_type == FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR ? 2.5f : 0.5f);
 
 			if (!render_frustum_sphere_visible(&render.frustum, &pos, cull_radius) ||
 				render_frustum_sphere_diameter_in_pixels(&render.frustum, &pos, cull_radius) < 2.0f)
@@ -7540,6 +7557,21 @@ static void render_world_objective_and_spawn_markers(void)
 		up.i = 0.0f;
 		up.j = 0.0f;
 		up.k = 1.0f;
+
+		/* (a generator as it will stand, its marker over it alone while it is
+		pointed at or held) */
+		if (inst->netgame_flag_type == FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR)
+		{
+			long generator_model = forge_generator_model_tag();
+
+			if (generator_model != NONE)
+			{
+				forge_model_look_use(generator_model, NULL);
+				draw_native_object_model_at(generator_model, NONE, NULL, &pos, &fwd, &up, 0, 0, 0);
+				if (!is_hi)
+					continue;
+			}
+		}
 
 		draw_translucent_marker_hw_parts(
 			&pos,
@@ -7680,6 +7712,7 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 	uint32_t actual_grp = 0;
 	uint32_t load_group;
 	long obj_def_idx;
+	int generator;
 
 	if (g_forge.active_modal != _forge_modal_spawn_palette || g_forge.h3_menu_stage != 1)
 		return;
@@ -7723,11 +7756,13 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 
 	/* An actor shows as the unit it is, read as any other palette tag is */
 	load_group = entry->group_tag == FORGE_GROUP_AI_SPAWN ? 'actv' : entry->group_tag;
+	/* (and a generator as its model: forge_generator_model_tag) */
+	generator = strstr(entry->tag_path, "firefight_generator") != NULL;
 
 	/* Check if this catalog entry is one of our 3D Translucent Spawn/Teleporter/Objective Markers!
 	(A vehicle's, a weapon's or a powerup's marker is where it goes back to in
 	the world: here it is shown as itself) */
-	if (load_group != 'actv' && load_group != 'vehi' && load_group != 'weap' && load_group != 'eqip' &&
+	if (load_group != 'actv' && load_group != 'vehi' && load_group != 'weap' && load_group != 'eqip' && !generator &&
 		resolve_marker_kind_and_color(entry->group_tag, entry->tag_path, -1, -1, &marker_kind, &marker_color))
 	{
 		ensure_objective_marker_meshes_loaded();
@@ -7799,7 +7834,8 @@ static void render_spawn_palette_3d_preview(long object_index, void const *light
 		}
 	}
 
-	obj_def_idx = load_group == 'actv' ? forge_ai_actor_unit_definition(entry->tag_path) :
+	obj_def_idx = generator ? forge_generator_model_tag() :
+		load_group == 'actv' ? forge_ai_actor_unit_definition(entry->tag_path) :
 		forge_resolve_engine_tag(entry->group_tag, entry->tag_path, &actual_grp);
 	if (obj_def_idx == NONE)
 		return;

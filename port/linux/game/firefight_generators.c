@@ -39,12 +39,18 @@ enum
 {
 	GENERATOR_LOCKDOWN_DURATION_TICKS = 30 * TICKS_PER_SECOND,
 	GENERATOR_LOCKDOWN_COOLDOWN_TICKS = 60 * TICKS_PER_SECOND,
-	GENERATOR_SHIELD_STUN_TICKS = 6 * TICKS_PER_SECOND
+	GENERATOR_SHIELD_STUN_TICKS = 6 * TICKS_PER_SECOND,
+	/* netgame flags: Forge's Firefight markers, and its generator objective
+	(forge_engine.h's FORGE_NETGAME_FLAG_FIREFIGHT_*) */
+	GENERATOR_NETGAME_FLAG_FIREFIGHT_SPAWN = 15,
+	GENERATOR_NETGAME_FLAG_OBJECTIVE = 16
 };
 
 extern struct game_variant global_variant;
 
 static long g_generator_scenery_indices[FIREFIGHT_MAX_GENERATORS] = { NONE, NONE, NONE };
+/* (each one's facing: an objective's, as Forge shows it, else none's) */
+static real g_generator_facings[FIREFIGHT_MAX_GENERATORS];
 
 /* ---------- helpers */
 
@@ -151,6 +157,7 @@ static void spawn_generator_objects_for_slot(short slot)
 
 		object_placement_data_new(&scen_placement, scen_tag, NONE);
 		scen_placement.position = gen->position;
+		vector3d_from_angle(&scen_placement.forward, g_generator_facings[slot]);
 		scen_placement.owner_team_index = _game_team_player;
 		scen_obj_index = object_new(&scen_placement);
 		if (scen_obj_index != NONE)
@@ -209,8 +216,23 @@ static void select_generator_locations(short count, real_point3d *out_points)
 	short found = 0;
 	short i;
 
+	csmemset(g_generator_facings, 0, sizeof(g_generator_facings));
 	if (scen)
 	{
+		/* those placed for it in Forge first, where they were placed; the
+		map's other places make up the number */
+		for (i = 0; i < scen->netgame_flags.count && found < count; i++)
+		{
+			struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
+				&scen->netgame_flags, i, struct scenario_netgame_flag);
+
+			if (flag && flag->type == GENERATOR_NETGAME_FLAG_OBJECTIVE)
+			{
+				g_generator_facings[found] = flag->facing;
+				out_points[found++] = flag->position;
+			}
+		}
+
 		for (i = 0; i < scen->netgame_flags.count && found < count; i++)
 		{
 			struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
@@ -218,7 +240,8 @@ static void select_generator_locations(short count, real_point3d *out_points)
 			short j;
 			boolean too_close = FALSE;
 
-			if (!flag)
+			if (!flag || flag->type == GENERATOR_NETGAME_FLAG_OBJECTIVE ||
+				flag->type == GENERATOR_NETGAME_FLAG_FIREFIGHT_SPAWN)
 				continue;
 
 			for (j = 0; j < found; j++)

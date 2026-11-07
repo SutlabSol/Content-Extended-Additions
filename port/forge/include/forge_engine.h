@@ -176,6 +176,9 @@ enum forge_route_piece
 /* ---------- Firefight Custom Spawn Marker ('ffsp' / netgame_flag type 15) */
 
 #define FORGE_NETGAME_FLAG_FIREFIGHT_SPAWN 15
+/* (an objective, 'flag' as CTF's and KOTH's are: where Firefight puts its
+generators, firefight_generators.c) */
+#define FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR 16
 
 enum forge_ff_spawn_type
 {

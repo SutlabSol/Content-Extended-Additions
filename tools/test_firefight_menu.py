@@ -248,3 +248,29 @@ def test_generator_attackers_default_to_half_of_a_wave_and_outweigh_the_players(
     perception = (ROOT / "source/ai/actor_perception.c").read_text()
     assert "firefight_actor_attacks_generator(actor_index, prop->unit_index)" in perception
     assert "generator_attacker_slot(i)" in SPAWNER_C
+
+
+def test_forge_s_generator_objective_is_where_firefight_puts_its_generators():
+    """first of the places, and never a place for enemies to spawn"""
+    engine = (ROOT / "port/forge/include/forge_engine.h").read_text()
+    tags = (ROOT / "port/forge/src/forge_runtime_tags.c").read_text()
+    generators = (ROOT / "port/linux/game/firefight_generators.c").read_text()
+    number = re.search(r"#define FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR (\d+)", engine).group(1)
+    assert f"GENERATOR_NETGAME_FLAG_OBJECTIVE = {number}" in generators
+    assert f"FF_NETGAME_FLAG_FIREFIGHT_GENERATOR = {number}" in SPAWNER_C
+    assert 'objective\\\\firefight_generator", "[FF] Generator"' in tags
+    placed = generators.index("flag->type == GENERATOR_NETGAME_FLAG_OBJECTIVE")
+    assert placed < generators.index("scen->players.count && found < count")
+    assert "flag->type != FF_NETGAME_FLAG_FIREFIGHT_GENERATOR" in SPAWNER_C
+
+
+def test_forge_shows_the_generator_a_match_will_have():
+    """the model Firefight spawns first, in the world and the palette, turned as it will stand"""
+    tags = (ROOT / "port/forge/src/forge_runtime_tags.c").read_text()
+    generators = (ROOT / "port/linux/game/firefight_generators.c").read_text()
+    model = re.search(r"candidate_scenery\[\] = \{\s+\"([^\"]+)\"", generators).group(1)
+    assert f"forge_resolve_engine_tag('scen', \"{model}\", NULL)" in tags
+    assert "draw_native_object_model_at(generator_model, NONE, NULL, &pos, &fwd, &up, 0, 0, 0)" in tags
+    assert "obj_def_idx = generator ? forge_generator_model_tag()" in tags
+    assert "g_generator_facings[found] = flag->facing" in generators
+

@@ -71,6 +71,8 @@ enum
 
 	/* Custom Forge Firefight Spawn Marker ('ffsp' -> scenario_netgame_flag.type == 15) */
 	FF_NETGAME_FLAG_FIREFIGHT_SPAWN = 15,
+	/* (Forge's generator objective, firefight_generators.c's: no spawn point) */
+	FF_NETGAME_FLAG_FIREFIGHT_GENERATOR = 16,
 	FF_SPAWN_TYPE_AI_INFANTRY       = 0,
 	FF_SPAWN_TYPE_AI_AND_VEHICLES   = 1,
 	FF_SPAWN_TYPE_ENEMY_VEHICLE     = 2,
@@ -697,7 +699,8 @@ static void discover_map_spawn_points(void)
 	{
 		struct scenario_netgame_flag *flag = TAG_BLOCK_GET_ELEMENT(
 			&scen->netgame_flags, i, struct scenario_netgame_flag);
-		if (flag && flag->type != FF_NETGAME_FLAG_FIREFIGHT_SPAWN)
+		if (flag && flag->type != FF_NETGAME_FLAG_FIREFIGHT_SPAWN &&
+			flag->type != FF_NETGAME_FLAG_FIREFIGHT_GENERATOR)
 			add_spawn_point(&flag->position, flag->facing);
 	}
 	for (i = 0; i < scen->netgame_equipment.count && g_spawn_point_count < MAX_SPAWN_POINTS; i++)

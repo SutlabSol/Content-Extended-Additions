@@ -3092,6 +3092,7 @@ int32_t forge_3d_spawn_object_at_slot(
 	{
 		/* _netgame_flag_ctf_flag = 0, _netgame_flag_oddball_ball_spawn = 2, _netgame_flag_race_track = 3, _netgame_flag_hill_flag = 8 */
 		inst->netgame_flag_type =
+			strstr(tag_path, "firefight_generator") ? FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR :
 			strstr(tag_path, "oddball") ? 2 :
 			strstr(tag_path, "koth") ? 8 :
 			strstr(tag_path, "race") ? 3 : 0;
@@ -4285,6 +4286,11 @@ void forge_init_map_scenario_entities(void)
 		{
 			grp = 'ffsp';
 			label_path = "spawn\\firefight_spawn";
+		}
+		else if (flg->type == FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR)
+		{
+			grp = 'flag';
+			label_path = "objective\\firefight_generator";
 		}
 		else
 		{
@@ -7560,6 +7566,9 @@ void forge_3d_update(float dt)
 					else if (inst->netgame_flag_type == _netgame_flag_race_track)
 						snprintf(g_forge.hovered_object_label, sizeof(g_forge.hovered_object_label),
 							"Race Node #%d", (int)inst->team_designator);
+					else if (inst->netgame_flag_type == FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR)
+						snprintf(g_forge.hovered_object_label, sizeof(g_forge.hovered_object_label),
+							"Firefight Generator");
 					else
 					{
 						char const *slash = strrchr(inst->tag_path, '\\');
@@ -8436,6 +8445,8 @@ static void draw_teleporter_and_objective_markers(
 			}
 
 			snprintf(lbl, sizeof(lbl), "%s #%d", kind, (int)inst->team_designator);
+			if (inst->netgame_flag_type == FORGE_NETGAME_FLAG_FIREFIGHT_GENERATOR)
+				snprintf(lbl, sizeof(lbl), "GENERATOR");
 			draw_ce_menu_str_box(0, font_index, (short)(sx - 90), (short)(sy + 8), (short)(sx + 90), (short)(sy + 34), 2, lbl, border_col);
 		}
 	}
