@@ -333,14 +333,29 @@ char const *forge_action_prompt(int action)
 	return dst;
 }
 
-/* (the Switch's) whether Forge's menus take the right face button, marked A, as
-A and the bottom one, marked B, as B, as the game's menus do
-(controls.nintendo_menu_buttons: xinput_sdl.c's menu_buttons_swapped); the
-buttons are named by where they sit everywhere else */
+/* (the Switch's) whether Forge's menus and its monitor, whose A and B are all
+Forge's, take the right face button, marked A, as A and the bottom one, marked
+B, as B, as the game's menus do (controls.nintendo_menu_buttons: xinput_sdl.c's
+menu_buttons_swapped); the buttons are named by where they sit everywhere else,
+a Spartan's A being a jump */
 static int forge_menu_buttons_swapped(void)
 {
 #ifdef HALO_SWITCH
-	return g_forge.active_modal != _forge_modal_none && config_boolean("controls.nintendo_menu_buttons");
+	return (g_forge.active_modal != _forge_modal_none || g_forge.mode == _forge_mode_3d_monitor) &&
+		config_boolean("controls.nintendo_menu_buttons");
+#else
+	return 0;
+#endif
+}
+
+/* whether the pad's A and B are still to be swapped here: a game's menu up over
+Forge (its pause menu, the controls screen) has swapped them already */
+static int forge_pad_buttons_to_swap(void)
+{
+#ifdef HALO_SWITCH
+	extern int xinput_menu_buttons_swapped(void);
+
+	return forge_menu_buttons_swapped() && !xinput_menu_buttons_swapped();
 #else
 	return 0;
 #endif
@@ -372,8 +387,8 @@ void forge_poll_controller_state(float *out_lx, float *out_ly, float *out_rx, fl
 		int const deadzone = 6200;
 		int const pressed = 30;
 
-		s_gp_btn_down[FORGE_GP_A]          = pad.analog[forge_menu_buttons_swapped() ? 1 : 0] >= pressed;
-		s_gp_btn_down[FORGE_GP_B]          = pad.analog[forge_menu_buttons_swapped() ? 0 : 1] >= pressed;
+		s_gp_btn_down[FORGE_GP_A]          = pad.analog[forge_pad_buttons_to_swap() ? 1 : 0] >= pressed;
+		s_gp_btn_down[FORGE_GP_B]          = pad.analog[forge_pad_buttons_to_swap() ? 0 : 1] >= pressed;
 		s_gp_btn_down[FORGE_GP_X]          = pad.analog[2] >= pressed;
 		s_gp_btn_down[FORGE_GP_Y]          = pad.analog[3] >= pressed;
 		s_gp_btn_down[FORGE_GP_BACK]       = (pad.buttons & 0x0020) != 0;

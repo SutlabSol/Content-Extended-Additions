@@ -1803,6 +1803,13 @@ static BOOL menu_buttons_swapped(BOOL menus)
 #endif
 }
 
+/* whether the pad as the game gets it has the menus' swap in it now (Forge's own swap goes on top of it:
+forge_3d_mode.c) */
+int xinput_menu_buttons_swapped(void)
+{
+	return menu_buttons_swapped(menus_up);
+}
+
 /* the bottom and right face buttons held when the menus' swap of them starts or ends count as up until let go of:
 the right button that chose the level is not the game's B, a melee, at its first frame (as keys_held_over_switch) */
 static void face_buttons_held_over_swap(SDL_Gamepad *gamepad, BOOL swap, BOOL *held_back)

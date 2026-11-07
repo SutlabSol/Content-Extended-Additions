@@ -3092,17 +3092,16 @@ WIDGET_PATCHES = {
     # (the level's words a little smaller, for the records' three lines
     # beneath them: _level_records)
     "main_menu/solo_level_select/replay_level_right_data": {"set": {"text_scale": LEVEL_DATA_TEXT_SCALE}},
-    # (their IMPORT, Android's: MAP_IMPORT)
-    "main_menu/solo_level_select/solo_level_select_button_bar": {"insert_before": {
-        "main_menu/solo_level_select/solo_level_select_button_ok": [
-            f'<child widget="{MAP_IMPORT}" x="250" y="1" platform="android"/>']}, "children": [
+    # (their IMPORT MAP, Android's, at the top right of the screen though the
+    # bar's, as the Daily Challenges' RANDOM RUN: MAP_IMPORT)
+    "main_menu/solo_level_select/solo_level_select_button_bar": {"children": [
         f'<child widget="{LEADERBOARD_BUTTON}" x="24" y="1"/>',
         f'<child widget="{MAP_MANAGE_BUTTON}" x="{MAP_MANAGE_BUTTON_X}" y="1"/>',
+        f'<child widget="{MAP_IMPORT}" x="488" y="-374" platform="android"/>',
     ]},
-    f"{MT}/mp_map_select/mp_map_select_button_bar": {"insert_before": {
-        f"{MT}/mp_map_select/mp_map_select_button_ok": [
-            f'<child widget="{MAP_IMPORT}" x="250" y="1" platform="android"/>']}, "children": [
+    f"{MT}/mp_map_select/mp_map_select_button_bar": {"children": [
         f'<child widget="{MAP_MANAGE_BUTTON}" x="{MAP_MANAGE_BUTTON_X}" y="1"/>',
+        f'<child widget="{MAP_IMPORT}" x="488" y="-374" platform="android"/>',
     ]},
     f"{MT}/join_game/header_join_game": {"children": [
         f'<child widget="{MT}/join_game/header_server_browser"/>',
@@ -4700,7 +4699,7 @@ def _map_kind() -> list:
                        # (Content Extended's saved Forge maps: port/forge's
                        # forge_hooks.c lists them, a build without Forge none)
                        "FORGE MAPS"])
-    lines += _text_button(MAP_IMPORT, "IMPORT", ['<on event="a" run="port map import"/>'])
+    lines += _text_button(MAP_IMPORT, "IMPORT MAP", ['<on event="a" run="port map import"/>'])
     return lines
 
 

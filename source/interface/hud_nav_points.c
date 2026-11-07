@@ -697,8 +697,16 @@ void custom_render_nav_point(
 
 	{
 		real_point3d cam_pos;
+		long unit_index = local_player_get_player_index(local_player_index) == NONE ?
+			NONE :
+			player_get(local_player_get_player_index(local_player_index))->unit_index;
 
-		unit_get_camera_position(local_player_get_player_index(local_player_index) == NONE ? NONE : player_get(local_player_get_player_index(local_player_index))->unit_index, &cam_pos);
+		/* port: a player waiting to respawn has no unit, and Firefight's
+		arrows are drawn all the same (firefight_hud.c): from the camera */
+		if (unit_index != NONE)
+			unit_get_camera_position(unit_index, &cam_pos);
+		else
+			cam_pos = render.camera.position;
 		distance = distance3d(&cam_pos, position_pointer);
 	}
 

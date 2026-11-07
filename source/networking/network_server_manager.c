@@ -3832,7 +3832,10 @@ boolean server_needs_more_teams(
 {
 	boolean needs_more_teams = FALSE;
 
-	if (server->game.variant.universal_variant.teams)
+	/* port: (Firefight's players are all on one team, against the AI: the
+	other is never filled, and a lobby of two machines would never start) */
+	if (server->game.variant.universal_variant.teams &&
+		server->game.variant.game_engine_index != game_engine_firefight)
 	{
 		short player_count_by_team[NUMBER_OF_MULTIPLAYER_TEAMS] = { 0, 0 };
 		long player_index;
