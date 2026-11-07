@@ -47,7 +47,7 @@
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/multiplayer_type_list_ext_desc" controller="1" left="275" top="78" width="320" height="322" bitmap="bitmaps/list_field" color="#FF0080FF">
 		<child widget="main_menu/multiplayer_type_select/multiplayer_options_pic"/>
-		<child widget="main_menu/multiplayer_type_select/multiplayer_options_txt" y="37"/>
+		<child widget="main_menu/multiplayer_type_select/multiplayer_options_txt" y="20"/>
 		<child widget="main_menu/current_profile_name"/>
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/multiplayer_type_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items" description="main_menu/multiplayer_type_select/multiplayer_type_list_ext_desc">

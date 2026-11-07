@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- The port's multiplayer screens, in the PC version's style (tools/port_settings.py) -->
 <menus>
-	<widget name="main_menu/solo_level_select/replay_level_right_record" type="text" controller="1" left="417" top="334" width="146" height="64" font="ui\small_ui" color="#FFFFFFFF">
+	<widget name="main_menu/solo_level_select/replay_level_right_record" type="text" controller="1" left="410" top="342" width="214" height="60" font="ui\small_ui" color="#FFD8EEFF">
 	</widget>
 	<widget name="main_menu/solo_level_select/difficulty_badge" controller="1" width="22" height="24" bitmap="main_menu/solo_level_select/difficulty_badges">
 	</widget>
@@ -119,7 +119,7 @@
 		<child widget="main_menu/map_manager/maps_list"/>
 		<child widget="main_menu/map_manager/header_maps"/>
 	</widget>
-	<widget name="main_menu/map_manager/header_maps" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/map_manager/header_maps">
+	<widget name="main_menu/map_manager/header_maps" controller="1" left="35" top="11" width="512" height="59" bitmap="main_menu/map_manager/header_maps">
 	</widget>
 	<widget name="main_menu/map_manager/maps_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_children" description="main_menu/map_manager/map_details">
 		<data input="port maps update"/>
@@ -143,92 +143,92 @@
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_2" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_3" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_4" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_5" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_6" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_7" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_8" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_9" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_10" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
 	<widget name="main_menu/map_manager/op_map_11" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port maps choose"/>
 		<on event="start" run="port maps choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/map_manager/map_name" x="12"/>
-		<child widget="main_menu/map_manager/map_state" x="250"/>
+		<child widget="main_menu/map_manager/map_state" x="224"/>
 	</widget>
-	<widget name="main_menu/map_manager/map_name" type="text" controller="1" width="238" height="22" font="ui\large_ui" color="#FF2896FF" text_y="4">
+	<widget name="main_menu/map_manager/map_name" type="text" controller="1" width="210" height="22" font="ui\large_ui" color="#FFC8E6FF" text_y="4">
 	</widget>
-	<widget name="main_menu/map_manager/map_state" type="text" controller="1" width="134" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="6" text_flags="no_focus_test">
+	<widget name="main_menu/map_manager/map_state" type="text" controller="1" width="110" height="22" font="ui\small_ui" color="#FF58B4FF" align="center" text_y="6" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/map_manager/map_details" width="640" height="480">
 		<child widget="main_menu/map_manager/map_details_name"/>
 		<child widget="main_menu/map_manager/map_details_text"/>
 		<child widget="main_menu/map_manager/map_picture"/>
 	</widget>
-	<widget name="main_menu/map_manager/map_details_name" type="text" controller="1" left="412" top="84" width="200" height="44" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/map_manager/map_details_name" type="text" controller="1" left="398" top="80" width="216" height="44" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
-	<widget name="main_menu/map_manager/map_details_text" type="text" controller="1" left="412" top="130" width="200" height="109" font="ui\small_ui" color="#FF2896FF">
+	<widget name="main_menu/map_manager/map_details_text" type="text" controller="1" left="398" top="126" width="216" height="104" font="ui\small_ui" color="#FF58B4FF">
 	</widget>
-	<widget name="main_menu/map_manager/map_picture" controller="1" left="412" top="239" width="200" height="163" bitmap="blank">
+	<widget name="main_menu/map_manager/map_picture" controller="1" left="395" top="236" width="224" height="158" bitmap="blank">
 	</widget>
 	<widget name="main_menu/map_manager/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<child widget="main_menu/map_manager/button_back" x="510" y="1"/>

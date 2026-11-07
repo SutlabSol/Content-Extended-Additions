@@ -9,7 +9,7 @@
 		<child widget="main_menu/social/header_social"/>
 		<child widget="main_menu/social/social_card"/>
 	</widget>
-	<widget name="main_menu/social/header_social" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/social/header_social">
+	<widget name="main_menu/social/header_social" controller="1" left="35" top="11" width="512" height="59" bitmap="main_menu/social/header_social">
 	</widget>
 	<widget name="main_menu/social/social_card" type="text" controller="1" left="20" top="73" width="600" height="335" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
@@ -35,89 +35,89 @@
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_2" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_3" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_4" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_5" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_6" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_7" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_8" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_9" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_10" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
 	<widget name="main_menu/social/op_soc_11" width="390" height="28" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/sel_list_item_bkd" color="#FF2896FF">
 		<on event="a" run="port social choose"/>
 		<on event="start" run="port social choose"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 		<child widget="main_menu/social/social_name" x="12"/>
-		<child widget="main_menu/social/social_state" x="250"/>
+		<child widget="main_menu/social/social_state" x="224"/>
 	</widget>
-	<widget name="main_menu/social/social_name" type="text" controller="1" width="238" height="22" font="ui\large_ui" color="#FF2896FF" text_y="4">
+	<widget name="main_menu/social/social_name" type="text" controller="1" width="210" height="22" font="ui\large_ui" color="#FFC8E6FF" text_y="4">
 	</widget>
-	<widget name="main_menu/social/social_state" type="text" controller="1" width="134" height="22" font="ui\small_ui" color="#FF2896FF" align="center" text_y="6" text_flags="no_focus_test">
+	<widget name="main_menu/social/social_state" type="text" controller="1" width="110" height="22" font="ui\small_ui" color="#FF58B4FF" align="center" text_y="6" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/social/social_details" width="640" height="480">
 		<child widget="main_menu/social/social_details_name"/>
 		<child widget="main_menu/social/social_details_text"/>
 	</widget>
-	<widget name="main_menu/social/social_details_name" type="text" controller="1" left="422" top="84" width="194" height="44" font="ui\large_ui" color="#FFFFFFFF">
+	<widget name="main_menu/social/social_details_name" type="text" controller="1" left="398" top="80" width="216" height="44" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>
-	<widget name="main_menu/social/social_details_text" type="text" controller="1" left="422" top="130" width="194" height="272" font="ui\small_ui" color="#FF2896FF">
+	<widget name="main_menu/social/social_details_text" type="text" controller="1" left="398" top="126" width="216" height="272" font="ui\small_ui" color="#FF58B4FF">
 	</widget>
 	<widget name="main_menu/social/button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<child widget="main_menu/social/button_join" x="230" y="1"/>
@@ -139,9 +139,9 @@
 		<on event="start" run="port social back"/>
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
-	<widget name="main_menu/social/social_home" type="text" controller="1" left="316" top="160" width="304" height="110" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	<widget name="main_menu/social/social_home" type="text" controller="1" left="316" top="156" width="302" height="130" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
-	<widget name="main_menu/social/social_home_chat" type="text" controller="1" left="316" top="276" width="304" height="170" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
+	<widget name="main_menu/social/social_home_chat" type="text" controller="1" left="316" top="290" width="302" height="136" font="ui\small_ui" color="#FFFFFFFF" text_flags="no_focus_test">
 	</widget>
 	<widget name="main_menu/social/y_butn_social" width="16" height="20">
 	</widget>

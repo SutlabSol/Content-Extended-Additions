@@ -2842,21 +2842,59 @@ static short social_chat_open_draw(
 
 	bounds.y0 = top;
 	bounds.y1 = (short)(top + line_height);
+	/* Glowing cyan sci-fi channel bar with chamfered right '>' tip */
+	{
+		short bar_x0 = (short)(left - SOCIAL_CHAT_PADDING);
+		short bar_x1 = (short)(left + width + SOCIAL_CHAT_PADDING);
+		short bar_y0 = (short)(top - 2);
+		short bar_y1 = (short)(top + line_height + 2);
+		extern void ui_draw_chat_bar_textures(
+			real bx0, real by0, real bx1, real by1,
+			real tx0, real ty0, real tx1, real ty1,
+			unsigned long color);
+
+		/* High-resolution generated chat channel bar frame */
+		ui_draw_chat_bar_textures(
+			(real)(bar_x0 - 3), (real)(bar_y0 - 3),
+			(real)(bar_x1 + 4), (real)(bar_y1 + 3),
+			0.0f, 0.0f, 0.0f, 0.0f,
+			0xFFFFFFFFUL);
+	}
 	for (channel = 0; channel < NUMBER_OF_SOCIAL_CHAT_CHANNELS; channel++)
 	{
 		wchar_t name[16];
 		boolean usable = social_chat_channel_usable(channel) == channel;
+		short name_w;
 
 		social_chat_wide_from_ascii(social_chat_channel_names[channel], name, NUMBEROF(name));
+		name_w = social_chat_width(name, NONE);
+		if (channel == social_chat.channel)
+		{
+			/* High-resolution generated glowing cyan active tab with slanted '/' right edge & left flare */
+			short tab_x0 = (short)(channel == 0 ? left - SOCIAL_CHAT_PADDING : x - 7);
+			short tab_x1 = (short)(x + name_w + 11);
+			short tab_y0 = (short)(top - 2);
+			short tab_y1 = (short)(top + line_height + 2);
+			extern void ui_draw_chat_bar_textures(
+				real bx0, real by0, real bx1, real by1,
+				real tx0, real ty0, real tx1, real ty1,
+				unsigned long color);
+
+			ui_draw_chat_bar_textures(
+				0.0f, 0.0f, 0.0f, 0.0f,
+				(real)(tab_x0 - 4), (real)(tab_y0 - 4),
+				(real)(tab_x1 + 10), (real)(tab_y1 + 3),
+				0xFFFFFFFFUL);
+		}
 		bounds.x0 = x;
 		bounds.x1 = (short)(left + width);
-		social_chat_text(font_index, &bounds, channel == social_chat.channel ? &blue : usable ? &white : &grey, name);
+		social_chat_text(font_index, &bounds, channel == social_chat.channel ? &white : usable ? &white : &grey, name);
 		/* (half the gap either side of it its own) */
 		social_chat_hits.channels[channel].x0 = (short)(x + shift - (channel ? line_height / 2 : 0));
-		social_chat_hits.channels[channel].x1 = (short)(x + shift + social_chat_width(name, NONE) + line_height / 2);
+		social_chat_hits.channels[channel].x1 = (short)(x + shift + name_w + line_height / 2);
 		social_chat_hits.channels[channel].y0 = bounds.y0;
 		social_chat_hits.channels[channel].y1 = bounds.y1;
-		x = (short)(x + social_chat_width(name, NONE) + line_height);
+		x = (short)(x + name_w + line_height + 6);
 	}
 	top = (short)(top + line_height);
 	csmemset(&social_chat_hits.peer, 0, sizeof(social_chat_hits.peer));
@@ -2903,24 +2941,34 @@ static short social_chat_open_draw(
 			typed[length + 1] = 0;
 			length++;
 		}
-		bounds.x0 = left;
-		bounds.x1 = (short)(left + width);
-		bounds.y0 = top;
-		bounds.y1 = (short)(top + line_height);
-		for (;;)
 		{
-			ustrncpy(text, L"> ", NUMBEROF(text) - 1);
-			text[NUMBEROF(text) - 1] = 0;
-			ustrncat(text, typed + start, NUMBEROF(text) - 1 - ustrlen(text));
-			if (start >= length || social_chat_width(text, NONE) <= width - 4)
-				break;
-			start++;
+			static real_argb_color const prompt_col = { 1.0f, 0.72f, 0.80f, 0.88f };
+			rectangle2d prompt_bg;
+
+			prompt_bg.x0 = (short)(left - SOCIAL_CHAT_PADDING);
+			prompt_bg.x1 = (short)(left + width + SOCIAL_CHAT_PADDING);
+			prompt_bg.y0 = (short)(top + 6);
+			prompt_bg.y1 = (short)(top + line_height + 8);
+			draw_quad(&prompt_bg, 0x70020814UL);
+			bounds.x0 = left;
+			bounds.x1 = (short)(left + width);
+			bounds.y0 = (short)(top + 6);
+			bounds.y1 = (short)(top + line_height + 6);
+			for (;;)
+			{
+				ustrncpy(text, L"> ", NUMBEROF(text) - 1);
+				text[NUMBEROF(text) - 1] = 0;
+				ustrncat(text, typed + start, NUMBEROF(text) - 1 - ustrlen(text));
+				if (start >= length || social_chat_width(text, NONE) <= width - 4)
+					break;
+				start++;
+			}
+			social_chat_text(font_index, &bounds, social_chat.open ? &white : &prompt_col, text);
+			top = (short)(top + line_height + 6);
 		}
-		social_chat_text(font_index, &bounds, social_chat.open ? &white : &grey, text);
-		top = (short)(top + line_height);
 	}
-	/* (no hint of the keys: only that the fork's chat is not reached) */
-	if (!social_chat_online())
+	/* (no hint of the keys: only that the fork's chat is not reached when open) */
+	if (social_chat.open && !social_chat_online())
 	{
 		wchar_t wide[64];
 
@@ -3128,9 +3176,9 @@ static void social_chat_draw_in(
 	left = (short)(screen_width * SOCIAL_CHAT_LEFT_PERCENT / 100);
 	width = (short)(screen_width * SOCIAL_CHAT_WIDTH_PERCENT / 100);
 	/* (open or docked: the channels, who a private line goes to, the line
-	typed, and that the fork's chat is offline) */
+	typed, and that the fork's chat is offline when open) */
 	foot_rows = shown_open ? (short)(2 + (social_chat.channel == _social_chat_private) +
-		!social_chat_online()) : 0;
+		(social_chat.open && !social_chat_online())) : 0;
 	rows_shown = social_chat.open ? SOCIAL_CHAT_LINES_OPEN : SOCIAL_CHAT_LINES_CLOSED;
 	if (docked)
 	{
@@ -3213,7 +3261,18 @@ static void social_chat_draw_in(
 		panel.x1 = (short)(left + width);
 		panel.y0 = top;
 		panel.y1 = bottom;
-		draw_quad(&panel, (pixel32)0x99 << 24);
+		if (!docked || social_chat.open || social_chat.dock_chosen)
+		{
+			draw_quad(&panel, 0xB8041024UL);
+		}
+		else if (rows_used > 0)
+		{
+			rectangle2d lines_bg = panel;
+			lines_bg.y0 = (short)MAX(top, bottom - SOCIAL_CHAT_PADDING - (rows_used + foot_rows) * line_height - 2);
+			lines_bg.y1 = (short)(bottom - SOCIAL_CHAT_PADDING - foot_rows * line_height - 2);
+			if (lines_bg.y1 > lines_bg.y0)
+				draw_quad(&lines_bg, 0x58020A18UL);
+		}
 		social_chat_hits.box = panel;
 		social_chat_hits.box.x0 = (short)(panel.x0 + shift);
 		social_chat_hits.box.x1 = (short)(panel.x1 + shift);

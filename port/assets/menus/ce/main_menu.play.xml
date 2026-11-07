@@ -15,10 +15,10 @@
 	</widget>
 	<widget name="main_menu/play/play_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items">
 		<on event="created" run="port play init"/>
-		<child widget="main_menu/main_menu_item_load_camp" x="194" y="208"/>
+		<child widget="main_menu/main_menu_item_load_camp" x="192" y="208"/>
 		<child widget="main_menu/main_menu_item_multiplayer" x="192" y="240"/>
 		<child widget="main_menu/play/menu_item_firefight" x="192" y="272"/>
-		<child widget="main_menu/campaign_select/menu_item_daily" x="160" y="304"/>
+		<child widget="main_menu/campaign_select/menu_item_daily" x="192" y="304"/>
 		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="336"/>
 	</widget>
 	<widget name="main_menu/main_menu_item_forge" type="text" width="256" height="33" bitmap="main_menu/menu_forge">

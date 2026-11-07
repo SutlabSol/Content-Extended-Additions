@@ -676,6 +676,8 @@ struct widget_instance;
 #include "saved games/playlist_profile.h"
 #include "saved games/saved_game_files.h"
 #include "scenario/scenario.h"
+#include "structures/structure_bsp_definitions.h"
+#include "game/game.h"
 #include "shell/shell_xbox.h"
 #include "sound/game_sound.h"
 #include "sound/sound_definitions.h"
@@ -7384,6 +7386,8 @@ static void ui_widgets_process_mouse(
 	return;
 }
 
+static void ui_draw_submenu_footer_and_header_flare(short x0, short x1, real alpha);
+static void ui_draw_submenu_left_list_frame(real alpha);
 
 static void widget_instance_render_recursive(
 	struct widget_instance *widget,
@@ -7513,6 +7517,16 @@ static void widget_instance_render_recursive(
 			bounds.x0 -= (short)extra;
 			bounds.x1 = (short)(bounds.x1 + extra);
 		}
+		else if (definition->bounds.x0 == 35 && definition->bounds.y0 == 11 &&
+			widget->name && !strncmp(widget->name, "header_", 7))
+		{
+			short hdr_shift = (short)MIN(extra, 55);
+			short hdr_dy = (widget->vertical_offset == -21 || offset.y == -21) ? 16 : -5;
+			bounds.x0 -= hdr_shift;
+			bounds.x1 -= hdr_shift;
+			bounds.y0 += hdr_dy;
+			bounds.y1 += hdr_dy;
+		}
 		bounds.x0 += offset.x;
 		bounds.x1 += offset.x;
 		bounds.y0 += offset.y;
@@ -7525,6 +7539,8 @@ static void widget_instance_render_recursive(
 			clip->x1 += offset.x;
 			clip->y0 += offset.y;
 			clip->y1 += offset.y;
+			if (bounds.x0 < offset.x)
+				clip->x0 -= (short)extra;
 		}
 		if (widen_to_screen && clip)
 		{
@@ -7556,6 +7572,13 @@ static void widget_instance_render_recursive(
 			boolean shown = TRUE;
 			boolean stretched = tag_preview_picture_shown || (custom_edition_picture &&
 				custom_edition_maps_campaign_level(widget->animation.current_frame_index) == NONE);
+			boolean is_right_pic = widget->name && (
+				!strcmp(widget->name, "replay_level_right_pic") ||
+				!strcmp(widget->name, "load_level_right_pic") ||
+				!strcmp(widget->name, "mp_map_right_pic") ||
+				!strcmp(widget->name, "gametype_right_pic") ||
+				!strcmp(widget->name, "tag_preview") ||
+				!strcmp(widget->name, "map_picture"));
 
 			if (pc_menu_frame_placement(bitmap, &frame_x, &frame_y, &frame_width, &frame_height))
 			{
@@ -7567,6 +7590,13 @@ static void widget_instance_render_recursive(
 				texels.y1 = (short)((long)(bounds.y1 - bounds.y0) * bitmap->height / frame_height);
 				shown = bounds.x1 > bounds.x0 && bounds.y1 > bounds.y0;
 			}
+			else if (is_right_pic && !stretched && bitmap->width >= 140 && bitmap->height >= 114)
+			{
+				texels.x0 = 0;
+				texels.y0 = 0;
+				texels.x1 = 140;
+				texels.y1 = 114;
+			}
 			if (shown)
 			{
 				draw_bitmap_in_rect(
@@ -7577,6 +7607,45 @@ static void widget_instance_render_recursive(
 					color,
 					&multitexture_params,
 					FALSE);
+				if (widen_to_screen && widget->name && !strcmp(widget->name, "gradient"))
+				{
+					ui_draw_submenu_footer_and_header_flare(bounds.x0, bounds.x1, alpha);
+				}
+				else if (widget->name && (!strcmp(widget->name, "sel_list_desc_bkd") || !strcmp(widget->name, "description_box")))
+				{
+					ui_draw_submenu_left_list_frame(alpha);
+				}
+				if (is_right_pic && (bounds.x1 - bounds.x0) >= 130 && (bounds.y1 - bounds.y0) >= 90)
+				{
+					short ch = 13, row;
+					rectangle2d r;
+					pixel32 c_bg = modulate_pixel32_by_real_alpha(0xFF06152D, alpha);
+					pixel32 c_bdr = modulate_pixel32_by_real_alpha(0xDC38A8FF, alpha);
+					pixel32 c_hi = modulate_pixel32_by_real_alpha(0xF08CE8FF, alpha);
+
+					/* top, bottom, left, right 1px cyan frame around the preview picture */
+					r.x0 = bounds.x0; r.y0 = bounds.y0; r.x1 = (short)(bounds.x1 - ch); r.y1 = (short)(bounds.y0 + 1);
+					draw_quad(&r, c_bdr);
+					r.x0 = bounds.x0; r.y0 = (short)(bounds.y1 - 1); r.x1 = bounds.x1; r.y1 = bounds.y1;
+					draw_quad(&r, c_bdr);
+					r.x0 = bounds.x0; r.y0 = bounds.y0; r.x1 = (short)(bounds.x0 + 1); r.y1 = bounds.y1;
+					draw_quad(&r, c_bdr);
+					r.x0 = (short)(bounds.x1 - 1); r.y0 = (short)(bounds.y0 + ch); r.x1 = bounds.x1; r.y1 = bounds.y1;
+					draw_quad(&r, c_bdr);
+					/* top-right diagonal chamfer mask + glowing diagonal edge */
+					for (row = 0; row < ch; row++)
+					{
+						short cut_x = (short)(bounds.x1 - ch + row);
+						r.x0 = cut_x;
+						r.y0 = (short)(bounds.y0 + row);
+						r.x1 = bounds.x1;
+						r.y1 = (short)(bounds.y0 + row + 1);
+						draw_quad(&r, c_bg);
+						r.x0 = (short)(cut_x - 1);
+						r.x1 = (short)(cut_x + 1);
+						draw_quad(&r, c_hi);
+					}
+				}
 			}
 		}
 		if (use_nifty_plasma_fx)
@@ -7643,7 +7712,10 @@ static void widget_instance_render_recursive(
 		for (child = widget->child; child; child = child->next)
 		{
 			/* port: (widget_instance_port_list_unfocused) */
-			focus = child == widget->focused_child && !widget_instance_port_list_unfocused(widget);
+			focus = (child == widget->focused_child && !widget_instance_port_list_unfocused(widget)) ||
+				(widget->type == _ui_widget_type_column_list &&
+					child->animation.number_of_sprite_frames >= 2 &&
+					child->animation.current_frame_index == 1);
 			use_nifty_plasma_fx = focus &&
 				(widget->type == _ui_widget_type_spinner_list ||
 				widget->type == _ui_widget_type_column_list);
@@ -7750,6 +7822,933 @@ static boolean widget_fullscreen_over_split(
 	return screen_height > 0 && design_height > screen_height / 2 + 8;
 }
 
+extern boolean rasterizer_bitmap_new(struct bitmap_data *bitmap);
+extern void halo_menus_art_register(void const *texture, char const *png);
+
+enum
+{
+	_halo_bg_tex_base_scene = 0,
+	_halo_bg_tex_halo_arch,
+	_halo_bg_tex_planet_surf,
+	_halo_bg_tex_planet_clouds,
+	_halo_bg_tex_planet_atmos,
+	_halo_bg_tex_clouds_far,
+	_halo_bg_tex_clouds_near,
+	_halo_bg_tex_star_streak,
+	_halo_bg_tex_valley_water,
+	_halo_bg_tex_water_glints,
+	_halo_bg_tex_ground_seamless,
+	_halo_bg_tex_foliage_clusters,
+	_halo_bg_tex_char_0,
+	_halo_bg_tex_char_1,
+	_halo_bg_tex_char_2,
+	_halo_bg_tex_char_3,
+	_halo_bg_tex_char_4,
+	_halo_bg_tex_unsc_crest,
+	_halo_bg_tex_footer_bar,
+	_halo_bg_tex_list_chevrons,
+	_halo_bg_tex_social_card_frame,
+	_halo_bg_tex_chat_bar_frame,
+	_halo_bg_tex_chat_tab_active,
+	NUMBER_OF_HALO_BG_TEXTURES
+};
+
+static struct bitmap_data g_halo_bg_bitmaps[NUMBER_OF_HALO_BG_TEXTURES];
+
+static void ui_init_halo_bg_bitmap(int idx, short width, short height, char const *png_path)
+{
+	struct bitmap_data *bmp = &g_halo_bg_bitmaps[idx];
+	if (!bmp->hardware_format)
+	{
+		csmemset(bmp, 0, sizeof(*bmp));
+		bmp->signature = BITMAP_GROUP_TAG;
+		bmp->width = 4;
+		bmp->height = 4;
+		bmp->depth = 1;
+		bmp->type = 0;   /* _bitmap_type_2d */
+		bmp->format = 11; /* _bitmap_format_a8r8g8b8 */
+		bmp->flags = FLAG(0); /* _bitmap_has_power_of_two_dimensions_bit */
+		bmp->tag_index = NONE;
+		bmp->cache_block_index = NONE;
+		if (rasterizer_bitmap_new(bmp))
+		{
+			bmp->width = width;
+			bmp->height = height;
+		}
+	}
+	if (bmp->hardware_format)
+		halo_menus_art_register(bmp->hardware_format, png_path);
+}
+
+static void ui_ensure_halo_bg_bitmaps(void)
+{
+	ui_init_halo_bg_bitmap(_halo_bg_tex_base_scene,       2048, 1024, "ce/shell/bitmaps/halo_bg/base_scene.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_halo_arch,        2048, 1024, "ce/shell/bitmaps/halo_bg/halo_ring_arch.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_planet_surf,      2048, 1024, "ce/shell/bitmaps/halo_bg/planet_surface.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_planet_clouds,    2048, 1024, "ce/shell/bitmaps/halo_bg/planet_clouds.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_planet_atmos,     1024, 1024, "ce/shell/bitmaps/halo_bg/planet_atmos.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_clouds_far,       1024,  256, "ce/shell/bitmaps/halo_bg/clouds_far.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_clouds_near,      1024,  256, "ce/shell/bitmaps/halo_bg/clouds_near.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_star_streak,       256,   64, "ce/shell/bitmaps/halo_bg/star_streak.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_valley_water,     1024,  512, "ce/shell/bitmaps/halo_bg/valley_water.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_water_glints,      512,  256, "ce/shell/bitmaps/halo_bg/water_glints.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_ground_seamless,  2048, 2048, "ce/shell/bitmaps/halo_bg/ground_seamless.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_foliage_clusters, 1024,  512, "ce/shell/bitmaps/halo_bg/foliage_clusters.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_char_0,           1024, 1024, "ce/shell/bitmaps/halo_bg/char_0.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_char_1,           1024, 1024, "ce/shell/bitmaps/halo_bg/char_1.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_char_2,           1024, 1024, "ce/shell/bitmaps/halo_bg/char_2.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_char_3,           1024, 1024, "ce/shell/bitmaps/halo_bg/char_3.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_char_4,           1024, 1024, "ce/shell/bitmaps/halo_bg/char_4.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_unsc_crest,         512,  512, "ce/shell/bitmaps/halo_bg/unsc_crest.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_footer_bar,        1024,  128, "ce/shell/bitmaps/halo_bg/footer_bar.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_list_chevrons,      256,  128, "ce/shell/bitmaps/halo_bg/list_chevrons.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_social_card_frame, 1024,  512, "ce/shell/bitmaps/halo_bg/social_card_frame.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_chat_bar_frame,    1024,  128, "ce/shell/bitmaps/halo_bg/chat_bar_frame.png");
+	ui_init_halo_bg_bitmap(_halo_bg_tex_chat_tab_active,    512,  128, "ce/shell/bitmaps/halo_bg/chat_tab_active.png");
+}
+
+static boolean ui_halo_bg_tex_is_wrapped(int tex_idx)
+{
+	return tex_idx == _halo_bg_tex_planet_surf ||
+		tex_idx == _halo_bg_tex_planet_clouds ||
+		tex_idx == _halo_bg_tex_clouds_far ||
+		tex_idx == _halo_bg_tex_clouds_near ||
+		tex_idx == _halo_bg_tex_ground_seamless;
+}
+
+static void ui_draw_halo_bg_quad_uv(
+	int tex_idx,
+	real x0, real y0,
+	real x1, real y1,
+	real u0, real v0,
+	real u1, real v1,
+	pixel32 color)
+{
+	struct bitmap_data *bmp = &g_halo_bg_bitmaps[tex_idx];
+	struct dynamic_screen_vertex vertices[NUMBER_OF_POINTS_PER_RECTANGLE];
+	struct rasterizer_dynamic_screen_geometry_parameters parameters;
+
+	if (x1 <= x0 || y1 <= y0 || !bmp->hardware_format)
+		return;
+
+	vertices[0].position.x = x0;
+	vertices[0].position.y = y0;
+	vertices[0].texture_coordinates.x = u0;
+	vertices[0].texture_coordinates.y = v0;
+	vertices[0].color = color;
+
+	vertices[1].position.x = x1;
+	vertices[1].position.y = y0;
+	vertices[1].texture_coordinates.x = u1;
+	vertices[1].texture_coordinates.y = v0;
+	vertices[1].color = color;
+
+	vertices[2].position.x = x1;
+	vertices[2].position.y = y1;
+	vertices[2].texture_coordinates.x = u1;
+	vertices[2].texture_coordinates.y = v1;
+	vertices[2].color = color;
+
+	vertices[3].position.x = x0;
+	vertices[3].position.y = y1;
+	vertices[3].texture_coordinates.x = u0;
+	vertices[3].texture_coordinates.y = v1;
+	vertices[3].color = color;
+
+	csmemset(&parameters, 0, sizeof(parameters));
+	parameters.map[0] = bmp;
+	parameters.map_scale[0].i = 1.0f;
+	parameters.map_scale[0].j = 1.0f;
+	parameters.map_texture_scale[0].i = 1.0f;
+	parameters.map_texture_scale[0].j = 1.0f;
+	parameters.map_wrapped[0] = ui_halo_bg_tex_is_wrapped(tex_idx);
+	parameters.point_sampled = FALSE;
+	parameters.alpha_weighted = FALSE;
+	parameters.framebuffer_blend_function = 0;
+	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
+}
+
+static void ui_draw_halo_bg_free_quad_uv(
+	int tex_idx,
+	real x0, real y0, real u0, real v0, pixel32 c0,
+	real x1, real y1, real u1, real v1, pixel32 c1,
+	real x2, real y2, real u2, real v2, pixel32 c2,
+	real x3, real y3, real u3, real v3, pixel32 c3)
+{
+	struct bitmap_data *bmp = &g_halo_bg_bitmaps[tex_idx];
+	struct dynamic_screen_vertex vertices[NUMBER_OF_POINTS_PER_RECTANGLE];
+	struct rasterizer_dynamic_screen_geometry_parameters parameters;
+
+	if (!bmp->hardware_format)
+		return;
+
+	vertices[0].position.x = x0;
+	vertices[0].position.y = y0;
+	vertices[0].texture_coordinates.x = u0;
+	vertices[0].texture_coordinates.y = v0;
+	vertices[0].color = c0;
+
+	vertices[1].position.x = x1;
+	vertices[1].position.y = y1;
+	vertices[1].texture_coordinates.x = u1;
+	vertices[1].texture_coordinates.y = v1;
+	vertices[1].color = c1;
+
+	vertices[2].position.x = x2;
+	vertices[2].position.y = y2;
+	vertices[2].texture_coordinates.x = u2;
+	vertices[2].texture_coordinates.y = v2;
+	vertices[2].color = c2;
+
+	vertices[3].position.x = x3;
+	vertices[3].position.y = y3;
+	vertices[3].texture_coordinates.x = u3;
+	vertices[3].texture_coordinates.y = v3;
+	vertices[3].color = c3;
+
+	csmemset(&parameters, 0, sizeof(parameters));
+	parameters.map[0] = bmp;
+	parameters.map_scale[0].i = 1.0f;
+	parameters.map_scale[0].j = 1.0f;
+	parameters.map_texture_scale[0].i = 1.0f;
+	parameters.map_texture_scale[0].j = 1.0f;
+	parameters.map_wrapped[0] = ui_halo_bg_tex_is_wrapped(tex_idx);
+	parameters.point_sampled = FALSE;
+	parameters.alpha_weighted = FALSE;
+	parameters.framebuffer_blend_function = 0;
+	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
+}
+
+static void ui_eval_3d_hill_surface(
+	real u,
+	real p,
+	real screen_left,
+	real screen_top,
+	real sw,
+	real sh,
+	real *out_x,
+	real *out_y,
+	real *out_curve_p)
+{
+	/* 3D cylindrical hill horizon foreshortening: tightly foreshortened at the
+	   crest (p = 0) and expanding in 3D perspective toward the foreground (p = 1). */
+	real q = 0.24f * p + 0.76f * p * p;
+
+	/* Hill crest silhouette (p = 0): slopes from high left ridge (y = 0.505)
+	   across the human footpath brow (u = 0.605 -> x = 0.56, y = 0.755) and curves
+	   down to the bottom-right corner (x = 1.00, y = 0.990) so the entire distant
+	   mountains and right-side river/lake valley remain 100% open and visible! */
+	real plateau = expf(-((u - 0.55f) * (u - 0.55f)) / 0.038f);
+	real x_top = -0.04f + 0.92f * u + 0.12f * u * u;
+	real y_top = 0.505f + 0.485f * u - 0.044f * plateau;
+
+	/* Foreground edge (p = 1): fans out in 3D perspective and angles the human
+	   footpath (u = 0.605) from the upper-right crest brow (x = 0.56, y = 0.755)
+	   down-and-left through the walking squad to (x = 0.45, y = 1.10), while
+	   covering 100% of screen_left..screen_right and screen_bottom! */
+	real x_bot = -0.42f + 1.40f * u + 0.06f * u * u;
+	real y_bot = 1.02f + 0.14f * u;
+
+	/* Organic human trail S-curve meander along the hillside contour */
+	real meander_x = 0.024f * sinf(p * 4.1f - 0.35f) * (1.0f - 0.25f * p) *
+		expf(-((u - 0.605f) * (u - 0.605f)) / 0.12f);
+
+	real xn = (1.0f - q) * x_top + q * x_bot + meander_x;
+	real yn = (1.0f - q) * y_top + q * y_bot;
+
+	*out_x = screen_left + xn * sw;
+	*out_y = screen_top + yn * sh;
+	if (out_curve_p)
+		*out_curve_p = q;
+}
+
+static pixel32 ui_eval_3d_hill_vertex_color(real u, real p, boolean is_crest_edge)
+{
+	/* Warm sunset rim light near the brow of the hill, natural meadow lighting
+	   mid-slope, and slightly deeper twilight shadow in the lower-left foreground */
+	real sun_warmth = expf(-((p - 0.12f) * (p - 0.12f)) / 0.045f) * (0.4f + 0.6f * u);
+	real fg_shade = (p > 0.65f && u < 0.35f) ? ((p - 0.65f) / 0.35f) * ((0.35f - u) / 0.35f) * 0.22f : 0.0f;
+	int r = (int)((242.0f + 13.0f * sun_warmth) * (1.0f - fg_shade));
+	int g = (int)((236.0f +  8.0f * sun_warmth) * (1.0f - fg_shade));
+	int b = (int)((232.0f - 10.0f * sun_warmth) * (1.0f - fg_shade * 0.7f));
+	unsigned int a = is_crest_edge ? 0u : 255u;
+	if (r > 255) r = 255; if (r < 0) r = 0;
+	if (g > 255) g = 255; if (g < 0) g = 0;
+	if (b > 255) b = 255; if (b < 0) b = 0;
+	return ((pixel32)a << 24) | ((pixel32)r << 16) | ((pixel32)g << 8) | (pixel32)b;
+}
+
+static void ui_draw_halo_bg_rotated_quad(
+	int tex_idx,
+	real cx, real cy,
+	real length, real thickness,
+	real angle_rad,
+	real u0, real v0,
+	real u1, real v1,
+	pixel32 color)
+{
+	struct bitmap_data *bmp = &g_halo_bg_bitmaps[tex_idx];
+	struct dynamic_screen_vertex vertices[NUMBER_OF_POINTS_PER_RECTANGLE];
+	struct rasterizer_dynamic_screen_geometry_parameters parameters;
+	real ca = cosf(angle_rad);
+	real sa = sinf(angle_rad);
+	real hl = length * 0.5f;
+	real ht = thickness * 0.5f;
+	real dx_l = ca * hl, dy_l = sa * hl;
+	real dx_t = -sa * ht, dy_t = ca * ht;
+
+	if (!bmp->hardware_format)
+		return;
+
+	vertices[0].position.x = cx - dx_l + dx_t;
+	vertices[0].position.y = cy - dy_l + dy_t;
+	vertices[0].texture_coordinates.x = u0;
+	vertices[0].texture_coordinates.y = v0;
+	vertices[0].color = color;
+
+	vertices[1].position.x = cx + dx_l + dx_t;
+	vertices[1].position.y = cy + dy_l + dy_t;
+	vertices[1].texture_coordinates.x = u1;
+	vertices[1].texture_coordinates.y = v0;
+	vertices[1].color = color;
+
+	vertices[2].position.x = cx + dx_l - dx_t;
+	vertices[2].position.y = cy + dy_l - dy_t;
+	vertices[2].texture_coordinates.x = u1;
+	vertices[2].texture_coordinates.y = v1;
+	vertices[2].color = color;
+
+	vertices[3].position.x = cx - dx_l - dx_t;
+	vertices[3].position.y = cy - dy_l - dy_t;
+	vertices[3].texture_coordinates.x = u0;
+	vertices[3].texture_coordinates.y = v1;
+	vertices[3].color = color;
+
+	csmemset(&parameters, 0, sizeof(parameters));
+	parameters.map[0] = bmp;
+	parameters.map_scale[0].i = 1.0f;
+	parameters.map_scale[0].j = 1.0f;
+	parameters.map_texture_scale[0].i = 1.0f;
+	parameters.map_texture_scale[0].j = 1.0f;
+	parameters.map_wrapped[0] = FALSE;
+	parameters.point_sampled = FALSE;
+	parameters.alpha_weighted = FALSE;
+	parameters.framebuffer_blend_function = 0;
+	rasterizer_psuedo_dynamic_screen_quad_draw(&parameters, vertices);
+}
+
+void ui_draw_unsc_crest_watermark(
+	real x0, real y0,
+	real x1, real y1,
+	pixel32 color)
+{
+	ui_ensure_halo_bg_bitmaps();
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_unsc_crest,
+		x0, y0, x1, y1,
+		0.0f, 0.0f, 1.0f, 1.0f,
+		color);
+}
+
+void ui_draw_social_card_frame(
+	real x0, real y0,
+	real x1, real y1,
+	pixel32 color)
+{
+	ui_ensure_halo_bg_bitmaps();
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_social_card_frame,
+		x0, y0, x1, y1,
+		0.0f, 0.0f, 1.0f, 1.0f,
+		color);
+}
+
+void ui_draw_chat_bar_textures(
+	real bar_x0, real bar_y0,
+	real bar_x1, real bar_y1,
+	real tab_x0, real tab_y0,
+	real tab_x1, real tab_y1,
+	pixel32 color)
+{
+	ui_ensure_halo_bg_bitmaps();
+	if (bar_x1 > bar_x0 && bar_y1 > bar_y0)
+	{
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_chat_bar_frame,
+			bar_x0, bar_y0, bar_x1, bar_y1,
+			0.0f, 0.0f, 1.0f, 1.0f,
+			color);
+	}
+	if (tab_x1 > tab_x0 && tab_y1 > tab_y0)
+	{
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_chat_tab_active,
+			tab_x0, tab_y0, tab_x1, tab_y1,
+			0.0f, 0.0f, 1.0f, 1.0f,
+			color);
+	}
+}
+
+static void ui_draw_submenu_footer_and_header_flare(short x0, short x1, real alpha)
+{
+	pixel32 col_bar = modulate_pixel32_by_real_alpha(0xFFFFFFFF, alpha);
+	pixel32 col_flare = modulate_pixel32_by_real_alpha(0xD8A8F0FF, alpha);
+
+	ui_ensure_halo_bg_bitmaps();
+
+	/* Full-width 3D metallic sci-fi footer rail bar spanning y = 403..449
+	   (with stepped top/bottom armor rails at y = 409..443 matching Reference Photo 2) */
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_footer_bar,
+		(real)x0, 403.0f,
+		(real)x1, 449.0f,
+		0.0f, 0.0f, 1.0f, 1.0f,
+		col_bar);
+
+	/* Anamorphic cyan lens-flare hotspot along the top header line at y = 62 (matching Photo 2) */
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_star_streak,
+		375.0f, 59.0f,
+		505.0f, 65.0f,
+		0.45f, 0.0f, 0.98f, 1.0f,
+		col_flare);
+}
+
+static void ui_draw_submenu_left_list_frame(real alpha)
+{
+	rectangle2d r;
+	pixel32 c_fill = modulate_pixel32_by_real_alpha(0x2805142C, alpha);
+	pixel32 c_bdr  = modulate_pixel32_by_real_alpha(0x583098E8, alpha);
+	pixel32 c_tex  = modulate_pixel32_by_real_alpha(0xFFFFFFFF, alpha);
+
+	ui_ensure_halo_bg_bitmaps();
+
+	/* Subtle translucent dark-blue glass container around the left selection list (x=18..362, y=64..404) */
+	r.x0 = 18; r.y0 = 64; r.x1 = 362; r.y1 = 404;
+	draw_quad(&r, c_fill);
+	r.x0 = 18; r.y0 = 64; r.x1 = 19; r.y1 = 404;
+	draw_quad(&r, c_bdr);
+	r.x0 = 361; r.y0 = 64; r.x1 = 362; r.y1 = 404;
+	draw_quad(&r, c_bdr);
+
+	/* High-resolution generated 3D metallic '<<<' triple-chevron indicators at the vertical center
+	   of both the left edge and right edge of the list, matching Reference Photo 2! */
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_list_chevrons,
+		5.0f, 212.0f,
+		27.0f, 234.0f,
+		0.0f, 0.0f, 1.0f, 1.0f,
+		c_tex);
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_list_chevrons,
+		345.0f, 212.0f,
+		367.0f, 234.0f,
+		0.0f, 0.0f, 1.0f, 1.0f,
+		c_tex);
+}
+
+static void ui_render_halo_horizon_background(void)
+{
+	/* Full widescreen UI bounds around the centered 640x480 design space
+	   (same coordinate space as fade_to_black in render_ui_widgets) so the
+	   background covers 100% of the screen edge-to-edge and never exposes
+	   ui.map's 3D Halo ring on the left margin! */
+	long full_w = halo_screen_width();
+	real extra = (full_w > 640) ? (real)(full_w - 640) * 0.5f : 0.0f;
+	real screen_left = -extra - 2.0f;
+	real screen_right = 640.0f + extra + 2.0f;
+	real screen_top = -1.0f;
+	real screen_bottom = 481.0f;
+	real sw = screen_right - screen_left;
+	real sh = screen_bottom - screen_top;
+	real t = (real)system_milliseconds() * 0.001f;
+	struct structure_bsp *active_bsp = game_in_progress() ? global_structure_bsp_get() : NULL;
+	boolean live_3d_beach_bg = (active_bsp != NULL && active_bsp->clusters.count > 10);
+	int i;
+
+	if (sw <= 0.0f || sh <= 0.0f)
+		return;
+
+	ui_ensure_halo_bg_bitmaps();
+
+	/* =========================================================================
+	   1. BASE SCENE (only drawn when falling back to 2D scene; skipped when the
+	      live 3D b30_a Silent Cartographer beach & 3D squad are active!)
+	   ========================================================================= */
+	if (!live_3d_beach_bg)
+	{
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_base_scene,
+			screen_left, screen_top,
+			screen_right, screen_bottom,
+			0.0f, 0.0f, 1.0f, 1.0f,
+			0xFFFFFFFF);
+	}
+
+	/* =========================================================================
+	   2. SHOOTING STARS & TWINKLING STARS (animated diagonal meteors across sky)
+	   ========================================================================= */
+	{
+		static const struct {
+			real x_start;
+			real y_start;
+			real length;
+			real speed;
+			real period;
+			real phase;
+			unsigned int rgb;
+		} s_meteors[7] = {
+			{ 0.05f, 0.04f, 0.19f, 0.24f, 6.2f, 0.0f, 0x00FFE8C8 },
+			{ 0.18f, 0.03f, 0.16f, 0.28f, 5.1f, 1.6f, 0x00D8F4FF },
+			{ 0.42f, 0.05f, 0.21f, 0.22f, 7.0f, 3.1f, 0x00FFF2D8 },
+			{ 0.12f, 0.11f, 0.17f, 0.26f, 5.7f, 4.2f, 0x00E4F8FF },
+			{ 0.52f, 0.04f, 0.15f, 0.30f, 4.6f, 0.9f, 0x00FFE0B8 },
+			{ 0.28f, 0.08f, 0.20f, 0.25f, 6.5f, 5.0f, 0x00D0F2FF },
+			{ 0.60f, 0.06f, 0.16f, 0.27f, 5.3f, 2.4f, 0x00FFFFFF }
+		};
+		real angle = 0.38f;
+		real dir_x = cosf(angle);
+		real dir_y = sinf(angle);
+
+		static const struct {
+			real x, y, freq, phase;
+		} s_twinkles[8] = {
+			{ 0.14f, 0.11f, 2.2f, 0.2f },
+			{ 0.25f, 0.13f, 2.9f, 1.5f },
+			{ 0.47f, 0.08f, 1.9f, 2.8f },
+			{ 0.56f, 0.12f, 2.6f, 0.9f },
+			{ 0.64f, 0.09f, 3.2f, 4.1f },
+			{ 0.19f, 0.19f, 2.1f, 3.3f },
+			{ 0.50f, 0.18f, 2.7f, 5.0f },
+			{ 0.08f, 0.07f, 2.4f, 1.9f }
+		};
+		for (i = 0; i < 8; i++)
+		{
+			real pulse = 0.5f + 0.5f * sinf(t * s_twinkles[i].freq + s_twinkles[i].phase);
+			int alpha = (int)(pulse * pulse * 175.0f);
+			if (alpha > 12)
+			{
+				real gx = screen_left + s_twinkles[i].x * sw;
+				real gy = screen_top + s_twinkles[i].y * sh;
+				real rad = (2.2f + 2.2f * pulse) * (sh / 480.0f);
+				pixel32 col = ((pixel32)alpha << 24) | 0x00FFF4E0;
+				ui_draw_halo_bg_quad_uv(
+					_halo_bg_tex_star_streak,
+					gx - rad * 2.2f, gy - rad * 0.45f,
+					gx + rad * 2.2f, gy + rad * 0.45f,
+					0.55f, 0.0f, 0.98f, 1.0f,
+					col);
+				ui_draw_halo_bg_quad_uv(
+					_halo_bg_tex_star_streak,
+					gx - rad * 0.45f, gy - rad * 2.2f,
+					gx + rad * 0.45f, gy + rad * 2.2f,
+					0.55f, 0.0f, 0.98f, 1.0f,
+					col);
+			}
+		}
+
+		for (i = 0; i < 7; i++)
+		{
+			real cycle = fmodf(t + s_meteors[i].phase, s_meteors[i].period);
+			real active_dur = 1.55f;
+			if (cycle < active_dur)
+			{
+				real p = cycle / active_dur;
+				real fade = sinf(p * 3.14159265f);
+				int alpha = (int)(fade * 225.0f);
+				if (alpha > 8)
+				{
+					real dist = p * s_meteors[i].speed * sw;
+					real cx = screen_left + s_meteors[i].x_start * sw + dir_x * dist;
+					real cy = screen_top + s_meteors[i].y_start * sh + dir_y * dist;
+					real len = s_meteors[i].length * sw * (0.65f + 0.35f * fade);
+					real thick = 4.5f * (sh / 480.0f);
+					pixel32 col = ((pixel32)alpha << 24) | s_meteors[i].rgb;
+					ui_draw_halo_bg_rotated_quad(
+						_halo_bg_tex_star_streak,
+						cx, cy, len, thick, angle,
+						0.0f, 0.0f, 1.0f, 1.0f,
+						col);
+				}
+			}
+		}
+	}
+
+	/* =========================================================================
+	   3. FAR DRIFTING SUNSET CLOUDS (behind the Halo ring arch & planet)
+	   ========================================================================= */
+	{
+		real du1 = fmodf(t * 0.009f, 1.0f);
+		real du2 = fmodf(t * 0.0055f + 0.45f, 1.0f);
+		pixel32 c_col1 = live_3d_beach_bg ? 0x42FFE2C8 : 0x80FFE2C8;
+		pixel32 c_col2 = live_3d_beach_bg ? 0x2EFFD8B8 : 0x5CFFD8B8;
+		real cy0_a = live_3d_beach_bg ? 0.10f : 0.22f;
+		real cy1_a = live_3d_beach_bg ? 0.34f : 0.46f;
+		real cy0_b = live_3d_beach_bg ? 0.14f : 0.25f;
+		real cy1_b = live_3d_beach_bg ? 0.36f : 0.48f;
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_clouds_far,
+			screen_left, screen_top + sh * cy0_a,
+			screen_right, screen_top + sh * cy1_a,
+			du1, 0.0f, du1 + 1.0f, 1.0f,
+			c_col1);
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_clouds_far,
+			screen_left, screen_top + sh * cy0_b,
+			screen_right, screen_top + sh * cy1_b,
+			du2, 0.0f, du2 + 1.0f, 1.0f,
+			c_col2);
+	}
+
+	/* =========================================================================
+	   4. REAL-TIME 60/120/240+ FPS 3D SPHERICAL ROTATING PLANET MESH
+	      (Realistic slow planetary surface rotation + multi-layer dynamic
+	       3D atmospheric cyclone & jet-stream cloud circulation with zonal wind
+	       shear, latitudinal wave undulation, terminator scattering & coronal glow)
+	   ========================================================================= */
+	{
+		enum { PLANET_LON_STEPS = 28, PLANET_LAT_STEPS = 20 };
+		real planet_diam = live_3d_beach_bg ? (sh * 0.435f) : (sh * 0.455f);
+		real planet_cx   = screen_left + sw * (live_3d_beach_bg ? 0.800f : 0.785f);
+		real planet_cy   = screen_top + sh * (live_3d_beach_bg ? 0.235f : 0.255f);
+		real px0 = planet_cx - planet_diam * 0.5f;
+		real py0 = planet_cy - planet_diam * 0.5f;
+		real px1 = planet_cx + planet_diam * 0.5f;
+		real py1 = planet_cy + planet_diam * 0.5f;
+		/* Physical sphere radius inside the 1024x1024 planet_atmos.png quad (r_norm = 0.852) */
+		real planet_rad  = (planet_diam * 0.5f) * 0.852f;
+		/* Realistic slow planetary surface rotation (~4.3x slower than before) */
+		real u_surf_off    = fmodf(1000.0f - t * 0.0042f, 1.0f);
+		/* Dynamic multi-layer atmospheric circulation (lower cyclone deck + upper jet stream) */
+		real u_cloud_a_off = fmodf(1000.0f - t * 0.0165f, 1.0f);
+		real u_cloud_b_off = fmodf(1000.0f - t * 0.0310f + 0.37f, 1.0f);
+		real cos_t = 0.949235f;  /* cos(-0.32 rad axial tilt) */
+		real sin_t = -0.314567f; /* sin(-0.32 rad axial tilt) */
+		real sx_grid[PLANET_LAT_STEPS + 1][PLANET_LON_STEPS + 1];
+		real sy_grid[PLANET_LAT_STEPS + 1][PLANET_LON_STEPS + 1];
+		pixel32 col_surf_grid[PLANET_LAT_STEPS + 1][PLANET_LON_STEPS + 1];
+		pixel32 col_cloud_a_grid[PLANET_LAT_STEPS + 1][PLANET_LON_STEPS + 1];
+		pixel32 col_cloud_b_grid[PLANET_LAT_STEPS + 1][PLANET_LON_STEPS + 1];
+		int iv, iu;
+
+		for (iv = 0; iv <= PLANET_LAT_STEPS; iv++)
+		{
+			real v_frac = (real)iv / (real)PLANET_LAT_STEPS;
+			real phi = (v_frac - 0.5f) * 3.10f;
+			real cos_phi = cosf(phi);
+			real sin_phi = sinf(phi);
+			for (iu = 0; iu <= PLANET_LON_STEPS; iu++)
+			{
+				real u_frac = (real)iu / (real)PLANET_LON_STEPS;
+				real lambda = (u_frac - 0.5f) * 3.10f;
+				real x_loc = cos_phi * sinf(lambda);
+				real y_loc = sin_phi;
+				real z_loc = cos_phi * cosf(lambda);
+				real nx = x_loc * cos_t - y_loc * sin_t;
+				real ny = x_loc * sin_t + y_loc * cos_t;
+				real nz = z_loc;
+				/* Sun direction from upper-left crescent (-0.60, -0.52, +0.608) */
+				real ndotl = nx * (-0.60f) + ny * (-0.52f) + nz * 0.608f;
+				real lit = (ndotl + 0.24f) / 0.80f;
+				real lit_s, twilight, limb_fresnel, atmos_wave;
+				int r_s, g_s, b_s, r_ca, g_ca, b_ca, r_cb, g_cb, b_cb, a_ca, a_cb;
+
+				if (lit < 0.0f) lit = 0.0f;
+				if (lit > 1.0f) lit = 1.0f;
+				lit_s = lit * lit * (3.0f - 2.0f * lit);
+				twilight = expf(-((ndotl - 0.02f) * (ndotl - 0.02f)) / 0.065f);
+				limb_fresnel = (1.0f - nz);
+				limb_fresnel = limb_fresnel * limb_fresnel * lit_s;
+				/* Dynamic upper-atmosphere shimmer wave across latitude & longitude */
+				atmos_wave = 0.5f + 0.5f * sinf(t * 1.85f + phi * 4.5f - lambda * 3.2f);
+
+				/* 3D spherical surface lighting: bright sunlit upper-left, warm coral-amber
+				   terminator scattering, and deep cosmos violet-indigo nightside */
+				r_s = (int)(38.0f + 217.0f * lit_s + 38.0f * twilight);
+				g_s = (int)(22.0f + 224.0f * lit_s + 10.0f * twilight);
+				b_s = (int)(62.0f + 178.0f * lit_s + 16.0f * twilight);
+				if (r_s > 255) r_s = 255;
+				if (g_s > 255) g_s = 255;
+				if (b_s > 255) b_s = 255;
+
+				sx_grid[iv][iu] = planet_cx + planet_rad * nx;
+				sy_grid[iv][iu] = planet_cy + planet_rad * ny;
+				col_surf_grid[iv][iu] = (0xFF000000u) | ((pixel32)r_s << 16) | ((pixel32)g_s << 8) | (pixel32)b_s;
+
+				/* Cloud Layer A (lower cyclone & trade-wind deck): warm sunlit cream + coral terminator glow */
+				r_ca = (int)(48.0f + 207.0f * lit_s + 52.0f * twilight);
+				g_ca = (int)(32.0f + 215.0f * lit_s + 22.0f * twilight);
+				b_ca = (int)(75.0f + 180.0f * lit_s + 28.0f * twilight);
+				if (r_ca > 255) r_ca = 255;
+				if (g_ca > 255) g_ca = 255;
+				if (b_ca > 255) b_ca = 255;
+				a_ca = (int)((65.0f + 185.0f * lit_s + 35.0f * twilight) * (nz > 0.10f ? 1.0f : (nz / 0.10f)));
+				if (a_ca > 248) a_ca = 248;
+				if (a_ca < 0) a_ca = 0;
+				col_cloud_a_grid[iv][iu] = ((pixel32)a_ca << 24) | ((pixel32)r_ca << 16) | ((pixel32)g_ca << 8) | (pixel32)b_ca;
+
+				/* Cloud Layer B (high-altitude jet-stream wisps & cyan-gold atmospheric scattering) */
+				r_cb = (int)(55.0f + 190.0f * lit_s + 64.0f * twilight + 25.0f * limb_fresnel);
+				g_cb = (int)(45.0f + 205.0f * lit_s + 28.0f * twilight + 48.0f * limb_fresnel);
+				b_cb = (int)(90.0f + 165.0f * lit_s + 35.0f * twilight + 65.0f * limb_fresnel);
+				if (r_cb > 255) r_cb = 255;
+				if (g_cb > 255) g_cb = 255;
+				if (b_cb > 255) b_cb = 255;
+				a_cb = (int)((38.0f + 135.0f * lit_s + 32.0f * twilight) * (0.68f + 0.32f * atmos_wave) * (nz > 0.10f ? 1.0f : (nz / 0.10f)));
+				if (a_cb > 215) a_cb = 215;
+				if (a_cb < 0) a_cb = 0;
+				col_cloud_b_grid[iv][iu] = ((pixel32)a_cb << 24) | ((pixel32)r_cb << 16) | ((pixel32)g_cb << 8) | (pixel32)b_cb;
+			}
+		}
+
+		/* Pass 1: Realistic slow 3D rotating planetary surface */
+		for (iv = 0; iv < PLANET_LAT_STEPS; iv++)
+		{
+			real v0 = 0.03f + ((real)iv / (real)PLANET_LAT_STEPS) * 0.94f;
+			real v1 = 0.03f + ((real)(iv + 1) / (real)PLANET_LAT_STEPS) * 0.94f;
+			for (iu = 0; iu < PLANET_LON_STEPS; iu++)
+			{
+				real u0 = u_surf_off + ((real)iu / (real)PLANET_LON_STEPS) * 0.5f;
+				real u1 = u_surf_off + ((real)(iu + 1) / (real)PLANET_LON_STEPS) * 0.5f;
+				ui_draw_halo_bg_free_quad_uv(
+					_halo_bg_tex_planet_surf,
+					sx_grid[iv][iu],         sy_grid[iv][iu],         u0, v0, col_surf_grid[iv][iu],
+					sx_grid[iv][iu + 1],     sy_grid[iv][iu + 1],     u1, v0, col_surf_grid[iv][iu + 1],
+					sx_grid[iv + 1][iu + 1], sy_grid[iv + 1][iu + 1], u1, v1, col_surf_grid[iv + 1][iu + 1],
+					sx_grid[iv + 1][iu],     sy_grid[iv + 1][iu],     u0, v1, col_surf_grid[iv + 1][iu]);
+			}
+		}
+
+		/* Pass 2A: Lower tropospheric cyclone & trade-wind cloud deck with zonal wind shear */
+		for (iv = 0; iv < PLANET_LAT_STEPS; iv++)
+		{
+			real v_frac0 = (real)iv / (real)PLANET_LAT_STEPS;
+			real v_frac1 = (real)(iv + 1) / (real)PLANET_LAT_STEPS;
+			/* Equatorial super-rotation shear + gentle Rossby wave undulation */
+			real lat0 = (v_frac0 - 0.5f) * 2.0f;
+			real lat1 = (v_frac1 - 0.5f) * 2.0f;
+			real shear0 = fmodf(t * 0.0055f * (1.0f - lat0 * lat0), 1.0f);
+			real shear1 = fmodf(t * 0.0055f * (1.0f - lat1 * lat1), 1.0f);
+			real v_wave0 = 0.008f * sinf(t * 0.95f + v_frac0 * 6.28318f);
+			real v_wave1 = 0.008f * sinf(t * 0.95f + v_frac1 * 6.28318f);
+			real v0 = 0.03f + v_frac0 * 0.94f + v_wave0;
+			real v1 = 0.03f + v_frac1 * 0.94f + v_wave1;
+			for (iu = 0; iu < PLANET_LON_STEPS; iu++)
+			{
+				real du0 = ((real)iu / (real)PLANET_LON_STEPS) * 0.5f;
+				real du1 = ((real)(iu + 1) / (real)PLANET_LON_STEPS) * 0.5f;
+				ui_draw_halo_bg_free_quad_uv(
+					_halo_bg_tex_planet_clouds,
+					sx_grid[iv][iu],         sy_grid[iv][iu],         u_cloud_a_off - shear0 + du0, v0, col_cloud_a_grid[iv][iu],
+					sx_grid[iv][iu + 1],     sy_grid[iv][iu + 1],     u_cloud_a_off - shear0 + du1, v0, col_cloud_a_grid[iv][iu + 1],
+					sx_grid[iv + 1][iu + 1], sy_grid[iv + 1][iu + 1], u_cloud_a_off - shear1 + du1, v1, col_cloud_a_grid[iv + 1][iu + 1],
+					sx_grid[iv + 1][iu],     sy_grid[iv + 1][iu],     u_cloud_a_off - shear1 + du0, v1, col_cloud_a_grid[iv + 1][iu]);
+			}
+		}
+
+		/* Pass 2B: Upper stratospheric jet-stream & storm wisps (faster differential rotation + inverted latitude) */
+		for (iv = 0; iv < PLANET_LAT_STEPS; iv++)
+		{
+			real v_frac0 = (real)iv / (real)PLANET_LAT_STEPS;
+			real v_frac1 = (real)(iv + 1) / (real)PLANET_LAT_STEPS;
+			real v0 = 0.96f - v_frac0 * 0.92f + 0.010f * cosf(t * 1.35f + v_frac0 * 9.42f);
+			real v1 = 0.96f - v_frac1 * 0.92f + 0.010f * cosf(t * 1.35f + v_frac1 * 9.42f);
+			for (iu = 0; iu < PLANET_LON_STEPS; iu++)
+			{
+				real u0 = u_cloud_b_off + ((real)iu / (real)PLANET_LON_STEPS) * 0.5f;
+				real u1 = u_cloud_b_off + ((real)(iu + 1) / (real)PLANET_LON_STEPS) * 0.5f;
+				ui_draw_halo_bg_free_quad_uv(
+					_halo_bg_tex_planet_clouds,
+					sx_grid[iv][iu],         sy_grid[iv][iu],         u0, v0, col_cloud_b_grid[iv][iu],
+					sx_grid[iv][iu + 1],     sy_grid[iv][iu + 1],     u1, v0, col_cloud_b_grid[iv][iu + 1],
+					sx_grid[iv + 1][iu + 1], sy_grid[iv + 1][iu + 1], u1, v1, col_cloud_b_grid[iv + 1][iu + 1],
+					sx_grid[iv + 1][iu],     sy_grid[iv + 1][iu],     u0, v1, col_cloud_b_grid[iv + 1][iu]);
+			}
+		}
+
+		/* Pass 3: Animated dual-layer cyan-blue & golden-pink atmospheric crescent rim glow */
+		{
+			real rim_pulse1 = 0.88f + 0.12f * sinf(t * 1.6f);
+			real rim_pulse2 = 0.50f + 0.50f * cosf(t * 2.4f + 0.9f);
+			real halo_expand = planet_diam * (0.008f + 0.006f * rim_pulse2);
+			int rim_a1 = (int)(252.0f * rim_pulse1);
+			int rim_a2 = (int)(110.0f * rim_pulse2);
+			pixel32 rim_col1 = ((pixel32)rim_a1 << 24) | 0x00FFFFFF;
+			pixel32 rim_col2 = ((pixel32)rim_a2 << 24) | 0x00A8E8FF;
+			ui_draw_halo_bg_quad_uv(
+				_halo_bg_tex_planet_atmos,
+				px0, py0, px1, py1,
+				0.0f, 0.0f, 1.0f, 1.0f,
+				rim_col1);
+			ui_draw_halo_bg_quad_uv(
+				_halo_bg_tex_planet_atmos,
+				px0 - halo_expand, py0 - halo_expand, px1 + halo_expand, py1 + halo_expand,
+				0.0f, 0.0f, 1.0f, 1.0f,
+				rim_col2);
+		}
+	}
+
+	/* When the live 3D b30_a Silent Cartographer beach environment & 3D walking
+	   squad are active, let the live 3D world & 3D bipeds show through below the sky! */
+	if (live_3d_beach_bg)
+		return;
+
+	/* =========================================================================
+	   5. STATIONARY SINGLE HALO RING ARCH OCCLUSION LAYER
+	      (Exact 1:1 full-screen pixel alignment with base_scene.png — zero offset,
+	       so shooting stars & far clouds pass behind the single Halo ring arch!)
+	   ========================================================================= */
+	ui_draw_halo_bg_quad_uv(
+		_halo_bg_tex_halo_arch,
+		screen_left, screen_top,
+		screen_right, screen_bottom,
+		0.0f, 0.0f, 1.0f, 1.0f,
+		0xFFFFFFFF);
+
+	/* =========================================================================
+	   6. NEAR DRIFTING SUNSET CLOUDS & WARM VALLEY MIST
+	   ========================================================================= */
+	{
+		real du_near1 = fmodf(t * 0.014f, 1.0f);
+		real du_near2 = fmodf(t * 0.0085f + 0.52f, 1.0f);
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_clouds_near,
+			screen_left + sw * 0.22f, screen_top + sh * 0.30f,
+			screen_right, screen_top + sh * 0.54f,
+			du_near1, 0.0f, du_near1 + 0.78f, 1.0f,
+			0x68FFE2C8);
+		ui_draw_halo_bg_quad_uv(
+			_halo_bg_tex_clouds_near,
+			screen_left + sw * 0.26f, screen_top + sh * 0.40f,
+			screen_right, screen_top + sh * 0.58f,
+			du_near2, 0.0f, du_near2 + 0.74f, 1.0f,
+			0x44FFD0A8);
+	}
+
+	/* =========================================================================
+	   8. 100% OPAQUE 3D CURVED ROTATING HILLSIDE MESH & HUMAN FOOTPATH
+	      (40x32 high-density 3D cylindrical hillside mesh mapped with the
+	       2048x2048 human flagstone/boot-worn footpath & wildflower meadow)
+	   ========================================================================= */
+	{
+		int n_cols = 40;
+		int n_rows = 32;
+		int r_idx, c_idx;
+		real v_scale = 1.0f;
+		real walk_scroll = fmodf(t * 0.055f, 1.0f);
+
+		for (r_idx = 0; r_idx < n_rows; r_idx++)
+		{
+			real p0 = (real)r_idx / (real)n_rows;
+			real p1 = (real)(r_idx + 1) / (real)n_rows;
+			real v0 = p0 * v_scale - walk_scroll;
+			real v1 = p1 * v_scale - walk_scroll;
+			boolean crest_row = (r_idx == 0);
+
+			for (c_idx = 0; c_idx < n_cols; c_idx++)
+			{
+				real u0 = (real)c_idx / (real)n_cols;
+				real u1 = (real)(c_idx + 1) / (real)n_cols;
+				real x00, y00, x10, y10, x11, y11, x01, y01;
+				pixel32 col00, col10, col11, col01;
+
+				ui_eval_3d_hill_surface(u0, p0, screen_left, screen_top, sw, sh, &x00, &y00, NULL);
+				ui_eval_3d_hill_surface(u1, p0, screen_left, screen_top, sw, sh, &x10, &y10, NULL);
+				ui_eval_3d_hill_surface(u1, p1, screen_left, screen_top, sw, sh, &x11, &y11, NULL);
+				ui_eval_3d_hill_surface(u0, p1, screen_left, screen_top, sw, sh, &x01, &y01, NULL);
+
+				col00 = ui_eval_3d_hill_vertex_color(u0, p0, crest_row);
+				col10 = ui_eval_3d_hill_vertex_color(u1, p0, crest_row);
+				col11 = ui_eval_3d_hill_vertex_color(u1, p1, FALSE);
+				col01 = ui_eval_3d_hill_vertex_color(u0, p1, FALSE);
+
+				ui_draw_halo_bg_free_quad_uv(
+					_halo_bg_tex_ground_seamless,
+					x00, y00, u0, v0, col00,
+					x10, y10, u1, v0, col10,
+					x11, y11, u1, v1, col11,
+					x01, y01, u0, v1, col01);
+			}
+		}
+
+		/* =====================================================================
+		   9. 5 AUTHENTIC 3D HALO SQUAD WALKERS MARCHING ALONG THE HUMAN FOOTPATH
+		      (4 3D Armored Marines & 1 3D Spartan-117 depth-sorted along u=0.605)
+		   ===================================================================== */
+		{
+			static const struct {
+				int tex_idx;
+				real u_base;
+				real p_depth;
+				real size_norm;
+				real fps;
+				real phase_offset;
+			} s_walkers[5] = {
+				/* 0: Pointman Marine (AR) near the upper-right brow of the footpath */
+				{ _halo_bg_tex_char_0, 0.595f, 0.19f, 0.146f, 12.6f,  0.0f },
+				/* 1: Scout Sniper Marine (Boonie cap & Sniper Rifle) */
+				{ _halo_bg_tex_char_1, 0.630f, 0.31f, 0.164f, 13.1f,  3.7f },
+				/* 2: Rifleman Marine (AR) */
+				{ _halo_bg_tex_char_2, 0.574f, 0.43f, 0.182f, 12.8f,  7.3f },
+				/* 3: Heavy Veteran Marine (AR) */
+				{ _halo_bg_tex_char_3, 0.622f, 0.55f, 0.204f, 12.9f, 11.1f },
+				/* 4: Master Chief Spartan-117 (MJOLNIR Mark V & AR) leading foreground */
+				{ _halo_bg_tex_char_4, 0.584f, 0.68f, 0.240f, 12.4f,  5.2f }
+			};
+
+			int w_idx;
+			for (w_idx = 0; w_idx < 5; w_idx++)
+			{
+				real p_w = s_walkers[w_idx].p_depth;
+				real u_w = s_walkers[w_idx].u_base;
+				real foot_x, foot_y;
+				real box_size = s_walkers[w_idx].size_norm * sh;
+				real cx, cy, x0, y0, x1, y1;
+				real anim_pos = t * s_walkers[w_idx].fps + s_walkers[w_idx].phase_offset;
+				int frame_a = ((int)floorf(anim_pos)) & 15;
+
+				ui_eval_3d_hill_surface(
+					u_w, p_w,
+					screen_left, screen_top, sw, sh,
+					&foot_x, &foot_y, NULL);
+
+				/* In char_0..char_4.png, boots touch the ground at y = 0.88 of the cell
+				   (+0.38 * box_size below cell center) */
+				cx = foot_x;
+				cy = foot_y - box_size * 0.38f;
+				x0 = cx - box_size * 0.5f;
+				y0 = cy - box_size * 0.5f;
+				x1 = cx + box_size * 0.5f;
+				y1 = cy + box_size * 0.5f;
+
+				/* 1. Soft ground contact shadow directly under boots on the flagstones/dirt */
+				{
+					real sh_w = box_size * 0.22f;
+					real sh_h = box_size * 0.048f;
+					ui_draw_halo_bg_quad_uv(
+						_halo_bg_tex_star_streak,
+						foot_x - sh_w, foot_y - sh_h,
+						foot_x + sh_w, foot_y + sh_h,
+						0.45f, 0.0f, 0.95f, 1.0f,
+						0x880C1008);
+				}
+
+				/* 2. Authentic 3D Halo model 16-frame walk cycle frame */
+				{
+					real ua0 = (real)(frame_a & 3) * 0.25f;
+					real va0 = (real)((frame_a >> 2) & 3) * 0.25f;
+
+					ui_draw_halo_bg_quad_uv(
+						s_walkers[w_idx].tex_idx,
+						x0, y0, x1, y1,
+						ua0, va0, ua0 + 0.25f, va0 + 0.25f,
+						0xFFFFFFFF);
+				}
+			}
+		}
+	}
+}
+
 /* renders the active widgets for one local player's viewport (or the whole
 screen), noting and settling the first player's tap targets in the frame's
 first render that can, and draws the debug view of the targets and the
@@ -7774,6 +8773,11 @@ void render_ui_widgets(
 	behind their checklist (tag_pack.c) */
 	if (tag_pack_checklist_shown())
 		return;
+	{
+		static boolean s_enable_orange_horizon_bg = TRUE;
+		if (we_are_at_the_main_menu && first_players_render && s_enable_orange_horizon_bg)
+			ui_render_halo_horizon_background();
+	}
 	if (!virtual_keyboard_active())
 	{
 		local_player_index = PIN(
@@ -8094,7 +9098,7 @@ static __inline void spinner_list_update(
 	{
 		child->animation.current_frame_index = 0;
 		if (child == widget->focused_child &&
-			child->animation.number_of_sprite_frames == 2)
+			child->animation.number_of_sprite_frames >= 2)
 		{
 			child->animation.current_frame_index = 1;
 		}
@@ -8119,10 +9123,10 @@ static void column_list_update(
 	{
 		if (child == widget->focused_child && !unfocused)
 		{
-			if (child->animation.number_of_sprite_frames == 2)
+			if (child->animation.number_of_sprite_frames >= 2)
 				child->animation.current_frame_index = 1;
 		}
-		else if (child->animation.number_of_sprite_frames == 2)
+		else if (child->animation.number_of_sprite_frames >= 2)
 		{
 			child->animation.current_frame_index = 0;
 		}

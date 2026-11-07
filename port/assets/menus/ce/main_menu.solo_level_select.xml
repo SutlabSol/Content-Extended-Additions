@@ -5,7 +5,7 @@
 	</widget>
 	<widget name="main_menu/solo_level_select/header_replay_level" controller="1" left="35" top="11" width="605" height="59" bitmap="main_menu/solo_level_select/header_load_level">
 	</widget>
-	<widget name="main_menu/solo_level_select/replay_level_right_data" type="text" controller="1" left="417" top="258" width="146" height="136" string_list="main_menu/solo_level_select/map_data" string_index="2" font="ui\small_ui" color="#FF2896FF" text_scale="85">
+	<widget name="main_menu/solo_level_select/replay_level_right_data" type="text" controller="1" left="410" top="254" width="214" height="78" string_list="main_menu/solo_level_select/map_data" string_index="2" font="ui\small_ui" color="#FF58B4FF" text_scale="88">
 	</widget>
 	<widget name="main_menu/solo_level_select/replay_level_right_item" controller="1" left="406" top="75" width="162" height="326" bitmap="bitmaps/spinner_list_3_wide_item_background">
 		<child widget="main_menu/solo_level_select/replay_level_right_name"/>
@@ -14,10 +14,10 @@
 		<child widget="main_menu/multiplayer_type_select/mp_map_select/mp_map_right_name"/>
 		<child widget="main_menu/multiplayer_type_select/mp_map_select/mp_map_right_pic"/>
 		<child widget="main_menu/multiplayer_type_select/mp_map_select/mp_map_right_data"/>
-		<child widget="main_menu/solo_level_select/difficulty_badges_plate" x="419" y="161"/>
-		<child widget="main_menu/solo_level_select/difficulty_badge" x="454" y="180"/>
-		<child widget="main_menu/solo_level_select/difficulty_badge" x="478" y="180"/>
-		<child widget="main_menu/solo_level_select/difficulty_badge" x="502" y="180"/>
+		<child widget="main_menu/solo_level_select/difficulty_badges_plate" x="436" y="172"/>
+		<child widget="main_menu/solo_level_select/difficulty_badge" x="470" y="188"/>
+		<child widget="main_menu/solo_level_select/difficulty_badge" x="494" y="188"/>
+		<child widget="main_menu/solo_level_select/difficulty_badge" x="518" y="188"/>
 		<child widget="main_menu/solo_level_select/replay_level_right_record"/>
 		<child widget="main_menu/daily/level_skull_icon" x="421" y="89"/>
 		<child widget="main_menu/daily/level_skull_icon" x="448" y="89"/>
@@ -30,13 +30,13 @@
 		<child widget="main_menu/daily/level_skull_icon" x="502" y="115"/>
 		<child widget="main_menu/daily/level_skull_icon" x="529" y="115"/>
 	</widget>
-	<widget name="main_menu/solo_level_select/replay_level_right_name" type="text" controller="1" left="417" top="204" width="146" height="43" string_list="main_menu/map_list" string_index="2" font="ui\large_ui" color="#FF2896FF">
+	<widget name="main_menu/solo_level_select/replay_level_right_name" type="text" controller="1" left="410" top="216" width="214" height="44" string_list="main_menu/map_list" string_index="2" font="ui\large_ui" color="#FFFFFFFF" text_scale="82">
 	</widget>
-	<widget name="main_menu/solo_level_select/replay_level_right_pic" controller="1" left="419" top="87" width="140" height="114" bitmap="ui\shell\bitmaps\sp_levels">
+	<widget name="main_menu/solo_level_select/replay_level_right_pic" controller="1" left="407" top="78" width="224" height="136" bitmap="ui\shell\bitmaps\sp_levels">
 	</widget>
 	<widget name="main_menu/solo_level_select/solo_level_extended_desc" width="640" height="480">
 		<child widget="main_menu/current_profile_name"/>
-		<child widget="main_menu/solo_level_select/replay_level_right_item" x="22" y="2"/>
+		<child widget="main_menu/solo_level_select/replay_level_right_item" x="-12" y="2"/>
 	</widget>
 	<widget name="main_menu/solo_level_select/solo_level_select_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<data input="common button bar update"/>
@@ -58,17 +58,17 @@
 		<on event="custom_activation" run="solo level set map" open="main_menu/difficulty_select/difficulty_select_list_screen"/>
 		<on event="x" run="port map manage"/>
 		<on event="y" run="port map manage"/>
-		<child widget="main_menu/new_select/list_item_0_map_kind" x="82" y="73"/>
-		<child widget="main_menu/new_select/list_item_1" x="20" y="103"/>
-		<child widget="main_menu/new_select/list_item_2" x="20" y="133"/>
-		<child widget="main_menu/new_select/list_item_3" x="20" y="163"/>
-		<child widget="main_menu/new_select/list_item_4" x="20" y="193"/>
-		<child widget="main_menu/new_select/list_item_5" x="20" y="223"/>
-		<child widget="main_menu/new_select/list_item_6" x="20" y="253"/>
-		<child widget="main_menu/new_select/list_item_7" x="20" y="283"/>
-		<child widget="main_menu/new_select/list_item_8" x="20" y="313"/>
-		<child widget="main_menu/new_select/list_item_9" x="20" y="343"/>
-		<child widget="main_menu/new_select/list_item_10" x="20" y="373"/>
+		<child widget="main_menu/new_select/list_item_0_map_kind" x="48" y="38"/>
+		<child widget="main_menu/new_select/list_item_1" x="20" y="96"/>
+		<child widget="main_menu/new_select/list_item_2" x="20" y="124"/>
+		<child widget="main_menu/new_select/list_item_3" x="20" y="152"/>
+		<child widget="main_menu/new_select/list_item_4" x="20" y="180"/>
+		<child widget="main_menu/new_select/list_item_5" x="20" y="208"/>
+		<child widget="main_menu/new_select/list_item_6" x="20" y="236"/>
+		<child widget="main_menu/new_select/list_item_7" x="20" y="264"/>
+		<child widget="main_menu/new_select/list_item_8" x="20" y="292"/>
+		<child widget="main_menu/new_select/list_item_9" x="20" y="320"/>
+		<child widget="main_menu/new_select/list_item_10" x="20" y="348"/>
 		<child widget="main_menu/solo_level_select/solo_level_select_button_bar" y="414"/>
 	</widget>
 	<widget name="main_menu/solo_level_select/solo_level_select_screen" width="640" height="480" flags="pass_unhandled_to_focused_child" bitmap="bitmaps/gradient">

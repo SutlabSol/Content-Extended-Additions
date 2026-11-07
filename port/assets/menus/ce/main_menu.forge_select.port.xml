@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- Content Extended's menus: Firefight's rules and Forge's (tools/content_extended_menus.py) -->
 <menus>
-	<widget name="main_menu/multiplayer_type_select/header_standard" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/header_standard">
+	<widget name="main_menu/multiplayer_type_select/header_standard" controller="1" left="35" top="11" width="512" height="59" bitmap="main_menu/multiplayer_type_select/header_standard">
 	</widget>
-	<widget name="main_menu/multiplayer_type_select/header_firefight" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/header_firefight">
+	<widget name="main_menu/multiplayer_type_select/header_firefight" controller="1" left="35" top="11" width="512" height="59" bitmap="main_menu/multiplayer_type_select/header_firefight">
 	</widget>
-	<widget name="main_menu/multiplayer_type_select/header_forge" controller="1" left="35" top="11" width="363" height="59" bitmap="main_menu/multiplayer_type_select/header_forge">
+	<widget name="main_menu/multiplayer_type_select/header_forge" controller="1" left="35" top="11" width="512" height="59" bitmap="main_menu/multiplayer_type_select/header_forge">
 	</widget>
 	<widget name="main_menu/multiplayer_type_select/gamemode/gamemode_button_bar" type="column_list" width="640" height="28" flags="pass_unhandled_to_focused_child left_right_tabs_items">
 		<data input="common button bar update"/>
@@ -28,9 +28,9 @@
 	</widget>
 	<widget name="main_menu/forge_select/forge_menu_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items">
 		<on event="created" run="gamemode menu init"/>
-		<child widget="main_menu/forge_select/forge_item_single_player" x="160" y="208"/>
+		<child widget="main_menu/forge_select/forge_item_single_player" x="192" y="208"/>
 		<child widget="main_menu/forge_select/forge_item_multiplayer" x="192" y="240"/>
-		<child widget="main_menu/forge_select/forge_item_tag_injector" x="160" y="272"/>
+		<child widget="main_menu/forge_select/forge_item_tag_injector" x="192" y="272"/>
 		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="304"/>
 	</widget>
 	<widget name="main_menu/forge_select/forge_menu" width="640" height="480" flags="pass_unhandled_to_focused_child">
@@ -121,16 +121,16 @@
 		<on event="left_mouse" run="mouse emit accept event"/>
 	</widget>
 	<widget name="main_menu/firefight_select/firefight_menu_select_list" type="column_list" width="640" height="480" flags="pass_unhandled_to_focused_child up_down_tabs_items">
-		<child widget="main_menu/firefight_select/firefight_item_create_local" x="192" y="283"/>
-		<child widget="main_menu/firefight_select/firefight_item_multiplayer" x="192" y="319"/>
-		<child widget="main_menu/firefight_select/firefight_item_variants" x="128" y="355"/>
-		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="391"/>
+		<child widget="main_menu/firefight_select/firefight_item_create_local" x="192" y="208"/>
+		<child widget="main_menu/firefight_select/firefight_item_multiplayer" x="192" y="240"/>
+		<child widget="main_menu/firefight_select/firefight_item_variants" x="192" y="272"/>
+		<child widget="main_menu/campaign_select/menu_item_back" x="192" y="304"/>
 	</widget>
 	<widget name="main_menu/firefight_select/firefight_menu" width="640" height="480" flags="pass_unhandled_to_focused_child">
 		<on event="created" run="mp type menu initialize"/>
 		<on event="b" back="true"/>
 		<on event="back" back="true"/>
-		<child widget="main_menu/halo_logo" y="28"/>
+		<child widget="main_menu/halo_logo" y="-44"/>
 		<child widget="main_menu/firefight_select/firefight_menu_select_list"/>
 	</widget>
 </menus>

@@ -5,7 +5,7 @@
 		<child widget="main_menu/settings_select/multiplayer_setup/opence_options_edit/header_opence"/>
 		<child widget="main_menu/settings_select/multiplayer_setup/opence_options_edit/opence_menu"/>
 	</widget>
-	<widget name="main_menu/settings_select/multiplayer_setup/opence_options_edit/header_opence" controller="1" left="35" top="11" width="363" height="59" type="text" text="OPENCE OPTIONS" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
+	<widget name="main_menu/settings_select/multiplayer_setup/opence_options_edit/header_opence" controller="1" left="35" top="11" width="512" height="59" type="text" text="OPENCE OPTIONS" font="ui\large_ui" color="#FFFFFFFF" text_x="13" text_y="16">
 	</widget>
 	<widget name="main_menu/settings_select/multiplayer_setup/opence_options_edit/opence_help" type="text" controller="1" left="68" top="341" width="482" height="71" string_list="main_menu/settings_select/multiplayer_setup/opence_options_edit/cap_opence" font="ui\large_ui" color="#FFFFFFFF">
 	</widget>

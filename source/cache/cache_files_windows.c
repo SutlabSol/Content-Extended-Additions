@@ -1070,7 +1070,7 @@ static void cache_files_open_cache_files(
 		file = CreateFileA(
 			path,
 			GENERIC_READ | GENERIC_WRITE,
-			0,
+			0x00000001 | 0x00000002,
 			NULL,
 			OPEN_ALWAYS,
 			FILE_FLAG_NO_BUFFERING | FILE_FLAG_OVERLAPPED,

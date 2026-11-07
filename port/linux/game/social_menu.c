@@ -3229,28 +3229,35 @@ void social_menu_home_draw(
 	fonts.text.width = fonts.title.width = (real)(x1 - x0);
 	right = fonts.text.width - SOCIAL_HOME_PADDING;
 	line = panel->line_height;
-	campaign_score_panel_quad(panel, 0.0f, 0.0f, fonts.text.width, (real)(y1 - y0), CAMPAIGN_SCORE_CARD_FILL);
-	campaign_score_panel_frame(panel, 0.0f, 0.0f, fonts.text.width, (real)(y1 - y0),
-		focused && chosen < social_menu_home_rows() ? 0xFFA0D0FF : CAMPAIGN_SCORE_PANEL_EDGE);
-
-	/* your rank, emblem & KDA on the left, and the requests waiting (else the friends online) on the right */
 	{
-		struct firefight_mcc_rank_info my_rk;
-		struct firefight_emblem_info my_emb;
-		short hdr_icon_sz = (short)MAX(12, (short)line + 1);
-		short hdr_x = (short)(x0 + left);
-		short hdr_y = (short)(y0 + y + (line - hdr_icon_sz) / 2.0f);
-		real hdr_text_left = left + (real)(hdr_icon_sz * 2 + 7);
+		extern void ui_draw_social_card_frame(real x0, real y0, real x1, real y1, unsigned long color);
+		extern void ui_draw_unsc_crest_watermark(real x0, real y0, real x1, real y1, unsigned long color);
+		real box_w = fonts.text.width;
+		real box_h = (real)(y1 - y0);
+		real hdr_h = SOCIAL_HOME_PADDING + line + 3.0f;
+		real wm_size = MIN(box_h - hdr_h - 8.0f, 84.0f);
+		real wm_cx = (real)x0 + box_w - 58.0f;
+		real wm_cy = (real)y0 + hdr_h + (box_h - hdr_h) * 0.50f;
 
-		firefight_stats_get_mcc_rank(NONE, &my_rk);
-		firefight_stats_get_emblem(NONE, &my_emb);
-		firefight_draw_mcc_rank_icon(hdr_x, hdr_y, hdr_icon_sz, my_rk.tour_number, my_rk.rank_in_tour, 1.0f);
-		firefight_draw_player_emblem((short)(hdr_x + hdr_icon_sz + 3), hdr_y, hdr_icon_sz, &my_emb, 1.0f);
+		/* High-resolution generated Friends List / Social Card frame (matching Reference Photo 1) */
+		ui_draw_social_card_frame(
+			(real)x0 - 2.0f, (real)y0 - 2.0f,
+			(real)x1 + 2.0f, (real)y1 + 2.0f,
+			0xFFFFFFFFUL);
 
+		/* Flat stencil silhouette UNSC crest watermark shifted left inside the card */
+		ui_draw_unsc_crest_watermark(
+			wm_cx - wm_size * 0.5f, wm_cy - wm_size * 0.5f,
+			wm_cx + wm_size * 0.5f, wm_cy + wm_size * 0.5f,
+			0x52FFFFFFUL);
+	}
+
+	/* Matches & KDA on the left ("0 MATCHES   KDA 0.00"), and online friends on the right ("0 ONLINE") */
+	{
 		if (social_account_totals(&matches, &kills, &deaths, &assists))
 		{
 			kda_text(kills, deaths, assists, other, sizeof(other));
-			snprintf(text, sizeof(text), "KDA %s", other);
+			snprintf(text, sizeof(text), "%ld MATCH%s   KDA %s", matches, matches == 1 ? "" : "ES", other);
 		}
 		else
 		{
@@ -3258,15 +3265,16 @@ void social_menu_home_draw(
 			if (firefight_stats_get_career(NONE, &career))
 			{
 				kda_text(career.total_kills, career.total_deaths, career.total_assists, other, sizeof(other));
-				snprintf(text, sizeof(text), "KDA %s", other);
+				snprintf(text, sizeof(text), "%ld MATCH%s   KDA %s",
+					(long)career.total_matches, career.total_matches == 1 ? "" : "ES", other);
 			}
 			else
 			{
-				snprintf(text, sizeof(text), "KDA 0.00");
+				snprintf(text, sizeof(text), "0 MATCHES   KDA 0.00");
 			}
 		}
-		card_color(&color, 0.95f, 0.95f, 0.95f);
-		campaign_score_panel_text(panel, text, NULL, hdr_text_left, right, y, 1.0f, _campaign_score_text_left, &color);
+		card_color(&color, 0.96f, 0.98f, 1.0f);
+		campaign_score_panel_text(panel, text, NULL, left, right, y, 1.0f, _campaign_score_text_left, &color);
 	}
 	other[0] = 0;
 	if (social_menu.friends_had && social_menu.incoming_count)
@@ -3275,19 +3283,20 @@ void social_menu_home_draw(
 			social_menu.incoming_count == 1 ? "" : "S");
 		card_color(&color, 1.0f, 0.84f, 0.35f);
 	}
-	else if (social_menu.friends_had)
+	else
 	{
 		long online = 0;
 
-		for (index = 0; index < social_menu.friend_count; index++)
-			online += social_menu.friends[index].presence.online;
+		if (social_menu.friends_had)
+		{
+			for (index = 0; index < social_menu.friend_count; index++)
+				online += social_menu.friends[index].presence.online;
+		}
 		snprintf(other, sizeof(other), "%ld ONLINE", online);
-		card_color(&color, 0.55f, 0.72f, 1.0f);
+		card_color(&color, 0.72f, 0.88f, 1.0f);
 	}
 	campaign_score_panel_text(panel, other, NULL, left, right, y, 1.0f, _campaign_score_text_right, &color);
-	y += line + 3.0f;
-	campaign_score_panel_quad(panel, left, y, right, y + 1.0f, CAMPAIGN_SCORE_CARD_RULE);
-	y += 4.0f;
+	y += line + 7.0f;
 
 	/* (no friends to show: why) */
 	rows = social_menu_home_rows();
@@ -3301,9 +3310,10 @@ void social_menu_home_draw(
 			social_menu.friends_had && config_boolean("social.friends") ?
 			"Y: Social, then ADD FRIEND" : "";
 
-		card_color(&color, 0.6f, 0.66f, 0.75f);
-		campaign_score_panel_text(panel, first, NULL, left, right, y + line, 1.0f, _campaign_score_text_center, &color);
-		campaign_score_panel_text(panel, second, NULL, left, right, y + line * 2.0f + 2.0f, 1.0f,
+		card_color(&color, 0.82f, 0.90f, 0.98f);
+		campaign_score_panel_text(panel, first, NULL, left, right - 24.0f, y + line * 0.9f, 1.0f, _campaign_score_text_center, &color);
+		card_color(&color, 0.68f, 0.78f, 0.90f);
+		campaign_score_panel_text(panel, second, NULL, left, right - 24.0f, y + line * 1.95f + 2.0f, 1.0f,
 			_campaign_score_text_center, &color);
 		return;
 	}
