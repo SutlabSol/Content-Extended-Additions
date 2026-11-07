@@ -364,7 +364,7 @@ allocated little, until host_memory_initialize claims the image's exact range
 there. It is held, not required: the image goes elsewhere if it cannot be
 (host_loader.c moves its pointers), as the window does. Large enough for
 either game image (GL ES or Vulkan). */
-#define EARLY_IMAGE_HOLD 0x03000000ULL
+#define EARLY_IMAGE_HOLD 0x06000000ULL
 
 static uint64_t early_hold_base, early_hold_size;
 /* host_memory_initialize found no room for the window or the image */

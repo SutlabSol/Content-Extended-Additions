@@ -750,7 +750,7 @@ def generate_switch_build(n: Writer, sln: Any) -> None:
     # internet play's DTLS with browsers (posix_dtls.c, with Mbed TLS), as the
     # Android and PS5 hosts have it: without it no browser joins a console's
     # game, nor the console a browser's
-    mbedtls_cflags = " ".join([host_cflags, f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}",
+    mbedtls_cflags = " ".join([f"-I{MBEDTLS_DIR / 'include'}", f"-I{MBEDTLS_DIR / 'library'}", host_cflags,
                                "'-DMBEDTLS_USER_CONFIG_FILE=\"mbedtls_config_switch.h\"'"])
     for source in [LINUX_DIR / "src" / "posix_dtls.c", *sorted((MBEDTLS_DIR / "library").glob("*.c"))]:
         obj = host_obj_dir / ("mbedtls_" + source.name + ".o" if source.parent.parent == MBEDTLS_DIR
